@@ -103,10 +103,10 @@ Mouse_seurat_merge_clcl = CreateSeuratObject(Mat_rmdup)
 ##### add annotations #####
 m = match(colnames(Mouse_seurat_merge_clcl),Mouse_meta$X)
 summary(m)
-Mouse_seurat_merge_clcl$celltype = Mouse_meta$celltype
-Mouse_seurat_merge_clcl$sample = Mouse_meta$sample
-Mouse_seurat_merge_clcl$UMAP1 = Mouse_meta$UMAP1
-Mouse_seurat_merge_clcl$UMAP2 = Mouse_meta$UMAP2
+Mouse_seurat_merge_clcl$celltype = Mouse_meta$celltype[m]
+Mouse_seurat_merge_clcl$sample = Mouse_meta$sample[m]
+Mouse_seurat_merge_clcl$UMAP1 = Mouse_meta$UMAP1[m]
+Mouse_seurat_merge_clcl$UMAP2 = Mouse_meta$UMAP2[m]
 
 saveRDS(Mouse_seurat_merge_clcl,file="Mouse_seurat_merge_clcl_2025")
 
@@ -181,10 +181,10 @@ Zebrafish_seurat_merge_clcl = CreateSeuratObject(Mat_rmdup)
 ##### add annotations #####
 m = match(colnames(Zebrafish_seurat_merge_clcl),Zebrafish_meta$cell_id)
 summary(m)
-Zebrafish_seurat_merge_clcl$celltype = Mouse_meta$celltype
-Zebrafish_seurat_merge_clcl$sample = Mouse_meta$sample
-Zebrafish_seurat_merge_clcl$UMAP1 = Mouse_meta$UMAP1
-Zebrafish_seurat_merge_clcl$UMAP2 = Mouse_meta$UMAP2
+Zebrafish_seurat_merge_clcl$celltype = Zebrafish_meta$celltype[m]
+Zebrafish_seurat_merge_clcl$sample = Zebrafish_meta$sample[m]
+Zebrafish_seurat_merge_clcl$UMAP1 = Zebrafish_meta$UMAP1[m]
+Zebrafish_seurat_merge_clcl$UMAP2 = Zebrafish_meta$UMAP2[m]
 
 saveRDS(Zebrafish_seurat_merge_clcl,file="Zebrafish_seurat_merge_clcl_2025")
 
