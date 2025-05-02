@@ -14,7 +14,6 @@ conda activate seurat4
 R
 
 setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
-
 Mouse_seurat_clcl <- readRDS("Mouse_seurat_clcl_2025")
 
 
