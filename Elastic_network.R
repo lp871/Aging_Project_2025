@@ -311,10 +311,37 @@ table(All_merge_res$Samples)
 All_merge_res$Samples = factor(All_merge_res$Samples,levels=c(1,3,6,12,18,22,24,30,36,48))
 All_merge_res$class = factor(All_merge_res$class,levels=c("MG","RGC","AC","HC","Rod","Cone","BC","Microglia","RPE"))
 
+
+#########
+#########
 library(ggplot2)
 library(viridis)
-ggplot(All_merge_res,aes(x=Samples,y=predicted,color=actual,fill=actual)) + facet_wrap(~ class, nrow = 1) + geom_violin() + geom_boxplot(width=0.25,fill="grey",color="black",outlier.shape = NA) + scale_color_viridis() + scale_fill_viridis() + theme_classic() + scale_y_continuous(limits=c(-5,55)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
-ggsave("AllZebrafish_results.png",height=3,width=20) 
+
+ggplot(All_merge_res, aes(x = Samples, y = predicted, color = actual, fill = actual)) +
+  facet_wrap(~ class, nrow = 1) +
+  geom_violin() +
+  geom_boxplot(
+    width = 0.25,
+    fill = "grey",
+    color = "black",
+    outlier.shape = NA
+  ) +
+  scale_color_viridis() +
+  scale_fill_viridis() +
+  scale_y_continuous(limits = c(-5, 55)) +
+  theme_classic() +
+  theme(
+    strip.text          = element_text(size = 16, face = "bold"),
+    axis.text.x         = element_text(size = 14, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y         = element_text(size = 14),
+    axis.ticks.length   = unit(0.3, "cm"),    # 刻度线变长
+    axis.title         = element_text(size = 16),
+    panel.border        = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  xlab("") +
+  ylab("")
+
+ggsave("AllZebrafish_results.png", height = 3, width = 20)
 
 
 #######
@@ -384,6 +411,33 @@ library(ggplot2)
 library(viridis)
 ggplot(All_merge_res,aes(x=Samples,y=predicted,color=actual,fill=actual)) + facet_wrap(~ class, nrow = 1) + geom_violin() + geom_boxplot(width=0.25,fill="grey",color="black",outlier.shape = NA) + scale_color_viridis() + scale_fill_viridis() + theme_classic() + scale_y_continuous(limits=c(-10,135)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
 ggsave("AllMouse_results.png",height=3,width=20) 
+
+  
+ggplot(All_merge_res, aes(x = Samples, y = predicted, color = actual, fill = actual)) +
+  facet_wrap(~ class, nrow = 1) +
+  geom_violin() +
+  geom_boxplot(
+    width = 0.25,
+    fill = "grey",
+    color = "black",
+    outlier.shape = NA
+  ) +
+  scale_color_viridis() +
+  scale_fill_viridis() +
+  scale_y_continuous(limits = c(-10,135)) +
+  theme_classic() +
+  theme(
+    strip.text          = element_text(size = 16, face = "bold"),
+    axis.text.x         = element_text(size = 14, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y         = element_text(size = 14),
+    axis.ticks.length   = unit(0.3, "cm"),    # 刻度线变长
+    axis.title         = element_text(size = 16),
+    panel.border        = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  xlab("") +
+  ylab("")
+
+ggsave("AllMouse_results.png", height = 3, width = 20)
 
 
 
@@ -786,6 +840,33 @@ library(viridis)
 ggplot(All_merge_res,aes(x=Samples,y=predicted,color=age2,fill=age2)) + facet_wrap(~ class, nrow = 1) + geom_violin() + geom_boxplot(width=0.25,fill="grey",color="black",outlier.shape = NA) + scale_color_viridis() + scale_fill_viridis() + theme_classic() + scale_y_continuous(limits=c(-10,110)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
 ggsave("AllHuman_results.png",height=3,width=20) 
 
+
+                 
+ggplot(All_merge_res, aes(x = Samples, y = predicted, color = age2, fill = age2)) +
+  facet_wrap(~ class, nrow = 1) +
+  geom_violin() +
+  geom_boxplot(
+    width = 0.25,
+    fill = "grey",
+    color = "black",
+    outlier.shape = NA
+  ) +
+  scale_color_viridis() +
+  scale_fill_viridis() +
+  scale_y_continuous(limits = c(-10,110)) +
+  theme_classic() +
+  theme(
+    strip.text          = element_text(size = 16, face = "bold"),
+    axis.text.x         = element_text(size = 14, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y         = element_text(size = 14),
+    axis.ticks.length   = unit(0.3, "cm"),    # 刻度线变长
+    axis.title         = element_text(size = 16),
+    panel.border        = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  xlab("") +
+  ylab("")
+
+ggsave("AllHuman_results.png", height = 3, width = 20)
 ######
 #####
 ######
