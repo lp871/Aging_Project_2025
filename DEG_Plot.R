@@ -2,6 +2,12 @@
 ######## figure2B #########
 ########
 
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate seurat4
+R
+
 
 DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters){
     ###########
