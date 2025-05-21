@@ -271,6 +271,7 @@ new_order2 = c(1,2,3,4,9,10,5,6,7,8)
 Zebrafish_DEGs_Plot_Kmeans_order2 = Zebrafish_DEGs_Plot_Kmeans_order
 Zebrafish_DEGs_Plot_Kmeans_order2$cluster = match(Zebrafish_DEGs_Plot_Kmeans_order$cluster,new_order2)
 
+
 ########
 library('ComplexHeatmap')
 library('circlize')
@@ -798,9 +799,58 @@ setwd("/zp1/data/share/Human_aging_new")
 save(Human_DEGs_Plot_Kmeans_order,file="Human_DEGs_Plot_Kmeans_order")
 save(Human_DEGs_Plot_cl,file="Human_DEGs_Plot_cl")
 
+
+
+######----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+setwd("/zp1/data/share/Human_aging_new")
+load(file="Human_DEGs_Plot_Kmeans_order")
+load(file="Human_DEGs_Plot_cl")
+
+new_order2 = c(1,2,3,4,10,11,12,5,6,7,8,9)
+Human_DEGs_Plot_Kmeans_order2 = Human_DEGs_Plot_Kmeans_order
+Human_DEGs_Plot_Kmeans_order2$cluster = match(Human_DEGs_Plot_Kmeans_order$cluster,new_order2)
+
+
+library('ComplexHeatmap')
+library('circlize')
+celltypes <- c("MG","AC","Cone","RGC","HC","Rod","BC","RPE","Microglia","Astrocyte")
+cols = c("#D11536","#F6BA00","#9EA220","#AAA9A9","#EF9000","#026AB1","#804537","#936DAD","#61BFB9","#EC6F64")
+celltype = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="__"),function(x) x[[1]])
+names(celltype) = rownames(Human_DEGs_Plot_cl)
+celltype_colors <- c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64")
+celltype = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="_"),function(x) x[[1]])
+sex = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="_"),function(x) x[[2]])
+anno_df = data.frame(
+  celltype = celltype,
+  sex = sex
+)
+col_list <- list(
+  celltype = c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64"),
+  sex = c("M"="blue","F"="red")
+)
+row_anno <- rowAnnotation(df = anno_df, col = col_list)
+row_sp = as.factor(Human_DEGs_Plot_Kmeans_order2$cluster)
+colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
+col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
+
+labels = c("RPE_M__APOE","Cone_F__STAT1","RPE_M__BTN3A3","MG_M__BTN3A3","AC_F__BTN3A3","RPE_M__DKK3")
+at = match(labels,rownames(Human_DEGs_Plot_cl))
+
+rownames(Human_DEGs_Plot_cl)[grep("__DKK3",rownames(Human_DEGs_Plot_cl))]
+
+png('Human_DEGs4.png',height=7000,width=4500,res=72*12)
+Heatmap(Human_DEGs_Plot_cl, name = "XX",right_annotation = row_anno,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-4,-2,0,2,4)),row_split=row_sp) +
+rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
+dev.off()
+
+
+
+######----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ######
 ######
-table(Human_DEGs_Plot_Kmeans_order$cluster)
+table(Human_DEGs_Plot_Kmeans_order2$cluster)
 ######
 
 Plot_dot <- function(Plot,Kmeans_order){
@@ -817,16 +867,41 @@ Plot_dot <- function(Plot,Kmeans_order){
     return(all_Matrix_cl_s_Plot)
 }
 
-Human_DEGs_Plot2 = Plot_dot(Human_DEGs_Plot_cl,Human_DEGs_Plot_Kmeans_order)
+Human_DEGs_Plot2 = Plot_dot(Human_DEGs_Plot_cl,Human_DEGs_Plot_Kmeans_order2)
 
 
 library(ggplot2)
+         
 ggplot(Human_DEGs_Plot2, aes(x = Var2_1, y = value)) + 
-  geom_point(size=0, position = position_jitter(width = 0.2, height = 0.2),alpha=0.01) + facet_wrap(~ class, ncol = 1, strip.position = "right" ) +
-  stat_summary(fun = mean, geom = "line", color = "red", size = 1) +
-  theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
+  geom_point(
+    size = 0, 
+    position = position_jitter(width = 0.2, height = 0.2),
+    alpha = 0.01
+  ) + 
+  stat_summary(
+    fun = mean, 
+    geom = "line", 
+    color = "red", 
+    size = 1
+  ) +
+  facet_wrap(
+    ~ class, 
+    ncol = 1, 
+    strip.position = "right"
+  ) +
+  scale_x_discrete(breaks = NULL) +
+  scale_y_continuous(breaks = c(-2,0,2)) +
+  theme_classic() + 
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),
+    strip.text       = element_blank(),      # remove facet (strip) labels
+    legend.position  = "none",               # remove any legends
+    axis.title.x     = element_blank()       # ensure x-axis title is gone
+  ) +
+  ylab("")
 
-ggsave("Human_trend2.png",height=12,width=2)
+ggsave("Human_trend2.png", height = 8, width = 1.2)
+             
 
 
 
