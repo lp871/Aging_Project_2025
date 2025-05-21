@@ -260,9 +260,43 @@ Zebrafish_DEGs_Plot_Kmeans_order$cluster = match(Zebrafish_DEGs_Plot_Kmeans_orde
 
 row_sp = as.factor(Zebrafish_DEGs_Plot_Kmeans_order$cluster)
 
+#################
+#################
+setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+load(file="Zebrafish_DEGs_Plot_Kmeans_order")
+load(file="Zebrafish_DEGs_Plot")
+
+####### for Heatmap, order the clusters, young-middle-old #######
+new_order2 = c(1,2,3,4,9,10,5,6,7,8)
+Zebrafish_DEGs_Plot_Kmeans_order2 = Zebrafish_DEGs_Plot_Kmeans_order
+Zebrafish_DEGs_Plot_Kmeans_order2$cluster = match(Zebrafish_DEGs_Plot_Kmeans_order$cluster,new_order2)
+
+########
+library('ComplexHeatmap')
+library('circlize')
+
+celltypes <- c("MG","AC","Cone","RGC","HC","Rod","BC","RPE","Microglia","Astrocyte")
+cols = c("#D11536","#F6BA00","#9EA220","#AAA9A9","#EF9000","#026AB1","#804537","#936DAD","#61BFB9","#EC6F64")
+
+celltype = sapply(strsplit(rownames(Zebrafish_DEGs_Plot),split="__"),function(x) x[[1]])
+names(celltype) = rownames(Zebrafish_DEGs_Plot)
+celltype_colors <- c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64")
+ra <- rowAnnotation(CellType = celltype,
+                    col = list(CellType = celltype_colors),
+                    annotation_name_side = "top")
+
+row_sp = as.factor(Zebrafish_DEGs_Plot_Kmeans_order2$cluster)
+
+colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
+col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
+
+
+labels = c("MG__b2m","MG__apoeb","MG__sparc")
+at = match(labels,rownames(Zebrafish_DEGs_Plot))
+
 
 setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
-png('Zebrafish_DEGs2.png',height=7000,width=4000,res=72*12)
+png('Zebrafish_DEGs3.png',height=7000,width=4000,res=72*12)
 Heatmap(Zebrafish_DEGs_Plot, name = "XX",right_annotation = ra,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-4,-2,0,2,4)),row_split=row_sp) +
 rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
 dev.off()
@@ -289,16 +323,42 @@ Plot_dot <- function(Plot,Kmeans_order){
     return(all_Matrix_cl_s_Plot)
 }
 
-Zebrafish_DEGs_Plot2 = Plot_dot(Zebrafish_DEGs_Plot,Zebrafish_DEGs_Plot_Kmeans_order)
+Zebrafish_DEGs_Plot2 = Plot_dot(Zebrafish_DEGs_Plot,Zebrafish_DEGs_Plot_Kmeans_order2)
 
 
 library(ggplot2)
-ggplot(Zebrafish_DEGs_Plot2, aes(x = Var2_1, y = value)) + 
-  geom_point(size=0, position = position_jitter(width = 0.2, height = 0.2),alpha=0.01) + facet_wrap(~ class, ncol = 1, strip.position = "right" ) +
-  stat_summary(fun = mean, geom = "line", color = "red", size = 1) +
-  theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
 
-ggsave("Zebrafish_trend2.png",height=12,width=2)
+############----------------------------------------------------------------------------------------------------------------------------------------
+ggplot(Zebrafish_DEGs_Plot2, aes(x = Var2_1, y = value)) + 
+  geom_point(
+    size = 0, 
+    position = position_jitter(width = 0.2, height = 0.2),
+    alpha = 0.01
+  ) + 
+  stat_summary(
+    fun = mean, 
+    geom = "line", 
+    color = "red", 
+    size = 1
+  ) +
+  facet_wrap(
+    ~ class, 
+    ncol = 1, 
+    strip.position = "right"
+  ) +
+  scale_x_discrete(breaks = NULL) +
+  theme_classic() + 
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),
+    strip.text       = element_blank(),      # remove facet (strip) labels
+    legend.position  = "none",               # remove any legends
+    axis.title.x     = element_blank()       # ensure x-axis title is gone
+  ) +
+  ylab("")
+
+ggsave("Zebrafish_trend2.png", height = 8, width = 1.2)
+############----------------------------------------------------------------------------------------------------------------------------------------
+
 
 ########
 ########
@@ -434,7 +494,100 @@ ggplot(Mouse_DEGs_Plot2, aes(x = Var2_1, y = value)) +
 ggsave("Mouse_trend2.png",height=12,width=2)
 
 
+######
+########### ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+######
 
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+load(file="Mouse_DEGs_Plot_Kmeans_order")
+load(file="Mouse_DEGs_Plot")
+
+####### for Heatmap, order the clusters, young-middle-old #######
+new_order2 = c(1,2,3,4,9,10,5,6,7,8)
+Mouse_DEGs_Plot_Kmeans_order2 = Mouse_DEGs_Plot_Kmeans_order
+Mouse_DEGs_Plot_Kmeans_order2$cluster = match(Mouse_DEGs_Plot_Kmeans_order$cluster,new_order2)
+
+#######------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+library('ComplexHeatmap')
+library('circlize')
+
+celltypes <- c("MG","AC","Cone","RGC","HC","Rod","BC","RPE","Microglia","Astrocyte")
+cols = c("#D11536","#F6BA00","#9EA220","#AAA9A9","#EF9000","#026AB1","#804537","#936DAD","#61BFB9","#EC6F64")
+
+celltype = sapply(strsplit(rownames(Mouse_DEGs_Plot),split="__"),function(x) x[[1]])
+names(celltype) = rownames(Mouse_DEGs_Plot)
+celltype_colors <- c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64")
+ra <- rowAnnotation(CellType = celltype,
+                    col = list(CellType = celltype_colors),
+                    annotation_name_side = "top")
+
+row_sp = as.factor(Mouse_DEGs_Plot_Kmeans_order2$cluster)
+
+colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
+col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
+
+
+labels = c("MG__Apoe","MG__Clu","MG__Aqp4","MG__Notch1","MG__B2m","MG__Stat1")
+at = match(labels,rownames(Mouse_DEGs_Plot))
+
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+png('Mouse_DEGs3.png',height=7000,width=4000,res=72*12)
+Heatmap(Mouse_DEGs_Plot, name = "XX",right_annotation = ra,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-4,-2,0,2,4)),row_split=row_sp) +
+rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
+dev.off()
+
+#######------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#######------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Mouse_DEGs_Plot2 = Plot_dot(Mouse_DEGs_Plot,Mouse_DEGs_Plot_Kmeans_order2)
+                  
+
+############----------------------------------------------------------------------------------------------------------------------------------------
+library(ggplot2)
+
+ggplot(Mouse_DEGs_Plot2, aes(x = Var2_1, y = value)) + 
+  geom_point(
+    size = 0, 
+    position = position_jitter(width = 0.2, height = 0.2),
+    alpha = 0.01
+  ) + 
+  stat_summary(
+    fun = mean, 
+    geom = "line", 
+    color = "red", 
+    size = 1
+  ) +
+  facet_wrap(
+    ~ class, 
+    ncol = 1, 
+    strip.position = "right"
+  ) +
+  scale_x_discrete(breaks = NULL) +
+  scale_y_continuous(breaks = c(-2,0,2)) +
+  theme_classic() + 
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),
+    strip.text       = element_blank(),      # remove facet (strip) labels
+    legend.position  = "none",               # remove any legends
+    axis.title.x     = element_blank()       # ensure x-axis title is gone
+  ) +
+  ylab("")
+
+ggsave("Mouse_trend2.png", height = 8, width = 1.2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+                  
 ###########
 ########### ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ###########
