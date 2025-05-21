@@ -113,17 +113,20 @@ saveRDS(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared,file="Xenium5k_Mouse_Obj_Cl_Sp_
 ################
 ################ load the mouse model !!!! ########
 ################
+setwd("/zp1/data/plyu3/Xenium5k_Mouse/New")
+Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared = readRDS("Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared_2025")
 
+################
 setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
 
-load("Mouse_MG_model")
-load("Mouse_RGC_model")
-load("Mouse_AC_model")
-load("Mouse_HC_model")
-load("Mouse_Rod_model")
-load("Mouse_Cone_model")
-load("Mouse_BC_model")
-load("Mouse_RPE_model")
+load("Mouse_MG_Xmodel")
+load("Mouse_RGC_Xmodel")
+load("Mouse_AC_Xmodel")
+load("Mouse_HC_Xmodel")
+load("Mouse_Rod_Xmodel")
+load("Mouse_Cone_Xmodel")
+load("Mouse_BC_Xmodel")
+load("Mouse_RPE_Xmodel")
 
 ############
 
@@ -138,22 +141,22 @@ test_meta = MG_test_meta
 ###### 
 ######
 
-MG_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$MG$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$MG$Meta,Mouse_MG_model_Xen$model)
+MG_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$MG$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$MG$Meta,Mouse_MG_model$model)
 MG_predict_res$class="MG"
 
-Rod_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Rod$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Rod$Meta,Mouse_Rod_model_Xen$model)
+Rod_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Rod$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Rod$Meta,Mouse_Rod_model$model)
 Rod_predict_res$class = "Rod"
-Cone_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Cone$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Cone$Meta,Mouse_Cone_model_Xen$model)
+Cone_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Cone$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$Cone$Meta,Mouse_Cone_model$model)
 Cone_predict_res$class = "Cone"
-AC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$AC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$AC$Meta,Mouse_AC_model_Xen$model)
+AC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$AC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$AC$Meta,Mouse_AC_model$model)
 AC_predict_res$class = "AC"
-BC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$BC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$BC$Meta,Mouse_BC_model_Xen$model)
+BC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$BC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$BC$Meta,Mouse_BC_model$model)
 BC_predict_res$class = "BC"
-HC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$HC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$HC$Meta,Mouse_HC_model_Xen$model)
+HC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$HC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$HC$Meta,Mouse_HC_model$model)
 HC_predict_res$class = "HC"
-RPE_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RPE$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RPE$Meta,Mouse_RPE_model_Xen$model)
+RPE_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RPE$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RPE$Meta,Mouse_RPE_model$model)
 RPE_predict_res$class = "RPE"
-RGC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RGC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RGC$Meta,Mouse_RGC_model_Xen$model)
+RGC_predict_res = PredictAgeFromModel(Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RGC$Matrix,Xenium5k_Mouse_Obj_Cl_Sp_clocks_Prepared$RGC$Meta,Mouse_RGC_model$model)
 RGC_predict_res$class = "RGC"
 
 #########
@@ -164,10 +167,40 @@ all_res = rbind(MG_predict_res,Rod_predict_res,Cone_predict_res,AC_predict_res,B
 all_res$class = factor(all_res$class,levels=c("MG","RGC","AC","HC","Rod","Cone","BC","RPE"))
 all_res$age = factor(all_res$age,levels=c("5wk","12wk","52wk","112wk"))
 ########
+  
 library(ggplot2)
 ggplot(all_res,aes(x=age ,y=preds,color=age)) + facet_wrap(~ class, nrow = 1,scales = "free_y") + scale_y_continuous(expand=c(0,0)) + geom_boxplot(outlier.shape = NA,size=1)+ theme_classic() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
 ggsave("Mouse_Xenium.png",height=3,width=20) 
 
+all_res$age2 = as.numeric(gsub("wk","",all_res$age))
+  
+ggplot(all_res, aes(x = age, y = preds,color=age2,fill=age2)) +
+  facet_wrap(~ class, nrow = 1,,scales = "free_y") +
+  geom_violin() +
+  geom_boxplot(
+    width = 0.25,
+    outlier.shape = NA,
+    color="black",
+    fill='white'
+  ) +
+  scale_color_viridis() +
+  scale_fill_viridis() +
+  scale_y_continuous() +
+  theme_classic() +
+  theme(
+    strip.text          = element_text(size = 16, face = "bold"),
+    axis.text.x         = element_text(size = 14, angle = 90, vjust = 0.5, hjust = 1),
+    axis.text.y         = element_text(size = 14),
+    axis.ticks.length   = unit(0.3, "cm"),    # 刻度线变长
+    axis.title         = element_text(size = 16),
+    panel.border        = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  xlab("") +
+  ylab("")
+
+ggsave("Mouse_Xenium.png", height = 3, width = 20)
+
+  
 #####
 all_res$age = as.numeric(gsub("wk","",all_res$age))
 
