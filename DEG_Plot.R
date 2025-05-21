@@ -9,7 +9,7 @@ conda activate seurat4
 R
 
 
-DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters){
+DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters,Middleclusters){
     ###########
     kc$cell_type = sapply(strsplit(kc$genes,split="__"),function(x) x[[1]])
     ###########
@@ -20,16 +20,18 @@ DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters){
     ###########
     for(i in 1:length(index)){
         #######
-        cell_type <- c(cell_type,rep(index[i],2))
+        cell_type <- c(cell_type,rep(index[i],3))
         k1 = which(kc$cell_type == index[i] &  kc$cluster %in% Downclusters == T)
         k2 = which(kc$cell_type == index[i] &  kc$cluster %in% Upclusters == T)
+        k3 = which(kc$cell_type == index[i] &  kc$cluster %in% Middleclusters == T)
         ####
-        num_DEGs <- c(num_DEGs,-length(k1),length(k2))
+        num_DEGs <- c(num_DEGs,length(k1),length(k2),length(k3))
         ####
-        direction <- c(direction, c("Young", "Old"))
+        direction <- c(direction, c("Young", "Old","Middle"))
     }
     #####
     data = data.frame(cell_type=cell_type,num_DEGs=num_DEGs,direction=direction)
+    data$direction = factor(data$direction,levels=c("Young","Middle","Old"))
     ######
     res = tapply(data$num_DEGs,data$cell_type,function(x) sum(abs(x)))
     cell_type_index = rev(names(res)[order(res)])
@@ -45,15 +47,26 @@ load("Zebrafish_DEGs_Plot_Kmeans_order")
 kc = Zebrafish_DEGs_Plot_Kmeans_order
 Upclusters = c(5,6,7,8)
 Downclusters = c(1,2,3,4)
-Zebrafish_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters)
+Middleclusters = c(9,10)
+Zebrafish_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
 
+library(ggplot2)
 ggplot(Zebrafish_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
-  geom_col(position = "stack",width=0.5) +  # 堆叠条形
-  scale_fill_manual(values = c("Young" = "lightblue", "Old" = "pink")) +  # 指定颜色
-  labs(x = "Cell type", y = "Number of DEGs", title = "Zebrafish") +
-  theme_classic() +
-  theme(text = element_text(size = 14))
-ggsave("Zebrafish_data_barplot.png",width=8,height=3)
+  geom_col(position = "stack", width = 0.5) +                # 堆叠条形
+  scale_fill_manual(values = c("Young" = "lightblue",
+                               "Old"    = "pink",
+                               "Middle" = "darkgreen")) +          # 指定颜色
+  scale_y_continuous(expand = c(0, 0),limits=c(0,5500)) +                     # Y 轴从 0 开始，无扩展
+  labs(x = "", y = "Number of DEGs") +
+  theme_classic(base_size = 14) +
+ theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),  # 给整图加黑框
+    axis.title.y     = element_text(size = 16),                             # Y 轴标签放大
+    axis.text.x      = element_text(angle = 30, hjust = 1, vjust = 1),      # X 轴标签旋转 30°
+    legend.position  = "right"
+  )
+
+ggsave("Zebrafish_data_barplot.png",width=7,height=3)
 
 
 ####### Next mouse #####
@@ -63,15 +76,26 @@ load("Mouse_DEGs_Plot_Kmeans_order")
 kc = Mouse_DEGs_Plot_Kmeans_order
 Upclusters = c(5,6,7,8)
 Downclusters = c(1,2,3,4)
-Mouse_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters)
+Middleclusters = c(9,10)
+
+Mouse_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
 
 ggplot(Mouse_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
-  geom_col(position = "stack",width=0.5) +  # 堆叠条形
-  scale_fill_manual(values = c("Young" = "lightblue", "Old" = "pink")) +  # 指定颜色
-  labs(x = "Cell type", y = "Number of DEGs", title = "Mouse") +
-  theme_classic() +
-  theme(text = element_text(size = 14))
-ggsave("Mouse_data_barplot.png",width=8,height=3)
+  geom_col(position = "stack", width = 0.5) +                # 堆叠条形
+  scale_fill_manual(values = c("Young" = "lightblue",
+                               "Old"    = "pink",
+                               "Middle" = "darkgreen")) +          # 指定颜色
+  scale_y_continuous(expand = c(0, 0),limits=c(0,5500)) +                     # Y 轴从 0 开始，无扩展
+  labs(x = "", y = "Number of DEGs") +
+  theme_classic(base_size = 14) +
+ theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),  # 给整图加黑框
+    axis.title.y     = element_text(size = 16),                             # Y 轴标签放大
+    axis.text.x      = element_text(angle = 30, hjust = 1, vjust = 1),      # X 轴标签旋转 30°
+    legend.position  = "right"
+  )
+
+ggsave("Mouse_data_barplot.png",width=7,height=3)
 
 
 ###### Next for human #####
@@ -81,7 +105,7 @@ setwd("/zp1/data/share/Human_aging_new")
 load("Human_DEGs_Plot_Kmeans_order")
 
 
-DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters){
+DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters,Middleclusters){
     ###########
     kc$cell_type = sapply(strsplit(kc$genes,split="__"),function(x) x[[1]])
     kc$cell_type = sapply(strsplit(kc$cell_type,split="_"),function(x) x[[1]])
@@ -93,16 +117,18 @@ DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters){
     ###########
     for(i in 1:length(index)){
         #######
-        cell_type <- c(cell_type,rep(index[i],2))
+        cell_type <- c(cell_type,rep(index[i],3))
         k1 = which(kc$cell_type == index[i] &  kc$cluster %in% Downclusters == T)
         k2 = which(kc$cell_type == index[i] &  kc$cluster %in% Upclusters == T)
+        k3 = which(kc$cell_type == index[i] &  kc$cluster %in% Middleclusters == T)
         ####
-        num_DEGs <- c(num_DEGs,-length(k1),length(k2))
+        num_DEGs <- c(num_DEGs,length(k1),length(k2),length(k3))
         ####
-        direction <- c(direction, c("Young", "Old"))
+        direction <- c(direction, c("Young", "Old","Middle"))
     }
     #####
     data = data.frame(cell_type=cell_type,num_DEGs=num_DEGs,direction=direction)
+    data$direction = factor(data$direction,levels=c("Young","Middle","Old"))
     ######
     res = tapply(data$num_DEGs,data$cell_type,function(x) sum(abs(x)))
     cell_type_index = rev(names(res)[order(res)])
@@ -115,29 +141,51 @@ DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters){
 kc = Human_DEGs_Plot_Kmeans_order[grep("_M__",Human_DEGs_Plot_Kmeans_order$genes),]
 Upclusters = c(5,6,7,8,9)
 Downclusters = c(1,2,3,4)
-Human_M_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters)
+Middleclusters = c(10,11,12)
+Human_M_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
 
 ggplot(Human_M_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
-  geom_col(position = "stack",width=0.5) +  # 堆叠条形
-  scale_fill_manual(values = c("Young" = "lightblue", "Old" = "pink")) +  # 指定颜色
-  labs(x = "Cell type", y = "Number of DEGs", title = "Human_M") +
-  theme_classic() +
-  theme(text = element_text(size = 14))
-ggsave("Human_M_barplot.png",width=8,height=3)
+  geom_col(position = "stack", width = 0.5) +                # 堆叠条形
+  scale_fill_manual(values = c("Young" = "lightblue",
+                               "Old"    = "pink",
+                               "Middle" = "darkgreen")) +          # 指定颜色
+  scale_y_continuous(expand = c(0, 0),limits=c(0,5500)) +                     # Y 轴从 0 开始，无扩展
+  labs(x = "", y = "Number of DEGs") +
+  theme_classic(base_size = 14) +
+ theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),  # 给整图加黑框
+    axis.title.y     = element_text(size = 16),                             # Y 轴标签放大
+    axis.text.x      = element_text(angle = 30, hjust = 1, vjust = 1),      # X 轴标签旋转 30°
+    legend.position  = "right"
+  )
+ggsave("Human_M_barplot.png",width=7,height=3)
 
+
+                 
 
 kc = Human_DEGs_Plot_Kmeans_order[grep("_F__",Human_DEGs_Plot_Kmeans_order$genes),]
 Upclusters = c(5,6,7,8,9)
 Downclusters = c(1,2,3,4)
-Human_F_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters)
+Middleclusters = c(10,11,12)
+Human_F_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
 
+                 
 ggplot(Human_F_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
-  geom_col(position = "stack",width=0.5) +  # 堆叠条形
-  scale_fill_manual(values = c("Young" = "lightblue", "Old" = "pink")) +  # 指定颜色
-  labs(x = "Cell type", y = "Number of DEGs", title = "Human_F") +
-  theme_classic() +
-  theme(text = element_text(size = 14))
-ggsave("Human_F_barplot.png",width=8,height=3)
+  geom_col(position = "stack", width = 0.5) +                # 堆叠条形
+  scale_fill_manual(values = c("Young" = "lightblue",
+                               "Old"    = "pink",
+                               "Middle" = "darkgreen")) +          # 指定颜色
+  scale_y_continuous(expand = c(0, 0),limits=c(0,5500)) +                     # Y 轴从 0 开始，无扩展
+  labs(x = "", y = "Number of DEGs") +
+  theme_classic(base_size = 14) +
+ theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),  # 给整图加黑框
+    axis.title.y     = element_text(size = 16),                             # Y 轴标签放大
+    axis.text.x      = element_text(angle = 30, hjust = 1, vjust = 1),      # X 轴标签旋转 30°
+    legend.position  = "right"
+  )
+ggsave("Human_F_barplot.png",width=7,height=3)
+
 
 
 
