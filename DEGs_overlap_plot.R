@@ -105,6 +105,9 @@ names(HMZ_ortholog_combined)
 #######
 
 Compare_HMZ_pairs <- function(H,M,Z,HMZ_ortholog_combined,color="pink"){
+    H = H[!duplicated(H)]
+    M = M[!duplicated(M)]
+    Z = Z[!duplicated(Z)]
     #####
     total_genes_H = c(HMZ_ortholog_combined$HM$human,HMZ_ortholog_combined$HZ$human,HMZ_ortholog_combined$HMZ$human)
     total_genes_M = c(HMZ_ortholog_combined$HM$mouse,HMZ_ortholog_combined$MZ$mouse,HMZ_ortholog_combined$HMZ$mouse)
@@ -121,6 +124,21 @@ Compare_HMZ_pairs <- function(H,M,Z,HMZ_ortholog_combined,color="pink"){
     MZ_overlap = HMZ_ortholog_combined$MZ[which(HMZ_ortholog_combined$MZ$mouse %in% M_cl == T & HMZ_ortholog_combined$MZ$zebrafish %in% Z_cl == T),]
     ######
     HMZ_overlap = HMZ_ortholog_combined$HMZ[which(HMZ_ortholog_combined$HMZ$human %in% H_cl == T & HMZ_ortholog_combined$HMZ$mouse %in% M_cl == T & HMZ_ortholog_combined$HMZ$zebrafish %in% Z_cl == T),]
+    ######
+    ###### remove duplicates both in HMZ_overlap and HM_overlap HZ_overlap and MZ_overlap ############
+    ######
+    HMZ_overlap_index_HM = paste(HMZ_overlap$human,HMZ_overlap$mouse,sep="__")
+    HMZ_overlap_index_HZ = paste(HMZ_overlap$human,HMZ_overlap$zebrafish,sep="__")
+    HMZ_overlap_index_MZ = paste(HMZ_overlap$mouse,HMZ_overlap$zebrafish,sep="__")
+    ######
+    k1 = which(HM_overlap$HM_index %in% HMZ_overlap_index_HM == T)
+    k2 = which(HZ_overlap$HZ_index %in% HMZ_overlap_index_HZ == T)
+    k3 = which(MZ_overlap$MZ_index %in% HMZ_overlap_index_MZ == T)
+    ######
+    HM_overlap = HM_overlap[-k1,]
+    HZ_overlap = HZ_overlap[-k2,]
+    MZ_overlap = MZ_overlap[-k3,]
+    ######
     ######
     ######
     H_overlap_Gs = c(HM_overlap$human,HZ_overlap$human,HMZ_overlap$human)
@@ -162,30 +180,46 @@ Compare_HMZ_pairs <- function(H,M,Z,HMZ_ortholog_combined,color="pink"){
 
     # 生成组合矩阵
     comb_mat <- make_comb_mat(set_list)
-    ###
-    df <- data.frame(
-    H = c(1,0,0,1,1,0,1),
-    M = c(0,1,0,1,0,1,1),
-    Z = c(0,0,1,0,1,1,1),
-    row.names = expr)
+    #####
     #####
     library(ComplexHeatmap)
-    png("test.png", width = 600, height = 550, res = 150)
-    print(UpSet(
-        comb_mat,
-        # 保留原始 H, M, Z 顺序
-        set_order  = c("H","M","Z"),
-        # 按交集大小降序
-        comb_order = order(-comb_size(comb_mat)),
-        top_annotation = upset_top_annotation(
-            comb_mat,
-            # 把交集大小的柱子涂成 steelblue
-            gp = gpar(fill = color),
-            height = unit(5, "cm")
-        ),
-        right_annotation = upset_right_annotation(comb_mat)
-    ))
-    dev.off()
+    pink_fill <- gpar(fill = color)
+
+png("test_with_labels.png", width = 1600, height = 1250, res = 350)
+
+up <- UpSet(
+  comb_mat,
+  set_order  = c("Z","M","H"),
+  comb_order = order(-comb_size(comb_mat)),
+  top_annotation = upset_top_annotation(
+    comb_mat,
+    gp     = gpar(fill = color),
+    height = unit(5, "cm")
+  ),
+  right_annotation = upset_right_annotation(comb_mat,gp     = gpar(fill = color))
+)
+
+draw(up)
+
+# 对 comb_size 先按 comb_order 排序
+ord  <- order(-comb_size(comb_mat))
+vals <- comb_size(comb_mat)[ord]
+
+decorate_annotation("intersection_size", slice = 1, {
+  for(i in seq_along(vals)) {
+    grid.text(
+      label         = vals[i],
+      x             = unit(i, "native"),                        # 现在 i 对应绘图中的第 i 根 bar
+      y             = unit(vals[i], "native") + unit(1, "mm"),  # 顶部再上移 1mm
+      just          = "bottom",
+      default.units = "native",
+      gp            = gpar(fontsize = 10)
+    )
+  }
+})
+
+dev.off()
+
     #####
     res_list = list(H_sp=H_sp,M_sp=M_sp,Z_sp=Z_sp,HM=HM_overlap,HZ=HZ_overlap,MZ=MZ_overlap,HMZ=HMZ_overlap)
     #####
@@ -235,6 +269,75 @@ Z = Zebrafish_UP_list$RGC$Gene
 
 RGC_3sp_overlap_UP = Compare_HMZ_pairs(H,M,Z,HMZ_ortholog_combined,color="pink")
 
+
+######         
+###### we will output the overlap results !!! ######
+######
+cell_types <- c("MG","Rod", "Cone", "AC", "HC", "RGC", "RPE", "BC")
+
+# 用 lapply 批量生成 overlap 结果，结果存在一个列表里
+overlap_up_list <- lapply(cell_types, function(ct) {
+  H <- Human_UP_list[[ct]]$Gene
+  M <- Mouse_UP_list[[ct]]$Gene
+  Z <- Zebrafish_UP_list[[ct]]$Gene
+  Compare_HMZ_pairs(H = H,
+                    M = M,
+                    Z = Z,
+                    HMZ_ortholog_combined,
+                    color = "pink")
+})
+
+# 给列表元素命名，方便后续调用
+names(overlap_up_list) <- paste0(cell_types, "_3sp_overlap_Old")
+
+overlap_down_list <- lapply(cell_types, function(ct) {
+  H <- Human_DOWN_list[[ct]]$Gene
+  M <- Mouse_DOWN_list[[ct]]$Gene
+  Z <- Zebrafish_DOWN_list[[ct]]$Gene
+  Compare_HMZ_pairs(H = H,
+                    M = M,
+                    Z = Z,
+                    HMZ_ortholog_combined,
+                    color = "pink")
+})
+
+names(overlap_down_list) <- paste0(cell_types, "_3sp_overlap_Young")
+
+##### total list ####
+overlap_DEGs_total = c(overlap_up_list,overlap_down_list)
+
+overlap_DEGs_total_toExcel = list()
+for(i in 1:length(overlap_DEGs_total)){
+    print(i)
+    tmp = overlap_DEGs_total[[i]]
+    tmp_1 = tmp$HM
+    tmp_2 = tmp$HZ
+    tmp_3 = tmp$MZ
+    tmp_4 = tmp$HMZ
+    ###
+    tmp_1 = data.frame(class="HM",gene=tmp_1$"HM_index")
+    tmp_2 = data.frame(class="HZ",gene=tmp_2$"HZ_index")
+    tmp_3 = data.frame(class="MZ",gene=tmp_3$"MZ_index")
+    tmp_4 = data.frame(class="HMZ",gene=tmp_4$"HMZ_index")
+    ####
+    overlap_DEGs_total_toExcel <- c(overlap_DEGs_total_toExcel,list(rbind(tmp_1,tmp_2,tmp_3,tmp_4)))
+}
+names(overlap_DEGs_total_toExcel) = names(overlap_DEGs_total)
+#####
+library(writexl)
+write_xlsx(overlap_DEGs_total_toExcel, path = "TableS2:Overlap_DEGs_between_HMZ.xlsx")
+
+                 
+
+
+
+
+
+
+
+
+
+                 
 ######
 ###### Plot one gene #####
 ######
@@ -260,11 +363,12 @@ H_all_Matrix_cl_s_Plot_sub$time = as.numeric(H_all_Matrix_cl_s_Plot_sub$Var2)
 ######
 ######
 H_all_Matrix_cl_s_Plot_sub = H_all_Matrix_cl_s_Plot_sub[which(H_all_Matrix_cl_s_Plot_sub$CT == "MG_F__SASH1"),]
-H_all_Matrix_cl_s_Plot_sub = H_all_Matrix_cl_s_Plot_sub[which(H_all_Matrix_cl_s_Plot_sub$CT == "RGC_F__CDKN2C"),]
+H_all_Matrix_cl_s_Plot_sub = H_all_Matrix_cl_s_Plot_sub[which(H_all_Matrix_cl_s_Plot_sub$CT == "Rod_F__CDKN2C"),]
+H_all_Matrix_cl_s_Plot_sub = H_all_Matrix_cl_s_Plot_sub[which(H_all_Matrix_cl_s_Plot_sub$CT == "RGC_F__REST"),]
 
 library(ggplot2)
-ggplot(H_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=1,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(50,100))
-ggsave("MG_F__SASH1.png",height=3,width=3)
+ggplot(H_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=3,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(10,50,100))
+ggsave("MG_F__SASH1.png",height=2.5,width=2.5)
 
 
 ######
@@ -280,11 +384,13 @@ library(reshape2)
 M_all_Matrix_cl_s_Plot = melt(Mouse_DEGs_Plot)
 
 ######
-Gene_index = "REST"
+Gene_index = "Rest"
 Gene_index = "CDKN2C"
 Gene_index = "SASH1"
 
-Gene_index = "cdkn2c"
+Gene_index = "Cdkn2c"
+Gene_index = "Sash1"
+
 
 ######
 M_all_Matrix_cl_s_Plot_sub = M_all_Matrix_cl_s_Plot[grep(Gene_index,M_all_Matrix_cl_s_Plot$Var1),]
@@ -296,8 +402,8 @@ M_all_Matrix_cl_s_Plot_sub$time = as.numeric(M_all_Matrix_cl_s_Plot_sub$Var2)
 M_all_Matrix_cl_s_Plot_sub = M_all_Matrix_cl_s_Plot_sub[which(M_all_Matrix_cl_s_Plot_sub$CT == "MG__Sash1"),]
 
 library(ggplot2)
-ggplot(M_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=1,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(50,100))
-ggsave("MG__Sash1.png",height=3,width=3)
+ggplot(M_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=3,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(12,49,120))
+ggsave("MG__Sash1.png",height=2.5,width=2.5)
 
 #######
 
@@ -312,7 +418,7 @@ Gene_index = "REST"
 Gene_index = "CDKN2C"
 Gene_index = "SASH1"
 
-Gene_index = "Sash1"
+Gene_index = "sash1"
 Gene_index = "cdkn2c"
 Gene_index = "sash1a"
 
@@ -323,11 +429,11 @@ Z_all_Matrix_cl_s_Plot_sub$time = as.numeric(Z_all_Matrix_cl_s_Plot_sub$Var2)
 ######
 ######
 ######
-Z_all_Matrix_cl_s_Plot_sub = Z_all_Matrix_cl_s_Plot_sub[which(Z_all_Matrix_cl_s_Plot_sub$CT == "MG__sash1a"),]
+Z_all_Matrix_cl_s_Plot_sub = Z_all_Matrix_cl_s_Plot_sub[which(Z_all_Matrix_cl_s_Plot_sub$CT == "RGC__rest"),]
 
 library(ggplot2)
-ggplot(Z_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=1,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(50,100))
-ggsave("MG__sash1a.png",height=3,width=3)
+ggplot(Z_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=3,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(6,24,48))
+ggsave("RGC_rest.png",height=2.5,width=2.5)
 
 
 #######
