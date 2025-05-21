@@ -61,6 +61,28 @@ Get_old_G_from_model <- function(fit_res){
     res
 }
 
+Get_young_G_from_model <- function(fit_res){
+    library(glmnet)
+    coef_df  = coef(fit_res, s = fit_res$lambda.min)
+    #####
+    coef_df  <- data.frame(
+    gene        = rownames(coef_df),
+    coefficient = coef_df[, 1],
+    row.names   = NULL,
+    stringsAsFactors = FALSE
+    )
+    GetPositiveGenes <- function(coef_df) {
+    # 过滤出系数大于 0 的行，并排除截距
+        pos <- coef_df$coefficient < 0 & coef_df$gene != '(Intercept)'
+        genes_pos <- coef_df$gene[pos]
+        return(genes_pos)
+    }
+    ######
+    res= GetPositiveGenes(coef_df)
+    res
+}
+
+
 
 
 
@@ -68,15 +90,57 @@ kc_index = data.frame(CT=CT,G=G)
 
 Mouse_old_res = Get_overlap_tables_UP(kc_index)
 Old_Z = data.frame(Mouse_old_res[[2]])
-Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 3),]
+Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 1),]
 
-library(ggplot2)
+
+
 ggplot(Old_Z, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "pink") +
   geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,600))
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1600), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Mouse_old_overlap.png",height=3,width=2.5)
+ggsave("Mouse_old_overlap.png", height = 2.5, width = 4)
+
+
+MG = Get_young_G_from_model(Mouse_MG_model$model)
+RGC = Get_young_G_from_model(Mouse_RGC_model$model)
+AC = Get_young_G_from_model(Mouse_AC_model$model)
+HC = Get_young_G_from_model(Mouse_HC_model$model)
+BC = Get_young_G_from_model(Mouse_BC_model$model)
+RPE = Get_young_G_from_model(Mouse_RPE_model$model)
+Rod = Get_young_G_from_model(Mouse_Rod_model$model)
+Cone = Get_young_G_from_model(Mouse_Cone_model$model)
+Microglia = Get_young_G_from_model(Mouse_Microglia_model$model)
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+kc_index = data.frame(CT=CT,G=G)
+Mouse_young_res = Get_overlap_tables_UP(kc_index)
+Young_Z = data.frame(Mouse_young_res[[2]])
+Young_Z = Young_Z[which(as.numeric(Young_Z$Var1) > 1),]
+
+head(Mouse_young_res[[1]],n=20)
+head(Mouse_old_res[[1]],n=20)
+
+ggplot(Young_Z, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1600), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
+
+ggsave("Mouse_young_overlap.png", height = 2.5, width = 4)
 
 
 Get_overlap_tables_UP <- function(kc_index){
@@ -130,14 +194,6 @@ Get_overlap_tables_UP <- function(kc_index){
 
 
 
-library(ggplot2)
-ggplot(Old_Z, aes(x = Var1, y = Freq)) +
-  geom_bar(stat = "identity", fill = "pink") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,600))
-
-ggsave("Zebrafish_old_overlap.png",height=3,width=2.5)
-
 
 
 
@@ -164,6 +220,18 @@ Rod = Get_old_G_from_model(Zebrafish_Rod_model$model)
 Cone = Get_old_G_from_model(Zebrafish_Cone_model$model)
 Microglia = Get_old_G_from_model(Zebrafish_Microglia_model$model)
 
+MG = Get_young_G_from_model(Zebrafish_MG_model$model)
+RGC = Get_young_G_from_model(Zebrafish_RGC_model$model)
+AC = Get_young_G_from_model(Zebrafish_AC_model$model)
+HC = Get_young_G_from_model(Zebrafish_HC_model$model)
+BC = Get_young_G_from_model(Zebrafish_BC_model$model)
+RPE = Get_young_G_from_model(Zebrafish_RPE_model$model)
+Rod = Get_young_G_from_model(Zebrafish_Rod_model$model)
+Cone = Get_young_G_from_model(Zebrafish_Cone_model$model)
+Microglia = Get_young_G_from_model(Zebrafish_Microglia_model$model)
+
+
+
 G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
 CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
 
@@ -172,15 +240,44 @@ kc_index = data.frame(CT=CT,G=G)
 
 Zebrafish_old_res = Get_overlap_tables_UP(kc_index)
 Old_Z = data.frame(Zebrafish_old_res[[2]])
-Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 3),]
+Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 1),]
 
-library(ggplot2)
+head(Zebrafish_old_res[[1]],n=20)
+
+Zebrafish_young_res = Get_overlap_tables_UP(kc_index)
+Young_Z = data.frame(Zebrafish_young_res[[2]])
+Young_Z = Young_Z[which(as.numeric(Young_Z$Var1) > 1),]
+
+
+
 ggplot(Old_Z, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "pink") +
   geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,600))
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1400), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Zebrafish_old_overlap.png",height=3,width=2.5)
+ggsave("Zebrafish_old_overlap.png", height = 2.5, width = 4)
+
+
+ggplot(Young_Z, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1400), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
+
+ggsave("Zebrafish_young_overlap.png", height = 2.5, width = 4)
+
+
 
 ########
 ########
@@ -216,6 +313,20 @@ Rod = c(Get_old_G_from_model(Human_Rod_model_F$model),Get_old_G_from_model(Human
 Cone = c(Get_old_G_from_model(Human_Cone_model_F$model),Get_old_G_from_model(Human_Cone_model_M$model))
 Microglia = c(Get_old_G_from_model(Human_Microglia_model_F$model),Get_old_G_from_model(Human_Microglia_model_M$model))
 
+
+
+MG = c(Get_young_G_from_model(Human_MG_model_F$model),Get_young_G_from_model(Human_MG_model_M$model))
+RGC = c(Get_young_G_from_model(Human_RGC_model_F$model),Get_young_G_from_model(Human_RGC_model_M$model))
+AC = c(Get_young_G_from_model(Human_AC_model_F$model),Get_young_G_from_model(Human_AC_model_M$model))
+HC = c(Get_young_G_from_model(Human_HC_model_F$model),Get_young_G_from_model(Human_HC_model_M$model))
+BC = c(Get_young_G_from_model(Human_BC_model_F$model),Get_young_G_from_model(Human_BC_model_M$model))
+RPE = c(Get_young_G_from_model(Human_RPE_model_F$model),Get_young_G_from_model(Human_RPE_model_M$model))
+Rod = c(Get_young_G_from_model(Human_Rod_model_F$model),Get_young_G_from_model(Human_Rod_model_M$model))
+Cone = c(Get_young_G_from_model(Human_Cone_model_F$model),Get_young_G_from_model(Human_Cone_model_M$model))
+Microglia = c(Get_young_G_from_model(Human_Microglia_model_F$model),Get_young_G_from_model(Human_Microglia_model_M$model))
+
+
+
 G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
 CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
 
@@ -223,17 +334,47 @@ kc_index = data.frame(CT=CT,G=G)
 
 Human_old_res = Get_overlap_tables_UP(kc_index)
 Old_Z = data.frame(Human_old_res[[2]])
-Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 3),]
+Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 1),]
 
-library(ggplot2)
+
+Human_young_res = Get_overlap_tables_UP(kc_index)
+Young_Z = data.frame(Human_young_res[[2]])
+Young_Z = Young_Z[which(as.numeric(Young_Z$Var1) > 1),]
+
+
+
 ggplot(Old_Z, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "pink") +
   geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,800))
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 3000), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Human_old_overlap.png",height=3,width=2.5)
+ggsave("Human_old_overlap.png", height = 2.5, width = 4)
+
+
+ggplot(Young_Z, aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 3000), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
+
+ggsave("Human_young_overlap.png", height = 2.5, width = 4)
+
+
+
 
 head(Human_old_res[[1]],n=10)
+head(Human_young_res[[1]],n=10)
 
 ##########
 ##########
