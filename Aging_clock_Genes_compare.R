@@ -379,3 +379,160 @@ head(Human_young_res[[1]],n=10)
 ##########
 ##########
 ##########
+
+##########-------- COMPARE BETWEEN HMZ ---------########
+##########
+
+
+setwd("/zp1/data/share/Human_aging_new")
+HMZ_ortholog_combined <- readRDS("HMZ_ortholog_combined_2025")
+names(HMZ_ortholog_combined)
+
+
+
+Compare_HMZ_pairs <- function(H,M,Z,HMZ_ortholog_combined,color="pink"){
+    H = H[!duplicated(H)]
+    M = M[!duplicated(M)]
+    Z = Z[!duplicated(Z)]
+    #####
+    total_genes_H = c(HMZ_ortholog_combined$HM$human,HMZ_ortholog_combined$HZ$human,HMZ_ortholog_combined$HMZ$human)
+    total_genes_M = c(HMZ_ortholog_combined$HM$mouse,HMZ_ortholog_combined$MZ$mouse,HMZ_ortholog_combined$HMZ$mouse)
+    total_genes_Z = c(HMZ_ortholog_combined$MZ$zebrafish,HMZ_ortholog_combined$HZ$zebrafish,HMZ_ortholog_combined$HMZ$zebrafish)
+    #####
+    #####
+    H_cl = H[which(H %in% total_genes_H == T)]
+    M_cl = M[which(M %in% total_genes_M == T)]
+    Z_cl = Z[which(Z %in% total_genes_Z == T)]
+    #####
+    #####
+    HM_overlap = HMZ_ortholog_combined$HM[which(HMZ_ortholog_combined$HM$human %in% H_cl == T & HMZ_ortholog_combined$HM$mouse %in% M_cl == T),]
+    HZ_overlap = HMZ_ortholog_combined$HZ[which(HMZ_ortholog_combined$HZ$human %in% H_cl == T & HMZ_ortholog_combined$HZ$zebrafish %in% Z_cl == T),]
+    MZ_overlap = HMZ_ortholog_combined$MZ[which(HMZ_ortholog_combined$MZ$mouse %in% M_cl == T & HMZ_ortholog_combined$MZ$zebrafish %in% Z_cl == T),]
+    ######
+    HMZ_overlap = HMZ_ortholog_combined$HMZ[which(HMZ_ortholog_combined$HMZ$human %in% H_cl == T & HMZ_ortholog_combined$HMZ$mouse %in% M_cl == T & HMZ_ortholog_combined$HMZ$zebrafish %in% Z_cl == T),]
+    ######
+    ###### remove duplicates both in HMZ_overlap and HM_overlap HZ_overlap and MZ_overlap ############
+    ######
+    HMZ_overlap_index_HM = paste(HMZ_overlap$human,HMZ_overlap$mouse,sep="__")
+    HMZ_overlap_index_HZ = paste(HMZ_overlap$human,HMZ_overlap$zebrafish,sep="__")
+    HMZ_overlap_index_MZ = paste(HMZ_overlap$mouse,HMZ_overlap$zebrafish,sep="__")
+    ######
+    k1 = which(HM_overlap$HM_index %in% HMZ_overlap_index_HM == T)
+    k2 = which(HZ_overlap$HZ_index %in% HMZ_overlap_index_HZ == T)
+    k3 = which(MZ_overlap$MZ_index %in% HMZ_overlap_index_MZ == T)
+    ######
+    HM_overlap = HM_overlap[-k1,]
+    HZ_overlap = HZ_overlap[-k2,]
+    MZ_overlap = MZ_overlap[-k3,]
+    ######
+    ######
+    ######
+    H_overlap_Gs = c(HM_overlap$human,HZ_overlap$human,HMZ_overlap$human)
+    M_overlap_Gs = c(HZ_overlap$mouse,MZ_overlap$mouse,HMZ_overlap$mouse)
+    Z_overlap_Gs = c(MZ_overlap$zebrafish,HZ_overlap$zebrafish,HMZ_overlap$zebrafish)
+    #####
+    H_sp = H_cl[which(H_cl %in% H_overlap_Gs == F)]
+    M_sp = M_cl[which(M_cl %in% M_overlap_Gs == F)]
+    Z_sp = Z_cl[which(Z_cl %in% Z_overlap_Gs == F)]
+    #####
+    #####
+    library(UpSetR)
+    counts <- c(
+    `100` = length(unique(H_sp)),   # H only
+    `010` = length(unique(M_sp)),   # M only
+    `001` = length(unique(Z_sp)),   # Z only
+    `110` = length(unique(HM_overlap$HM_index)),   # H & M
+    `101` = length(unique(HZ_overlap$HZ_index)),   # H & Z
+    `011` = length(unique(MZ_overlap$MZ_index)),   # M & Z
+    `111` = length(unique(HMZ_overlap$HMZ_index))    # H & M & Z
+    )
+    ####
+    # counts 向量名就是二进制 code：1=选，0=不选，三位分别对应 H, M, Z
+    dummy_ids <- lapply(names(counts), function(code) {
+    # 生成 code_1, code_2, … code_n
+    paste0(code, "_", seq_len(counts[code]))
+    })
+    names(dummy_ids) <- names(counts)
+    all_ids <- unlist(dummy_ids, use.names = FALSE)
+
+    # membership逻辑：如果 code 第1位是1，属于 H；否则不属于
+    H_ids <- unlist(dummy_ids[ substr(names(dummy_ids),1,1) == "1" ])
+    M_ids <- unlist(dummy_ids[ substr(names(dummy_ids),2,2) == "1" ])
+    Z_ids <- unlist(dummy_ids[ substr(names(dummy_ids),3,3) == "1" ])
+    set_list <- list(H = H_ids, M = M_ids, Z = Z_ids)
+    ####
+    ####
+    library(ComplexHeatmap)
+
+    # 生成组合矩阵
+    comb_mat <- make_comb_mat(set_list)
+    #####
+    #####
+    library(ComplexHeatmap)
+    pink_fill <- gpar(fill = color)
+
+png("test_with_labels.png", width = 1600, height = 1250, res = 350)
+
+up <- UpSet(
+  comb_mat,
+  set_order  = c("Z","M","H"),
+  comb_order = order(-comb_size(comb_mat)),
+  top_annotation = upset_top_annotation(
+    comb_mat,
+    gp     = gpar(fill = color),
+    height = unit(5, "cm")
+  ),
+  right_annotation = upset_right_annotation(comb_mat,gp     = gpar(fill = color))
+)
+
+draw(up)
+
+# 对 comb_size 先按 comb_order 排序
+ord  <- order(-comb_size(comb_mat))
+vals <- comb_size(comb_mat)[ord]
+
+decorate_annotation("intersection_size", slice = 1, {
+  for(i in seq_along(vals)) {
+    grid.text(
+      label         = vals[i],
+      x             = unit(i, "native"),                        # 现在 i 对应绘图中的第 i 根 bar
+      y             = unit(vals[i], "native") + unit(1, "mm"),  # 顶部再上移 1mm
+      just          = "bottom",
+      default.units = "native",
+      gp            = gpar(fontsize = 10)
+    )
+  }
+})
+
+dev.off()
+
+    #####
+    res_list = list(H_sp=H_sp,M_sp=M_sp,Z_sp=Z_sp,HM=HM_overlap,HZ=HZ_overlap,MZ=MZ_overlap,HMZ=HMZ_overlap)
+    #####
+    return(res_list)
+}
+
+
+H = c(Get_old_G_from_model(Human_MG_model_F$model),Get_old_G_from_model(Human_MG_model_M$model))
+M = Get_old_G_from_model(Mouse_MG_model$model)
+Z = Get_old_G_from_model(Zebrafish_MG_model$model)
+
+MG_3sp_overlap_UP = Compare_HMZ_pairs(H,M,Z,HMZ_ortholog_combined,color="pink")
+
+
+H = c(Get_young_G_from_model(Human_MG_model_F$model),Get_young_G_from_model(Human_MG_model_M$model))
+M = Get_young_G_from_model(Mouse_MG_model$model)
+Z = Get_young_G_from_model(Zebrafish_MG_model$model)
+
+MG_3sp_overlap_DOWN = Compare_HMZ_pairs(H,M,Z,HMZ_ortholog_combined,color="lightblue")
+
+
+
+
+
+
+
+
+
+
+
