@@ -268,27 +268,41 @@ Z_down_Res = Get_overlap_tables_UP(Z_down_kc)
 Old_Z = data.frame(Z_up_Res[[2]])
 Young_Z = data.frame(Z_down_Res[[2]])
 
-Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 3),]
-Young_Z = Young_Z[which(as.numeric(Young_Z$Var1) > 3),]
+Old_Z = Old_Z[which(as.numeric(Old_Z$Var1) > 1),]
+Young_Z = Young_Z[which(as.numeric(Young_Z$Var1) > 1),]
 
-library(ggplot2)
 ggplot(Old_Z, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "pink") +
   geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,600))
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 2000), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Zebrafish_old_overlap.png",height=3,width=2.5)
+ggsave("Zebrafish_old_overlap.png", height = 2.5, width = 4)
 
 
 
-library(ggplot2)
 ggplot(Young_Z, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "lightblue") +
   geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,300))
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1500), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Zebrafish_young_overlap.png",height=3,width=2.5)
+ggsave("Zebrafish_young_overlap.png", height = 2.5, width = 4)
 
+
+head(Z_up_Res[[1]],n=50)
+head(Z_down_Res[[1]],n=50)
+    
 
 #### pfkfb1 ###
 
@@ -309,9 +323,21 @@ Z_all_Matrix_cl_s_Plot_sub$time = as.numeric(Z_all_Matrix_cl_s_Plot_sub$Var2)
 Z_all_Matrix_cl_s_Plot_sub = Z_all_Matrix_cl_s_Plot_sub[which(Z_all_Matrix_cl_s_Plot_sub$CT != 'Microglia'),]
 
 library(ggplot2)
-ggplot(Z_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=1,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(50,100)) + facet_wrap(~ CT, ncol = 4, nrow = 2)
-ggsave("Zebrafish_pfkfb1.png",height=3.5,width=6)
 
+ggplot(Z_all_Matrix_cl_s_Plot_sub, aes(x = time, y = value)) +
+  geom_point(size = 3, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  scale_x_continuous(breaks = c(6, 24,48)) +
+  ylab("RNA z-score") +        # 设置 Y 轴标签
+  xlab(NULL) +                 # 去掉 X 轴标签
+  theme_classic() +
+  theme(
+    panel.border      = element_rect(color = "black", fill = NA, size = 1),
+    strip.text        = element_text(size = 14)  # 增大 facet 标签字体
+  ) +
+  facet_wrap(~ CT, ncol = 4, nrow = 2)
+
+ggsave("Zebrafish_pfkfb1.png", height = 3.5, width = 6)
 
 
 
@@ -321,8 +347,28 @@ ggsave("Zebrafish_pfkfb1.png",height=3.5,width=6)
 ##### Next count the overlaps !!! #######
 #####
 
-Mouse_up_Res = Get_overlap_tables_UP(Mouse_up_kc)
-Mouse_down_Res = Get_overlap_tables_UP(Mouse_down_kc)
+                                       
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+load("Mouse_DEGs_Plot_Kmeans_order")
+
+kc = Mouse_DEGs_Plot_Kmeans_order
+Upclusters = c(5,6,7,8)
+Downclusters = c(1,2,3,4)
+
+kc$CT = sapply(strsplit(kc$genes,split="__"),function(x) x[[1]])
+kc$Gene = sapply(strsplit(kc$genes,split="__"),function(x) x[[2]])
+
+kc$Class = "Unknown"
+kc$Class[which(kc$cluster %in% Upclusters)] = "UP"
+kc$Class[which(kc$cluster %in% Downclusters)] = "DOWN"
+
+#####
+                 
+Mouse_UP = kc[which(kc$Class=="UP"),]
+Mouse_DOWN = kc[which(kc$Class=="DOWN"),]
+
+Mouse_up_Res = Get_overlap_tables_UP(Mouse_UP)
+Mouse_down_Res = Get_overlap_tables_UP(Mouse_DOWN)
 
 ##### 
 
@@ -342,26 +388,37 @@ write_xlsx(Mouse_Res, "Mouse_aging_overlaps_Mar2025.xlsx")
 Old_M = data.frame(Mouse_up_Res[[2]])
 Young_M = data.frame(Mouse_down_Res[[2]])
 
-Old_M = Old_M[which(as.numeric(Old_M$Var1) > 3),]
-Young_M = Young_M[which(as.numeric(Young_M$Var1) > 3),]
+Old_M = Old_M[which(as.numeric(Old_M$Var1) > 1),]
+Young_M = Young_M[which(as.numeric(Young_M$Var1) > 1),]
 
-library(ggplot2)
 ggplot(Old_M, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "pink") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 5) +
-  theme_classic() + ylab("") + scale_y_continuous(limits=c(0,150))
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1500), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Mouse_old_overlap.png",height=4,width=3)
+ggsave("Mouse_old_overlap.png", height = 2.5, width = 4)
 
 
-library(ggplot2)
 ggplot(Young_M, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "lightblue") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 5) +
-  theme_classic() + ylab("") + scale_y_continuous(limits=c(0,350))
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 1500), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Mouse_young_overlap.png",height=4,width=3)
+ggsave("Mouse_young_overlap.png", height = 2.5, width = 4)
 
+##############
 
 ##############
 
@@ -391,25 +448,8 @@ Young_M = data.frame(M_down_Res[[2]])
 Old_M = Old_M[which(as.numeric(Old_M$Var1) > 3),]
 Young_M = Young_M[which(as.numeric(Young_M$Var1) > 3),]
 
-library(ggplot2)
-ggplot(Old_M, aes(x = Var1, y = Freq)) +
-  geom_bar(stat = "identity", fill = "pink") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,200))
-
-ggsave("Mouse_old_overlap.png",height=3,width=2.5)
-
-
-
-library(ggplot2)
-ggplot(Young_M, aes(x = Var1, y = Freq)) +
-  geom_bar(stat = "identity", fill = "lightblue") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
-  theme_classic() + ylab("") + xlab("") + scale_y_continuous(limits=c(0,300))
-
-ggsave("Mouse_young_overlap.png",height=3,width=2.5)
-
-head(M_up_Res[[1]])
+head(Mouse_up_Res[[1]])
+head(Mouse_down_Res[[1]])
 
 
 load("Mouse_DEGs_Plot")
@@ -427,10 +467,25 @@ M_all_Matrix_cl_s_Plot_sub$time = as.numeric(M_all_Matrix_cl_s_Plot_sub$Var2)
 ######
 ######
 
+                                       
 library(ggplot2)
-ggplot(M_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=1,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(50,100)) + facet_wrap(~ CT, ncol = 4, nrow = 2)
-ggsave("Mouse_stat1.png",height=3.5,width=6)
 
+ggplot(M_all_Matrix_cl_s_Plot_sub, aes(x = time, y = value)) +
+  geom_point(size = 3, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  scale_x_continuous(breaks = c(12, 49,120)) +
+  ylab("RNA z-score") +        # 设置 Y 轴标签
+  xlab(NULL) +                 # 去掉 X 轴标签
+  theme_classic() +
+  theme(
+    panel.border      = element_rect(color = "black", fill = NA, size = 1),
+    strip.text        = element_text(size = 14)  # 增大 facet 标签字体
+  ) +
+  facet_wrap(~ CT, ncol = 4, nrow = 2)
+
+ggsave("Mouse_stat1.png", height = 3.5, width = 6)
+
+                                       
 
 #######
 ####### Next for Human #######
@@ -473,31 +528,48 @@ Young_H = data.frame(H_down_Res[[2]])
 #####
 #####
 
-Old_H = Old_H[which(as.numeric(Old_H$Var1) > 3),]
-Young_H = Young_H[which(as.numeric(Young_H$Var1) > 3),]
+Old_H = Old_H[which(as.numeric(Old_H$Var1) > 1),]
+Young_H = Young_H[which(as.numeric(Young_H$Var1) > 1),]
 
 
+#####
+#####
 library(ggplot2)
+      
 ggplot(Old_H, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "pink") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 5) +
-  theme_classic() + ylab("") + scale_y_continuous(limits=c(0,600))
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 2500), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Human_old_overlap.png",height=4,width=3)
-
-
-
+ggsave("Human_old_overlap.png", height = 2.5, width = 4)
 library(ggplot2)
+      
 ggplot(Young_H, aes(x = Var1, y = Freq)) +
   geom_bar(stat = "identity", fill = "lightblue") +
-  geom_text(aes(label = Freq), vjust = -0.5, size = 5) +
-  theme_classic() + ylab("") + scale_y_continuous(limits=c(0,450))
+  geom_text(aes(label = Freq), vjust = -0.5, size = 3) +
+  theme_classic() +
+  ylab("") +
+  xlab("") +
+  scale_y_continuous(limits = c(0, 2500), expand = c(0, 0)) +
+  theme(
+    axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
+  )
 
-ggsave("Human_young_overlap.png",height=4,width=3)
+ggsave("Human_young_overlap.png", height = 2.5, width = 4)
+
+
+
 
 
 #######
-head(H_up_Res[[1]],n=100)
+head(H_up_Res[[1]],n=20)
+head(H_down_Res[[1]],n=20)
 
 
 load("Human_DEGs_Plot_cl")
@@ -518,13 +590,28 @@ table(H_all_Matrix_cl_s_Plot_sub$CT)
 
 H_all_Matrix_cl_s_Plot_sub = H_all_Matrix_cl_s_Plot_sub[-which(H_all_Matrix_cl_s_Plot_sub$CT == "Microglia_M"),]
 
-k = which()
-
+                                            
 library(ggplot2)
-ggplot(H_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=1,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(50,100)) + facet_wrap(~ CT, ncol = 4, nrow = 2)
-ggsave("H__MT1F.png",height=3.5,width=6)
+
+ggplot(H_all_Matrix_cl_s_Plot_sub, aes(x = time, y = value)) +
+  geom_point(size = 3, color = "blue") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  scale_x_continuous(breaks = c(10, 50,100)) +
+  ylab("RNA z-score") +        # 设置 Y 轴标签
+  xlab(NULL) +                 # 去掉 X 轴标签
+  theme_classic() +
+  theme(
+    panel.border      = element_rect(color = "black", fill = NA, size = 1),
+    strip.text        = element_text(size = 14)  # 增大 facet 标签字体
+  ) +
+  facet_wrap(~ CT, ncol = 4, nrow = 2)
+
+ggsave("H__MT1F.png", height = 3.5, width = 6)
 
 
+                                       
+
+######
 ######
 ######
 
