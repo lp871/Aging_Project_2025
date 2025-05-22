@@ -527,6 +527,144 @@ Z = Get_young_G_from_model(Zebrafish_MG_model$model)
 MG_3sp_overlap_DOWN = Compare_HMZ_pairs(H,M,Z,HMZ_ortholog_combined,color="lightblue")
 
 
+# 定义要处理的细胞类型向量
+cell_types <- c("MG","Rod", "Cone", "AC", "HC", "BC", "RGC", "RPE", "Microglia")
+
+# 初始化两个空列表，用于存放上调（UP）和下调（DOWN）的重叠结果
+overlap_UP   <- list()
+overlap_DOWN <- list()
+
+for (ct in cell_types) {
+  # 构造 Human 模型对象名（假设命名规则为 Human_<CT>_model_F 和 Human_<CT>_model_M）
+  human_model_F_name <- paste0("Human_", ct, "_model_F")
+  human_model_M_name <- paste0("Human_", ct, "_model_M")
+  mouse_model_name   <- paste0("Mouse_",   ct, "_model")
+  zebrafish_model_name <- paste0("Zebrafish_", ct, "_model")
+  
+  # 通过 get() 动态取到对象，然后提取“old”gene
+  H_old <- c(
+    Get_old_G_from_model(get(human_model_F_name)$model),
+    Get_old_G_from_model(get(human_model_M_name)$model)
+  )
+  M_old <- Get_old_G_from_model(get(mouse_model_name)$model)
+  Z_old <- Get_old_G_from_model(get(zebrafish_model_name)$model)
+  
+  # 计算上调基因的三物种重叠
+  overlap_UP[[ct]] <- Compare_HMZ_pairs(
+    H = H_old, M = M_old, Z = Z_old,
+    HMZ_ortholog_combined = HMZ_ortholog_combined,
+    color = "pink"
+  )
+  
+  # 提取“young”gene
+  H_young <- c(
+    Get_young_G_from_model(get(human_model_F_name)$model),
+    Get_young_G_from_model(get(human_model_M_name)$model)
+  )
+  M_young <- Get_young_G_from_model(get(mouse_model_name)$model)
+  Z_young <- Get_young_G_from_model(get(zebrafish_model_name)$model)
+  
+  # 计算下调基因的三物种重叠
+  overlap_DOWN[[ct]] <- Compare_HMZ_pairs(
+    H = H_young, M = M_young, Z = Z_young,
+    HMZ_ortholog_combined = HMZ_ortholog_combined,
+    color = "lightblue"
+  )
+}
+
+
+
+####### merge HMZ genes #######
+#######
+overlap_UP_out  = list()
+
+for(i in 1:length(overlap_UP)){
+    tmp_list = list()
+    tmp = overlap_UP[[i]]
+    tmp1 = tmp$HM
+    tmp2 = tmp$HZ
+    tmp3 = tmp$MZ
+    tmp4 = tmp$HMZ
+    ######
+    if(dim(tmp1)[1] > 0){
+        tmp_tab = data.frame(class="HM",index=tmp1$HM_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    if(dim(tmp2)[1] > 0){
+        tmp_tab = data.frame(class="HZ",index=tmp2$HZ_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    if(dim(tmp3)[1] > 0){
+        tmp_tab = data.frame(class="MZ",index=tmp3$MZ_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    if(dim(tmp4)[1] > 0){
+        tmp_tab = data.frame(class="HMZ",index=tmp4$HMZ_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    tmp_list_merge = do.call('rbind',tmp_list)
+    #####
+    if(length(tmp_list_merge) > 0){
+        tmp_list_merge = list(tmp_list_merge)
+        names(tmp_list_merge) = names(overlap_UP)[i]
+        overlap_UP_out <- c(overlap_UP_out,tmp_list_merge)
+    }
+}
+
+
+overlap_DOWN_out  = list()
+
+for(i in 1:length(overlap_DOWN)){
+    tmp_list = list()
+    tmp = overlap_DOWN[[i]]
+    tmp1 = tmp$HM
+    tmp2 = tmp$HZ
+    tmp3 = tmp$MZ
+    tmp4 = tmp$HMZ
+    ######
+    if(dim(tmp1)[1] > 0){
+        tmp_tab = data.frame(class="HM",index=tmp1$HM_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    if(dim(tmp2)[1] > 0){
+        tmp_tab = data.frame(class="HZ",index=tmp2$HZ_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    if(dim(tmp3)[1] > 0){
+        tmp_tab = data.frame(class="MZ",index=tmp3$MZ_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    if(dim(tmp4)[1] > 0){
+        tmp_tab = data.frame(class="HMZ",index=tmp4$HMZ_index)
+        tmp_list = c(tmp_list,list(tmp_tab))
+        }
+    tmp_list_merge = do.call('rbind',tmp_list)
+    #####
+    if(length(tmp_list_merge) > 0){
+        tmp_list_merge = list(tmp_list_merge)
+        names(tmp_list_merge) = names(overlap_UP)[i]
+        overlap_DOWN_out <- c(overlap_DOWN_out,tmp_list_merge)
+    }
+}
+
+
+######
+######
+names(overlap_UP_out) = paste0(names(overlap_UP_out),"_old")
+names(overlap_DOWN_out) = paste0(names(overlap_DOWN_out),"_young")
+
+Total_list = c(overlap_UP_out,overlap_DOWN_out)
+
+######
+######
+
+library(openxlsx)
+wb <- createWorkbook()
+for (ct in names(Total_list)) {
+  addWorksheet(wb, ct)
+  writeData(wb, ct, Total_list[[ct]], rowNames = FALSE)
+}
+saveWorkbook(wb, "HMZ_clocks_results_between.xlsx", overwrite = TRUE)
 
 
 
