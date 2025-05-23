@@ -13,6 +13,40 @@ Xenium5k_Mouse_Obj_pseudobulk_list <- readRDS("Xenium5k_Mouse_Obj_pseudobulk_lis
 setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
 Mouse_seurat_knn_pseudobulk <- readRDS("Mouse_seurat_knn_pseudobulk_2025")
 
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate seurat4
+R
+
+setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+Zebrafish_seurat_knn_pseudobulk <- readRDS("Zebrafish_seurat_knn_pseudobulk_2025")
+
+Genes = c("sparc","dkk1b")
+snRNAseq_MG = Zebrafish_seurat_knn_pseudobulk$MG
+snRNAseq_MG_Gexp = Get_Gene_expressions(Genes,snRNAseq_MG)
+snRNAseq_MG_Gexp$age = sapply(strsplit(as.character(snRNAseq_MG_Gexp$cell),split="_"),function(x) x[[1]])
+snRNAseq_MG_Gexp$age = factor(snRNAseq_MG_Gexp$age,levels=c('1','3','6','12','18','22','24','30','36','48'))
+
+
+library(ggplot2)
+
+p <- ggplot(snRNAseq_MG_Gexp, aes(x = age, y = expression, fill=age)) +
+  geom_boxplot(color = "black", outlier.shape = NA) +
+  facet_wrap(~ gene, nrow = 1) +
+  # 给绘图区加黑色边框
+  theme_classic(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  )
+
+# 显示并保存
+print(p)
+ggsave("snRNAseq_MG_Gexp.png", plot = p, width = 6, height = 2, dpi = 300)
+
+
 ####
 ####
 
