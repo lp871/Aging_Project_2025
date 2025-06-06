@@ -278,7 +278,7 @@ Prepare_Matrix_And_Meta_Injury <- function(NMDA_samples_seurat_cl_sp_clocks){
     ########
     tmp = NMDA_samples_seurat_cl_sp_clocks[[i]]
     ########
-    tmp_matrix = tmp[['RNA']]$counts
+    tmp_matrix = tmp[['RNA']]@counts
     #########
     rownames(tmp_matrix) = sapply(strsplit(rownames(tmp_matrix),split="~~"),function(x) x[[2]])
     dup = which(duplicated(rownames(tmp_matrix)) == T)
@@ -325,7 +325,7 @@ Injury_Cone_res = PredictAgeFromModel(expr_mat=NMDA_samples_seurat_cl_sp_clocks_
 Injury_RGC_res = PredictAgeFromModel(expr_mat=NMDA_samples_seurat_cl_sp_clocks_input$RGC$Matrix,test_meta=NMDA_samples_seurat_cl_sp_clocks_input$RGC$Meta,fit_res=Zebrafish_RGC_model$model)
 
 head(Injury_MG_res)
-tapply(Injury_MG_res$preds,Injury_MG_res$sample,mean)
+tapply(Injury_MG_res$preds,Injury_MG_res$sample,summary)
 table()
 
 Injury_MG_res$sample = factor(Injury_MG_res$sample,levels=c("Control_2","NMDA_36hr","NMDA_54hr","NMDA_72hr","NMDA_96hr","NMDA_7D","NMDA_14D"))
@@ -336,6 +336,7 @@ ggsave("Injury_MG_res.png",height=4,width=7)
 
 
 Injury_Rod_res$sample = factor(Injury_Rod_res$sample,levels=c("Control_2","NMDA_36hr","NMDA_54hr","NMDA_72hr","NMDA_96hr","NMDA_7D","NMDA_14D"))
+tapply(Injury_Rod_res$preds,Injury_Rod_res$sample,summary)
 
 library(ggplot2)
 ggplot(Injury_Rod_res,aes(x=sample ,y=preds,color=sample)) + scale_y_continuous(expand=c(0,0)) + geom_boxplot(outlier.shape = NA,size=1)+ theme_classic() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
@@ -343,6 +344,7 @@ ggsave("Injury_Rod_res.png",height=4,width=7)
 
 
 Injury_Cone_res$sample = factor(Injury_Cone_res$sample,levels=c("Control_2","NMDA_36hr","NMDA_54hr","NMDA_72hr","NMDA_96hr","NMDA_7D","NMDA_14D"))
+tapply(Injury_Cone_res$preds,Injury_Cone_res$sample,summary)
 
 library(ggplot2)
 ggplot(Injury_Cone_res,aes(x=sample ,y=preds,color=sample)) + scale_y_continuous(expand=c(0,0)) + geom_boxplot(outlier.shape = NA,size=1)+ theme_classic() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
