@@ -401,6 +401,7 @@ done
 ssh plyu3@omb2.onc.jhmi.edu
 U[9C20&&
 
+########
 conda activate ArchR
 R
 
@@ -1473,8 +1474,31 @@ Add_foot_print_to_peak <- function(footprint,TAG,Peak_to_Gene_add,motif_tf_table
 
 
 
-########--------------filter GRNs #####
+########--------------filter GRNs #####------------------------------------------------------------------------------------------------
+########--------------filter GRNs #####------------------------------------------------------------------------------------------------
+########--------------filter GRNs #####------------------------------------------------------------------------------------------------
+########--------------filter GRNs #####------------------------------------------------------------------------------------------------
 
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate ArchR2
+R
+library(ArchR)
+
+########-----for Human samples------###
+
+setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+Human_GRNs_list = readRDS("Human_GRNs_list")
+
+setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+Mouse_GRNs_list = readRDS("Mouse_GRNs_list")
+
+setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+Zebrafish_GRNs_list <- readRDS("Zebrafish_GRNs_list")
+
+
+########---------
 
 Identify_expressed_TF <- function(count_list){
     ########
@@ -1513,9 +1537,47 @@ Filter_GRNs <- function(GRNs_list,Gene_list){
     return(GRNs_list)
 }
 
-######
-Human_expressed = Identify_expressed_TF(Human_pseudo_count)
+###### load the Human pseudo count #######
 
+setwd("/zp1/data/share/Human_aging_new")
+
+files = list.files()
+files_Avg = files[grep("_Avg_2025",files)]
+files_Avg_Name = gsub("Human_","",files_Avg)
+files_Avg_Name = gsub("_Avg_2025","",files_Avg_Name)
+files_Avg_Name = gsub("_clcl2","",files_Avg_Name)
+
+load_object <- function(file) {
+  # 检查文件存在
+  if (!file.exists(file)) {
+    stop("文件不存在：", file)
+  }
+  # 新建临时环境，不污染全局
+  tmp <- new.env()
+  # load 返回载入的对象名向量
+  objs <- load(file, envir = tmp)
+  
+  # 如果只有一个对象，直接返回该对象
+  if (length(objs) == 1) {
+    return(tmp[[objs]])
+  }
+  # 否则返回一个列表，名字对应各个对象
+  result <- mget(objs, envir = tmp)
+  return(result)
+}
+
+
+Human_pseudo_count = list()
+for(i in 1:length(files_Avg)){
+    #########
+    tmp = load_object(files_Avg[i])
+    ####
+    Human_pseudo_count <- c(Human_pseudo_count,list(tmp))
+}
+
+names(Human_pseudo_count) = files_Avg_Name
+
+Human_expressed = Identify_expressed_TF(Human_pseudo_count)
 cell_types <- unique(sub("_[FM]$", "", names(Human_expressed)))
 
 # 对每个细胞类型，合并 F 和 M 两个元素
@@ -1556,15 +1618,11 @@ Identify_expressed_TF <- function(count_list){
 setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
 Mouse_pseudo_count <- readRDS("Mouse_pseudo_count_2025")
 Mouse_expressed = Identify_expressed_TF(Mouse_pseudo_count)
-
-
 Mouse_GRNs_list_cl = Filter_GRNs(Mouse_GRNs_list,Mouse_expressed)
 
 setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
 Zebrafish_pseudo_count <- readRDS("Zebrafish_pseudo_count_2025")
-
 Zebrafish_expressed = Identify_expressed_TF(Zebrafish_pseudo_count)
-
 Zebrafish_GRNs_list_cl = Filter_GRNs(Zebrafish_GRNs_list,Zebrafish_expressed)
 
 
@@ -1574,24 +1632,295 @@ Zebrafish_GRNs_list_cl = Filter_GRNs(Zebrafish_GRNs_list,Zebrafish_expressed)
 ######## 4 classes ######
 ########
 ######## for each cell type, load the DEGs !! #######
-########
+######## for each cell type, load the aging clocks !!!! ######
 ######## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
 names(Zebrafish_GRNs_list)
-
 "RGC" "MG" "HC" "BC" "AC" "Cone" "Rod"
 ########
-######## load the Zebrafish aging DEGs ########
+######## load the Zebrafish aging DEGs ########------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########
 
-Zebrafish_Old = split(kc_index$G,kc_index$CT)
-Zebrafish_Young = split(kc_index$G,kc_index$CT)
+setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+load("Zebrafish_DEGs_Plot_Kmeans_order")
+
+kc = Zebrafish_DEGs_Plot_Kmeans_order
+Upclusters = c(5,6,7,8)
+Downclusters = c(1,2,3,4)
+
+kc$CT = sapply(strsplit(kc$genes,split="__"),function(x) x[[1]])
+kc$Gene = sapply(strsplit(kc$genes,split="__"),function(x) x[[2]])
+
+kc$Class = "Unknown"
+kc$Class[which(kc$cluster %in% Upclusters)] = "UP"
+kc$Class[which(kc$cluster %in% Downclusters)] = "DOWN"
+
+#####
+Zebrafish_UP = kc[which(kc$Class=="UP"),]
+Zebrafish_DOWN = kc[which(kc$Class=="DOWN"),]
+
+Zebrafish_Old_DEGs = split(Zebrafish_UP$Gene,Zebrafish_UP$CT)
+Zebrafish_Young_DEGs = split(Zebrafish_DOWN$Gene,Zebrafish_DOWN$CT)
+
+########
+######## load the Mouse aging DEGs 
+########
+
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+load("Mouse_DEGs_Plot_Kmeans_order")
+
+kc = Mouse_DEGs_Plot_Kmeans_order
+Upclusters = c(5,6,7,8)
+Downclusters = c(1,2,3,4)
+
+kc$CT = sapply(strsplit(kc$genes,split="__"),function(x) x[[1]])
+kc$Gene = sapply(strsplit(kc$genes,split="__"),function(x) x[[2]])
+
+kc$Class = "Unknown"
+kc$Class[which(kc$cluster %in% Upclusters)] = "UP"
+kc$Class[which(kc$cluster %in% Downclusters)] = "DOWN"
+
+#####
+Mouse_UP = kc[which(kc$Class=="UP"),]
+Mouse_DOWN = kc[which(kc$Class=="DOWN"),]
+
+#####
+Mouse_Old_DEGs = split(Mouse_UP$Gene,Mouse_UP$CT)
+Mouse_Young_DEGs = split(Mouse_DOWN$Gene,Mouse_DOWN$CT)
+
+#####----------------------------------------------------------------------------------------------------------------------------------------------------------------
+##### for Human load the human DEGs #######
+#####----------------------------------------------------------------------------------------------------------------------------------------------------------------
+#####----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+setwd("/zp1/data/share/Human_aging_new")
+load("Human_DEGs_Plot_Kmeans_order")
 
+#######-----for M ######----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+kc = Human_DEGs_Plot_Kmeans_order
+Upclusters = c(5,6,7,8,9)
+Downclusters = c(1,2,3,4)
 
 #######
+
+kc$CT = sapply(strsplit(kc$genes,split="_"),function(x) x[[1]])
+kc$Gene = sapply(strsplit(kc$genes,split="__"),function(x) x[[2]])
+
+kc$Class = "Unknown"
+kc$Class[which(kc$cluster %in% Upclusters)] = "UP"
+kc$Class[which(kc$cluster %in% Downclusters)] = "DOWN"
+
+#####
+Human_UP = kc[which(kc$Class=="UP"),]
+Human_DOWN = kc[which(kc$Class=="DOWN"),]
+
+
+######
+Human_Old_DEGs = split(Human_UP$Gene,Human_UP$CT)
+Human_Young_DEGs = split(Human_DOWN$Gene,Human_DOWN$CT)
+
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+save(Human_Old_DEGs,file="Human_Old_DEGs")
+save(Human_Young_DEGs,file="Human_Young_DEGs")
+save(Mouse_Old_DEGs,file="Mouse_Old_DEGs")
+save(Mouse_Young_DEGs,file="Mouse_Young_DEGs")
+save(Zebrafish_Old_DEGs,file="Zebrafish_Old_DEGs")
+save(Zebrafish_Young_DEGs,file="Zebrafish_Young_DEGs")
+
+######
+###### Next we will load the clock genes #######
+######
+
+
+
+
+###### for Mouse ####------------------------------------------------------------------------------------------------------------------------
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+load("Mouse_MG_model")
+load("Mouse_RGC_model")
+load("Mouse_AC_model")
+load("Mouse_HC_model")
+load("Mouse_Rod_model")
+load("Mouse_Cone_model")
+load("Mouse_BC_model")
+load("Mouse_RPE_model")
+load("Mouse_Microglia_model")
+
+MG = Get_old_G_from_model(Mouse_MG_model$model)
+RGC = Get_old_G_from_model(Mouse_RGC_model$model)
+AC = Get_old_G_from_model(Mouse_AC_model$model)
+HC = Get_old_G_from_model(Mouse_HC_model$model)
+BC = Get_old_G_from_model(Mouse_BC_model$model)
+RPE = Get_old_G_from_model(Mouse_RPE_model$model)
+Rod = Get_old_G_from_model(Mouse_Rod_model$model)
+Cone = Get_old_G_from_model(Mouse_Cone_model$model)
+Microglia = Get_old_G_from_model(Mouse_Microglia_model$model)
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+Mouse_Old_Clock = split(G,CT)
+
+######
+
+MG = Get_young_G_from_model(Mouse_MG_model$model)
+RGC = Get_young_G_from_model(Mouse_RGC_model$model)
+AC = Get_young_G_from_model(Mouse_AC_model$model)
+HC = Get_young_G_from_model(Mouse_HC_model$model)
+BC = Get_young_G_from_model(Mouse_BC_model$model)
+RPE = Get_young_G_from_model(Mouse_RPE_model$model)
+Rod = Get_young_G_from_model(Mouse_Rod_model$model)
+Cone = Get_young_G_from_model(Mouse_Cone_model$model)
+Microglia = Get_young_G_from_model(Mouse_Microglia_model$model)
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+Mouse_Young_Clock = split(G,CT)
+
+###### for Zebrafish ####------------------------------------------------------------------------------------------------------------------------
+
+
+setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+
+load("Zebrafish_MG_model")
+load("Zebrafish_RGC_model")
+load("Zebrafish_AC_model")
+load("Zebrafish_HC_model")
+load("Zebrafish_Rod_model")
+load("Zebrafish_Cone_model")
+load("Zebrafish_BC_model")
+load("Zebrafish_RPE_model")
+load("Zebrafish_Microglia_model")
+
+MG = Get_old_G_from_model(Zebrafish_MG_model$model)
+RGC = Get_old_G_from_model(Zebrafish_RGC_model$model)
+AC = Get_old_G_from_model(Zebrafish_AC_model$model)
+HC = Get_old_G_from_model(Zebrafish_HC_model$model)
+BC = Get_old_G_from_model(Zebrafish_BC_model$model)
+RPE = Get_old_G_from_model(Zebrafish_RPE_model$model)
+Rod = Get_old_G_from_model(Zebrafish_Rod_model$model)
+Cone = Get_old_G_from_model(Zebrafish_Cone_model$model)
+Microglia = Get_old_G_from_model(Zebrafish_Microglia_model$model)
+
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+Zebrafish_Old_Clock = split(G,CT)
+
+MG = Get_young_G_from_model(Zebrafish_MG_model$model)
+RGC = Get_young_G_from_model(Zebrafish_RGC_model$model)
+AC = Get_young_G_from_model(Zebrafish_AC_model$model)
+HC = Get_young_G_from_model(Zebrafish_HC_model$model)
+BC = Get_young_G_from_model(Zebrafish_BC_model$model)
+RPE = Get_young_G_from_model(Zebrafish_RPE_model$model)
+Rod = Get_young_G_from_model(Zebrafish_Rod_model$model)
+Cone = Get_young_G_from_model(Zebrafish_Cone_model$model)
+Microglia = Get_young_G_from_model(Zebrafish_Microglia_model$model)
+
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+Zebrafish_Young_Clock = split(G,CT)
+
+########
+########------Next for Human ###########
+########
+
+setwd("/zp1/data/share/Human_aging_new")
+
+load(file="Human_MG_model_F")
+load(file="Human_Rod_model_F")
+load(file="Human_Cone_model_F")
+load(file="Human_AC_model_F")
+load(file="Human_HC_model_F")
+load(file="Human_BC_model_F")
+load(file="Human_RPE_model_F")
+load(file="Human_RGC_model_F")
+load(file="Human_Microglia_model_F")
+load(file="Human_MG_model_M")
+load(file="Human_Rod_model_M")
+load(file="Human_Cone_model_M")
+load(file="Human_AC_model_M")
+load(file="Human_HC_model_M")
+load(file="Human_BC_model_M")
+load(file="Human_RPE_model_M")
+load(file="Human_RGC_model_M")
+load(file="Human_Microglia_model_M")
+
+MG = c(Get_old_G_from_model(Human_MG_model_F$model),Get_old_G_from_model(Human_MG_model_M$model))
+RGC = c(Get_old_G_from_model(Human_RGC_model_F$model),Get_old_G_from_model(Human_RGC_model_M$model))
+AC = c(Get_old_G_from_model(Human_AC_model_F$model),Get_old_G_from_model(Human_AC_model_M$model))
+HC = c(Get_old_G_from_model(Human_HC_model_F$model),Get_old_G_from_model(Human_HC_model_M$model))
+BC = c(Get_old_G_from_model(Human_BC_model_F$model),Get_old_G_from_model(Human_BC_model_M$model))
+RPE = c(Get_old_G_from_model(Human_RPE_model_F$model),Get_old_G_from_model(Human_RPE_model_M$model))
+Rod = c(Get_old_G_from_model(Human_Rod_model_F$model),Get_old_G_from_model(Human_Rod_model_M$model))
+Cone = c(Get_old_G_from_model(Human_Cone_model_F$model),Get_old_G_from_model(Human_Cone_model_M$model))
+Microglia = c(Get_old_G_from_model(Human_Microglia_model_F$model),Get_old_G_from_model(Human_Microglia_model_M$model))
+
+
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+Human_Old_Clock = split(G,CT)
+
+######
+######
+######
+
+MG = c(Get_young_G_from_model(Human_MG_model_F$model),Get_young_G_from_model(Human_MG_model_M$model))
+RGC = c(Get_young_G_from_model(Human_RGC_model_F$model),Get_young_G_from_model(Human_RGC_model_M$model))
+AC = c(Get_young_G_from_model(Human_AC_model_F$model),Get_young_G_from_model(Human_AC_model_M$model))
+HC = c(Get_young_G_from_model(Human_HC_model_F$model),Get_young_G_from_model(Human_HC_model_M$model))
+BC = c(Get_young_G_from_model(Human_BC_model_F$model),Get_young_G_from_model(Human_BC_model_M$model))
+RPE = c(Get_young_G_from_model(Human_RPE_model_F$model),Get_young_G_from_model(Human_RPE_model_M$model))
+Rod = c(Get_young_G_from_model(Human_Rod_model_F$model),Get_young_G_from_model(Human_Rod_model_M$model))
+Cone = c(Get_young_G_from_model(Human_Cone_model_F$model),Get_young_G_from_model(Human_Cone_model_M$model))
+Microglia = c(Get_young_G_from_model(Human_Microglia_model_F$model),Get_young_G_from_model(Human_Microglia_model_M$model))
+
+
+
+G = c(MG,RGC,AC,HC,BC,RPE,Rod,Cone,Microglia)
+CT = rep(c("MG","RGC","AC","HC","BC","RPE","Rod","Cone","Microglia"),c(length(MG),length(RGC),length(AC),length(HC),length(BC),length(RPE),length(Rod),length(Cone),length(Microglia)))
+
+Human_Young_Clock = split(G,CT)
+
+######
+######
+######
+
+
+setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+save(Human_Old_Clock,file="Human_Old_Clock")
+save(Human_Young_Clock,file="Human_Young_Clock")
+save(Mouse_Old_Clock,file="Mouse_Old_Clock")
+save(Mouse_Young_Clock,file="Mouse_Young_Clock")
+save(Zebrafish_Old_Clock,file="Zebrafish_Old_Clock")
+save(Zebrafish_Young_Clock,file="Zebrafish_Young_Clock")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###### for Human ####------------------------------------------------------------------------------------------------------------------------
+
+
+
 
 
 
@@ -1793,11 +2122,14 @@ ggsave("Human_GRNs_bar.png",height=3,width=4)
 ##########
 
 
-Human_List_Add = Make_the_barplots_for_Figure3(Human_GRNs_list_cl,Human_Old,Human_Young)
+Human_List_Add_DEGs = Make_the_barplots_for_Figure3(Human_GRNs_list_cl,Human_Old_DEGs,Human_Young_DEGs)
+Human_List_Add_Clock = Make_the_barplots_for_Figure3(Human_GRNs_list_cl,Human_Old_Clock,Human_Young_Clock)
 
-Zebrafish_List_Add = Make_the_barplots_for_Figure3(Zebrafish_GRNs_list_cl,Zebrafish_Old,Zebrafish_Young)
+Zebrafish_List_Add_DEGs = Make_the_barplots_for_Figure3(Zebrafish_GRNs_list_cl,Zebrafish_Old_DEGs,Zebrafish_Young_DEGs)
+Zebrafish_List_Add_Clock = Make_the_barplots_for_Figure3(Zebrafish_GRNs_list_cl,Zebrafish_Old_Clock,Zebrafish_Young_Clock)
 
-Mouse_List_Add = Make_the_barplots_for_Figure3(Mouse_GRNs_list_cl,Mouse_Old,Mouse_Young)
+Mouse_List_Add_DEGs = Make_the_barplots_for_Figure3(Mouse_GRNs_list_cl,Mouse_Old_DEGs,Mouse_Young_DEGs)
+Mouse_List_Add_Clock = Make_the_barplots_for_Figure3(Mouse_GRNs_list_cl,Mouse_Old_Clock,Mouse_Young_Clock)
 
 
 Make_the_barplots_for_Figure3 <- function(GRNs_list,UP_list,DOWN_list){
@@ -1843,17 +2175,34 @@ Make_the_barplots_for_Figure3 <- function(GRNs_list,UP_list,DOWN_list){
 
 GRNs_list = Human_List_Add
 
-Human_TF_enrich = Perform_TF_enrich_FINAL(Human_List_Add)
+Human_TF_enrich_DEGs = Perform_TF_enrich_FINAL(Human_List_Add_DEGs)
+Human_TF_enrich_Clock = Perform_TF_enrich_FINAL(Human_List_Add_Clock)
+
 setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
 saveRDS(Human_TF_enrich,file="Human_TF_enrich")
 
-Zebrafish_TF_enrich = Perform_TF_enrich_FINAL(Zebrafish_List_Add)
+Zebrafish_TF_enrich_DEGs = Perform_TF_enrich_FINAL(Zebrafish_List_Add_DEGs)
+Zebrafish_TF_enrich_Clock = Perform_TF_enrich_FINAL(Zebrafish_List_Add_Clock)
+
 setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
 saveRDS(Zebrafish_TF_enrich,file="Zebrafish_TF_enrich")
 
-Mouse_TF_enrich = Perform_TF_enrich_FINAL(Mouse_List_Add)
+Mouse_TF_enrich_DEGs = Perform_TF_enrich_FINAL(Mouse_List_Add_DEGs)
+Mouse_TF_enrich_Clock = Perform_TF_enrich_FINAL(Mouse_List_Add_Clock)
+
 setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
 saveRDS(Mouse_TF_enrich,file="Mouse_TF_enrich")
+
+
+#######
+#######
+library(writexl)
+write_xlsx(Human_TF_enrich_DEGs, path = "Human_TF_enrich_DEGs.xlsx")
+write_xlsx(Human_TF_enrich_Clock, path = "Human_TF_enrich_Clock.xlsx")
+write_xlsx(Mouse_TF_enrich_DEGs, path = "Mouse_TF_enrich_DEGs.xlsx")
+write_xlsx(Mouse_TF_enrich_Clock, path = "Mouse_TF_enrich_Clock.xlsx")
+write_xlsx(Zebrafish_TF_enrich_DEGs, path = "Zebrafish_TF_enrich_DEGs.xlsx")
+write_xlsx(Zebrafish_TF_enrich_Clock, path = "Zebrafish_TF_enrich_Clock.xlsx")
 
 
 
@@ -1962,9 +2311,9 @@ Mouse_TF_enrich <- readRDS(file="Mouse_TF_enrich")
 TAG1 = "MG"
 TAG2 = "pos_Young"
 
-H = Human_TF_enrich
-M = Mouse_TF_enrich
-Z = Zebrafish_TF_enrich
+H = Human_TF_enrich_Clock
+M = Mouse_TF_enrich_Clock
+Z = Zebrafish_TF_enrich_Clock
 
 HMZ_ortholog_combined <- readRDS("/zp1/data/share/Human_aging_new/HMZ_ortholog_combined_2025")
 
@@ -2128,23 +2477,70 @@ Prepare_the_dot_plot <- function(H,M,Z,TAG1,TAG2){
 TAG1 = "Rod"
 TAG2 = "pos_Old"
 
-res_total = Prepare_the_dot_plot(H,M,Z,"AC","pos_Old")
-    ####
-    library(ggplot2)
-    ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='red') + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) 
-    ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
-    #####
-    library(ggplot2)
-    ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='blue') + xlab("") + ylab("")+ theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) 
-    ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
-    ######
-    library(ggplot2)
-    ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='pink') + xlab("") + ylab("")+ theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) 
-    ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
+res_total = Prepare_the_dot_plot(H,M,Z,"MG","pos_Old")
+res_total = Process_res2(res_total)
+
+res_total = Prepare_the_dot_plot(H,M,Z,"Rod","pos_Old")
+res_total = Process_res2(res_total)
+
+res_total = Prepare_the_dot_plot(H,M,Z,"Rod","pos_Young")
+res_total = Process_res2(res_total)
+
+res_total = Prepare_the_dot_plot(H,M,Z,"Rod","neg_Young")
+res_total = Process_res2(res_total)
+
+res_total = Prepare_the_dot_plot(H,M,Z,"Rod","neg_Old")
+res_total = Process_res2(res_total)
+####
+Process_res2 <- function(res_total){
     #######
-    library(ggplot2)
-    ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='lightblue') + xlab("") + ylab("")+ theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) 
-    ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
+    k1 = which(res_total$sp == "H")
+    k2 = which(res_total$sp == "M")
+    k3 = which(res_total$sp == "Z")
+    #######
+    res_total$sp = as.character(res_total$sp)
+    res_total$sp[k1] = "Human"
+    res_total$sp[k2] = "Mouse"
+    res_total$sp[k3] = "Zebrafish"
+    ########
+    for(i in 1:length(res_total$index)){
+        #########
+        tmp = res_total$index[i]
+        tmp = unlist(strsplit(tmp,split="__"))
+        tmp = rev(tmp)
+        tmp = paste(tmp,collapse="__")
+        res_total$index[i] = tmp
+    }
+    #######
+    res_total$sp = factor(res_total$sp,levels=c("Zebrafish","Mouse","Human"))
+    return(res_total)
+}
+
+
+####
+library(ggplot2)
+ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='red', guide = guide_colorbar(reverse = FALSE, order = 1)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggsave("HMZ_MG_overlap.png",height=4.5,width=3.5)
+
+
+#####
+library(ggplot2)
+ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='blue', guide = guide_colorbar(reverse = FALSE, order = 1)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
+    
+
+#####
+library(ggplot2)
+ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='pink', guide = guide_colorbar(reverse = FALSE, order = 1)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
+
+
+#####
+library(ggplot2)
+ggplot(res_total,aes(x=sp,y=reorder(index,order,decreasing=T))) + geom_point(aes(size= cov,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='lightblue', guide = guide_colorbar(reverse = FALSE, order = 1)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggsave("HMZ_MG_overlap.png",height=4,width=3.5)
+
+
 
 
 ######
@@ -2166,7 +2562,7 @@ Zebrafish_List_Add_Rod_Plot = Zebrafish_List_Add_Rod[which(Zebrafish_List_Add_Ro
 
 
 
-    ######
+######
 
 
 
