@@ -1,0 +1,875 @@
+##########
+########## First we will copy the files to the new server: #####
+##########
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate seurat4
+R
+
+##########
+##########
+
+cp -r /zp1/data/share/Isabella/240409_RPE_Cellranger_outs/5W_RPE /zp1/data/plyu3/Mouse_RPE_Jul12/
+cp -r /zp1/data/share/Isabella/240409_RPE_Cellranger_outs/49W_RPE /zp1/data/plyu3/Mouse_RPE_Jul12/
+cp -r /zp1/data/share/Isabella/240409_RPE_Cellranger_outs/91W_RPE /zp1/data/plyu3/Mouse_RPE_Jul12/
+
+
+##########
+########## Aging prediction !!!!!! ########
+##########
+
+
+######
+###### 可以开始 process 了 ！！！ we will see the RPE results !!! #######
+######
+
+
+#######
+####### load seurat to the output folder #########
+#######
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12")
+
+folder_list = list.files()[1:3]
+TAG = folder_list[1:3]
+
+#####
+#####
+#####
+
+load_the_filter_to_Seurat <- function(folder,TAG){
+    library(Seurat)
+    #######
+    tmp_mat = paste0(folder,'/outs/','filtered_feature_bc_matrix','/','matrix.mtx.gz')
+    tmp_gene = paste0(folder,'/outs/','filtered_feature_bc_matrix','/','features.tsv.gz')
+    tmp_cell = paste0(folder,'/outs/','filtered_feature_bc_matrix','/','barcodes.tsv.gz')
+    #######
+    library(Matrix)
+    matrix = readMM(tmp_mat)
+    #######
+    library(readr)
+    cell = read_tsv(tmp_cell,col_names = FALSE)
+    #######
+    cell = data.frame(cell)
+    #######
+    colnames(matrix) <- paste0(TAG,"__",cell$X1)
+    #######
+    ####### the matrix is a log2 transfromed values !!! ####
+    gene = read_tsv(tmp_gene,col_names = FALSE)
+    gene = data.frame(gene)
+    ########
+    ########
+    rownames(matrix) <- paste0(gene$X1,"~~",gene$X2)
+    ########
+    k = which(gene$X3 == "Gene Expression")
+    ########
+    Mouse_seurat = CreateSeuratObject(matrix[k,])
+    ######## add the mt cells ####
+    mito_pattern <- "~~mt-"
+    Mouse_seurat <- PercentageFeatureSet(
+        object = Mouse_seurat,
+        pattern = mito_pattern,
+        col.name = "percent.mito"
+    )
+    ########
+    return(Mouse_seurat)
+}
+
+
+for(i in 1:length(folder_list)){
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12")
+    ######
+    tmp_folder = folder_list[[i]]
+    tmp_TAG = TAG[i]
+    print(tmp_TAG)
+    ######
+    tmp_seurat = load_the_filter_to_Seurat(tmp_folder,tmp_TAG)
+    ###### filter the seurat #######
+    ######
+    k = which(tmp_seurat$nFeature_RNA > 300 & tmp_seurat$percent.mito < 10)
+    ######
+    ######
+    tmp_seurat_cl = tmp_seurat[,k]
+    print(dim(tmp_seurat_cl))
+    ######
+    ######
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+    FN_out = paste0(tmp_TAG,".rds")
+    #####
+    saveRDS(tmp_seurat_cl,file=FN_out)
+    #####
+}
+
+#########
+#########
+
+Loop_functions <- function(cutoff=0.5,Seurat_merge,TAG){
+    ###########
+    init_max_score = 1
+    Seurat_list_res = list()
+    init_count = 0
+    init_seurat = Seurat_merge
+    notgood_pct = 100
+    ###########
+    while(notgood_pct > 5 & init_count < 101){
+        ########
+        init_count = init_count+1
+        print(paste("iter:",init_count))
+        print(paste("cell number:",dim(init_seurat)[2]))
+        ########
+        next_seurat_list = ReGet_scrublet(init_seurat,TAG)
+        next_seurat = next_seurat_list[[1]]
+        init_max_score = max(next_seurat$scrublet)
+        ########
+        notgood_pct = next_seurat_list[[3]]
+        cutoff_soft = next_seurat_list[[2]]
+        print(notgood_pct)
+        print(cutoff_soft)
+        if(cutoff_soft > cutoff){
+            ####
+            cutoff = cutoff_soft
+        }
+        ########
+        print(paste("doublets%:",notgood_pct))
+        print(paste("cutoff:",cutoff))
+        ########
+        next_tag = paste0(TAG,"_",init_count)
+        next_seurat = Process2_each(next_seurat,next_tag,cutoff=cutoff)
+        ########
+        Seurat_list_res <- c(Seurat_list_res,list(next_seurat@meta.data))
+        ########
+        init_seurat = next_seurat
+        ########
+        print(paste("max score:",init_max_score))
+    }
+    ######
+    RES_files = paste0(TAG,"_Meta_res_List")
+    save(Seurat_list_res,file=RES_files)
+}
+
+ReGet_scrublet <- function(seurat_obj,TAG){
+    ##########
+    library(Seurat)
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA/")
+    ########
+    tmp_seurat_obj = seurat_obj
+    ########
+    library(Matrix)
+    mat = tmp_seurat_obj[['RNA']]@counts
+    gene = rownames(mat)
+    gene = data.frame(V1=gene,V2=gene)
+    barcode = colnames(mat)
+    barcode = data.frame(V1=barcode,V2=barcode)
+    ########
+    FN1 = paste(TAG,"tmp1",'scrublet_mat.mtx',sep='_')
+    FN2 = paste(TAG,"tmp1",'scrublet_gene.tsv',sep='_')
+    FN3 = paste(TAG,"tmp1",'scrublet_barcode.tsv',sep='_')
+    writeMM(mat,file=FN1)
+    write.table(gene,file=FN2,sep='\t',quote=F,col.names=F,row.names=F)
+    write.table(barcode,file=FN3,sep='\t',quote=F,col.names=F,row.names=F)
+    ########
+    command = paste0("python /zp1/data/plyu3/Mouse_aging/RNA_out/Muti_process.py --output_folder=","/zp1/data/plyu3/Mouse_RPE_Jul12/RNA/"," --output_tags=",TAG,"_tmp1")
+    outs = system(command,wait=T,intern = TRUE)
+    print(outs)
+    ########
+    FN_res = paste(TAG,'tmp1_scrublet_res.tsv',sep='_')
+    res = read.table(FN_res,sep="\t")
+    ########
+    m = match(colnames(tmp_seurat_obj),res$V1)
+    #print(summary(tmp_seurat_obj$scrublet))
+    tmp_seurat_obj$scrublet = res$V2[m]
+    print(summary(tmp_seurat_obj$scrublet))
+    #####
+    parameter = Analysis_out_put(outs)
+    #####
+    seurat_obj_list_merge = list(tmp_seurat_obj)
+    #####
+    return(c(seurat_obj_list_merge,parameter))
+}
+
+Analysis_out_put <- function(outs){
+    #####
+    k1 = grep("Automatically set threshold",outs)
+    threshold = outs[k1]
+    k2 = grep("\tEstimated",outs)
+    Estimated = outs[k2]
+    ####
+    threshold = as.numeric(gsub("Automatically set threshold at doublet score = ","",threshold))
+    Estimated = gsub("Estimated  = ","",Estimated)
+    Estimated = gsub("\t","",Estimated)
+    Estimated = gsub("%","",Estimated)
+    Estimated = as.numeric(Estimated)
+    ####
+    if(length(threshold) == 0){
+        threshold = 0.25
+    }
+    if(length(Estimated) == 0){
+        Estimated = 20
+    }
+    ####
+    return(list(threshold,Estimated))
+}
+
+
+
+clean_seurat <- function(seurat_obj,TAG){
+    #####
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA/")
+    FN = paste0(TAG,"_Meta_res_List")
+    load(FN)
+    print(length(Seurat_list_res))
+    ######
+    last = length(Seurat_list_res)
+    tmp = Seurat_list_res[[last]]
+    k = which(colnames(seurat_obj) %in% rownames(tmp) == T)
+    seurat_obj_cl = seurat_obj[,k]
+    ######
+    m = match(colnames(seurat_obj_cl),rownames(tmp))
+    ######
+    seurat_obj_cl@meta.data = tmp[m,]
+    ######
+    print(dim(seurat_obj))
+    print(dim(seurat_obj_cl))
+    ######
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA/")
+    FN = paste0(TAG,".rds")
+    ######
+    saveRDS(seurat_obj_cl,file=FN)
+}
+
+
+#######
+####### see the RPE Microglia markers ######
+#######
+
+Process2_each <- function(seurat_obj,TAG,cutoff){
+    #######
+    k = which(seurat_obj$scrublet < cutoff)
+    if(length(k) > 0){
+        seurat_obj = seurat_obj[,k]
+    }
+    #######
+    library(Seurat)
+	DefaultAssay(seurat_obj) <- "RNA"
+	seurat_obj <- NormalizeData(seurat_obj, verbose = FALSE)
+  	seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "vst",nfeatures = 2000, verbose = FALSE)
+  	seurat_obj <- ScaleData(seurat_obj, verbose = FALSE)
+  	seurat_obj <- RunPCA(seurat_obj, npcs = 35, verbose = FALSE)
+    seurat_obj <- RunUMAP(seurat_obj,reduction = "pca", dims = 1:35)
+    seurat_obj <- FindNeighbors(seurat_obj, reduction = "pca", dims = 1:35)
+    seurat_obj <- FindClusters(seurat_obj, resolution = 20)
+    #######
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA/")
+    #######
+    Meta = seurat_obj@meta.data
+    Meta = cbind(Meta,seurat_obj@reductions$umap@cell.embeddings)
+    #######
+    Plot(Meta,TAG,seurat_obj)
+    #######
+    print("Done!!!")
+    return(seurat_obj)
+}
+
+Plot <- function(Meta,TAG,seurat_obj){
+    library(dplyr)
+    library(ggplot2)
+    library(ggrepel)
+    #####
+    label.df <- data.frame(seurat_clusters=levels(as.factor(Meta$seurat_clusters)),label=levels(as.factor(Meta$seurat_clusters)))
+    label.df_2 <- Meta %>% 
+        group_by(seurat_clusters) %>% 
+        summarize(UMAP_1 = mean(UMAP_1), UMAP_2 = mean(UMAP_2)) %>% 
+        left_join(label.df)
+    #####
+    ggplot(Meta, aes(x = UMAP_1, y = UMAP_2, color = seurat_clusters)) + geom_point(size=0.1) + theme_classic() + labs(title = "UMAP Plot", x = "UMAP 1", y = "UMAP 2") + ggrepel::geom_label_repel(data = label.df_2, aes(label = label))
+    ######
+    ggFN = paste0(TAG,".clusters.png")
+    ggsave(file=ggFN,width=30,height=25)
+    ######
+    DefaultAssay(seurat_obj) <- "RNA"
+    ######
+    #ggFN = paste0(TAG,".Celltype.png")
+    #png(ggFN,height=6000,width=12000,res=72*12)
+    #print(DimPlot(seurat_obj, reduction = "umap",group.by="celltype"))
+    #dev.off()
+    ######
+    #ggFN = paste0(TAG,".Sample.png")
+    #png(ggFN,height=6000,width=12000,res=72*12)
+    #print(DimPlot(seurat_obj, reduction = "umap",group.by="sample"))
+    #dev.off()
+    ######
+    #ggFN = paste0(TAG,".Doublets.png")
+    #png(ggFN,height=6000,width=12000,res=72*12)
+    #print(FeaturePlot(seurat_obj, reduction = "umap",features="scrublet"))
+    #dev.off()
+    ######
+    #ggFN = paste0(TAG,".RPE.png")
+    #png(ggFN,height=6000,width=12000,res=72*12)
+    #print(FeaturePlot(seurat_obj, reduction = "umap",features="ENSDARG00000007480~~rpe65a"))
+    #dev.off()
+    #ggFN = paste0(TAG,".Microglia.png")
+    #png(ggFN,height=6000,width=12000,res=72*12)
+    #print(FeaturePlot(seurat_obj, reduction = "umap",features="ENSDARG00000092170~~apoc1"))
+    #dev.off()
+    ####
+    print("Done!!!")
+}
+
+
+#########
+#########
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+
+RPE_5W_Seurat = readRDS("5W_RPE.rds")
+RPE_5W_Seurat_Cl = Loop_functions(cutoff=0.25,Seurat_merge=RPE_5W_Seurat,TAG="5W_RPE")
+clean_seurat(RPE_5W_Seurat,"5W_RPE")
+
+RPE_49W_Seurat = readRDS("49W_RPE.rds")
+RPE_49W_Seurat_Cl = Loop_functions(cutoff=0.25,Seurat_merge=RPE_49W_Seurat,TAG="49W_RPE")
+clean_seurat(RPE_49W_Seurat,"49W_RPE")
+
+RPE_91W_Seurat = readRDS("91W_RPE.rds")
+RPE_91W_Seurat_Cl = Loop_functions(cutoff=0.25,Seurat_merge=RPE_91W_Seurat,TAG="91W_RPE")
+clean_seurat(RPE_91W_Seurat,"91W_RPE")
+##########
+##########
+
+##########
+clean_seurat <- function(seurat_obj,TAG){
+    #####
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+    FN = paste0(TAG,"_Meta_res_List")
+    load(FN)
+    print(length(Seurat_list_res))
+    ######
+    last = length(Seurat_list_res)
+    tmp = Seurat_list_res[[last]]
+    k = which(colnames(seurat_obj) %in% rownames(tmp) == T)
+    seurat_obj_cl = seurat_obj[,k]
+    ######
+    m = match(colnames(seurat_obj_cl),rownames(tmp))
+    ######
+    seurat_obj_cl@meta.data = tmp[m,]
+    ######
+    print(dim(seurat_obj))
+    print(dim(seurat_obj_cl))
+    ######
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+    FN = paste0(TAG,".rds")
+    ######
+    saveRDS(seurat_obj_cl,file=FN)
+}
+
+
+
+########## RPE with marker genes !!!!! #####
+##########
+
+########## we try first with the mouse ref annotations ####
+##########
+
+
+
+Final_Clean_piplines <- function(TAG){
+    ##########
+    library(Seurat)
+    ##########
+    seurat_obj_names = paste0(TAG,".rds")
+    seurat_obj <- readRDS(seurat_obj_names)
+    ##########
+    summary(seurat_obj$scrublet)
+    ##########
+    k = which(seurat_obj$scrublet < 0.5001)
+    seurat_obj_cl = seurat_obj
+    if(length(k) > 0){
+        print(length(k))
+        seurat_obj_cl = seurat_obj[,k]
+        print(dim(seurat_obj))
+        print(dim(seurat_obj_cl))
+    }
+    ##########
+    new_obj = paste0(TAG,"_cl.rds")
+    saveRDS(seurat_obj_cl,file=new_obj)
+    ##########
+    print("Done!!!")
+}
+
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+files = list.files()
+files_need = files[grep(".rds",files)]
+files_TAG = gsub(".rds","",files_need)
+
+library(parallel)
+num_cores <- 30
+mclapply(files_TAG, Final_Clean_piplines, mc.cores = num_cores)
+
+#####
+#####
+#####
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+files = list.files()
+files = files[grep("cl.rds",files)]
+
+#####
+
+
+library(Seurat)
+ref = readRDS("/zp1/data/plyu3/Mouse_aging_final/Mouse_aging/Annotation/Mouse_Ref_Seurat")
+ref <- FindVariableFeatures(ref, selection.method = "vst",nfeatures = 2000, verbose = FALSE)
+
+######
+
+for(i in 1:length(files)){
+    print(i)
+    Add_cell_anno2(files[i],ref)
+}
+
+
+
+Add_cell_anno2 <- function(query_tag,ref){
+    setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+    query = readRDS(query_tag)
+    #######
+	library(Seurat)
+	DefaultAssay(query) <- "RNA"
+	query <- NormalizeData(query, verbose = FALSE)
+  	query <- FindVariableFeatures(query, selection.method = "vst",nfeatures = 2000, verbose = FALSE)
+  	query <- ScaleData(query, verbose = FALSE)
+  	query <- RunPCA(query, npcs = 30, verbose = FALSE)
+	########
+	align.anchors <- FindTransferAnchors(reference = ref, query = query,dims = 1:30)
+	########
+	predictions <- TransferData(anchorset = align.anchors, refdata = ref$cell_type,dims = 1:30)
+	########
+	query = AddMetaData(query, metadata = predictions)
+	########
+	saveRDS(query,file=query_tag)
+}
+
+############
+############
+############
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate seurat4
+R
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+files = list.files()
+files_need = files[grep("_cl.rds",files)]
+files_TAG = gsub("_cl.rds","",files_need)
+
+To_python_adata_input <- function(TAG){
+    #######
+    library(Matrix)
+    library(Seurat)
+    #######
+    ######
+    seurat_obj_names = paste0(TAG,"_cl.rds")
+    seurat_obj <- readRDS(seurat_obj_names)
+    #######
+    mat = seurat_obj[['RNA']]@counts
+    mat = Matrix::t(mat)
+    #######
+    mat_file = paste0(TAG,"_matrix.mtx")
+    writeMM(mat,mat_file)
+    #######
+    gene_file = paste0(TAG,"_gene.tsv")
+    write.table(colnames(mat), gene_file, sep = "\t", quote = FALSE, row.names = FALSE)
+    #######
+    cell_file = paste0(TAG,"_cell.tsv")
+    meta = seurat_obj@meta.data
+    meta$X = rownames(meta)
+    write.table(meta, cell_file, sep = "\t", quote = FALSE, row.names = FALSE)
+}
+
+library(parallel)
+num_cores <- 5
+mclapply(files_TAG, To_python_adata_input, mc.cores = num_cores)
+
+######
+######
+######
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate seurat4
+python
+
+import os 
+os.chdir("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+
+import os
+import glob
+
+def list_matrix_files(folder_path):
+    # Construct the search pattern
+    search_pattern = os.path.join(folder_path, '*_matrix.mtx')
+    # Use glob to find all files that match the pattern
+    matrix_files = glob.glob(search_pattern)
+    return matrix_files
+
+folder_path = '/zp1/data/plyu3/Mouse_RPE_Jul12/RNA'
+matrix_files = list_matrix_files(folder_path)
+
+len(matrix_files)
+
+file_list = [file.replace('_matrix.mtx', '') for file in matrix_files]
+
+######
+file_index = file_list[0]
+
+for file_index in file_list:
+    To_h5ad_from_matrix(file_index)
+
+import concurrent
+import concurrent.futures
+
+def parallel_processing(file_list):
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(executor.map(To_h5ad_from_matrix, file_list))
+    return results
+
+adata_list = parallel_processing(file_list)
+
+import anndata as ad
+
+adata_list_merged = ad.concat(adata_list, axis=0)
+Samples = adata_list_merged.obs.X
+extracted_strings = [sample.split('__')[0] for sample in Samples]
+adata_list_merged.obs['sample'] = extracted_strings
+adata_list_merged.write("Mouse_RPE_merged_Jul15.h5ad")
+
+#######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+####### Mouse RPE markers !!!! #####
+#######
+####### First integrate the Samples ！！！ ########
+
+#######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate seurat4
+R
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+files = list.files()
+files_need = files[grep("_cl.rds",files)]
+files_TAG = gsub("_cl.rds","",files_need)
+
+#######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+seurat_list <- list()
+for(i in 1:length(files_need)){
+    print(files_need[i])
+    tmp_seurat = readRDS(files_need[i])
+    seurat_list <- c(seurat_list,list(tmp_seurat))
+}
+
+library(Seurat)
+
+ifnb.list <- lapply(X = seurat_list, FUN = function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+
+
+
+features <- SelectIntegrationFeatures(object.list = ifnb.list)
+ifnb.list <- lapply(X = ifnb.list, FUN = function(x) {
+    x <- ScaleData(x, features = features, verbose = FALSE)
+    x <- RunPCA(x, features = features, verbose = FALSE)
+})
+
+anchors <- FindIntegrationAnchors(object.list = ifnb.list, anchor.features = features, reduction = "rpca",k.anchor = 15)
+combined <- IntegrateData(anchorset = anchors)
+
+DefaultAssay(combined) <- "integrated"
+immune.combined <- ScaleData(combined, verbose = FALSE)
+immune.combined <- RunPCA(immune.combined, npcs = 50, verbose = FALSE)
+immune.combined <- RunUMAP(immune.combined, reduction = "pca", dims = 1:50)
+immune.combined <- FindNeighbors(immune.combined, reduction = "pca", dims = 1:50)
+immune.combined <- FindClusters(immune.combined, resolution = 10)
+
+########### plot predicted.id ###########
+###########
+Mouse_RPE_merge <- immune.combined
+Mouse_RPE_merge$sample = sapply(strsplit(colnames(Mouse_RPE_merge),split="__"),function(x) x[[1]])
+
+table(Mouse_RPE_merge$sample)
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+########### plot predicted.id ###########
+png_file = paste0("RPE",'.id.png')
+png(png_file,height=4000,width=10000,res=72*12)
+print(DimPlot(Mouse_RPE_merge, reduction = "umap",group.by='predicted.id'))
+dev.off()
+
+png_file = paste0("RPE",'.idsp.png')
+png(png_file,height=3000,width=10000,res=72*12)
+print(DimPlot(Mouse_RPE_merge, reduction = "umap",group.by='predicted.id',split.by='sample'))
+dev.off()
+
+
+png_file = paste0("RPE",'.scrublet.png')
+png(png_file,height=3000,width=10000,res=72*12)
+print(FeaturePlot(Mouse_RPE_merge,features=c("scrublet"),split.by='sample'))
+dev.off()
+
+##### see markers !!! #####
+#####
+
+DefaultAssay(Mouse_RPE_merge) <- "RNA"
+Gene = rownames(Mouse_RPE_merge)[grep("Rpe65",rownames(Mouse_RPE_merge))]
+
+png_file = paste0("RPE",'.Rpe65.png')
+png(png_file,height=3000,width=10000,res=72*12)
+print(FeaturePlot(Mouse_RPE_merge,features=c(Gene),split.by='sample'))
+dev.off()
+
+
+#######
+#######
+#######
+
+
+Plot <- function(TAG,seurat_obj){
+    #####
+    Meta = seurat_obj@meta.data
+    Meta = cbind(Meta,seurat_obj@reductions$umap@cell.embeddings)
+    ####
+    library(dplyr)
+    library(ggplot2)
+    library(ggrepel)
+    #####
+    label.df <- data.frame(seurat_clusters=levels(as.factor(Meta$seurat_clusters)),label=levels(as.factor(Meta$seurat_clusters)))
+    label.df_2 <- Meta %>% 
+        group_by(seurat_clusters) %>% 
+        summarize(UMAP_1 = mean(UMAP_1), UMAP_2 = mean(UMAP_2)) %>% 
+        left_join(label.df)
+    #####
+    ggplot(Meta, aes(x = UMAP_1, y = UMAP_2, color = seurat_clusters)) + geom_point(size=0.1) + theme_classic() + labs(title = "UMAP Plot", x = "UMAP 1", y = "UMAP 2") + ggrepel::geom_label_repel(data = label.df_2, aes(label = label)) + theme(legend.position = "none")
+    ######
+    ggFN = paste0(TAG,".clusters.png")
+    ggsave(file=ggFN,width=30,height=25)
+    ######
+    print("Done!!!")
+}
+
+#######
+#######
+#######
+
+Plot("RPE0",Mouse_RPE_merge)
+
+rm_clusters <- c(78,76,69,81,84,80,71,73,68,60,63,35)
+
+Mouse_RPE_merge_cl1 = Mouse_RPE_merge[,which(Mouse_RPE_merge$seurat_clusters %in% rm_clusters == F)]
+
+Plot("RPE1",Mouse_RPE_merge_cl1)
+ 
+DefaultAssay(Mouse_RPE_merge_cl1) <- "integrated"
+Mouse_RPE_merge_cl1 <- RunUMAP(Mouse_RPE_merge_cl1, reduction = "pca", dims = 1:25)
+Mouse_RPE_merge_cl1 <- FindNeighbors(Mouse_RPE_merge_cl1, reduction = "pca", dims = 1:25)
+Mouse_RPE_merge_cl1 <- FindClusters(Mouse_RPE_merge_cl1, resolution = 10)
+
+Plot("RPE2",Mouse_RPE_merge_cl1)
+
+rm_clusters <- c(85,76,78,84)
+Mouse_RPE_merge_cl2 = Mouse_RPE_merge_cl1[,which(Mouse_RPE_merge_cl1$seurat_clusters %in% rm_clusters == F)]
+Plot("RPE2",Mouse_RPE_merge_cl2)
+
+
+DefaultAssay(Mouse_RPE_merge_cl2) <- "RNA"
+Gene = rownames(Mouse_RPE_merge_cl2)[grep("Mecom",rownames(Mouse_RPE_merge_cl2))]
+
+png_file = paste0("RPE",'.Mecom.png')
+png(png_file,height=3000,width=10000,res=72*12)
+print(FeaturePlot(Mouse_RPE_merge_cl2,features=c(Gene),split.by='sample'))
+dev.off()
+
+Gene = rownames(Mouse_RPE_merge_cl2)[grep("Rpe65",rownames(Mouse_RPE_merge_cl2))]
+
+#####
+##### see cluster and add annotations ######
+#####
+DefaultAssay(Mouse_RPE_merge_cl2) <- "integrated"
+Mouse_RPE_merge_cl2 <- FindClusters(Mouse_RPE_merge_cl2, resolution = 0.3)
+Plot("RPE2",Mouse_RPE_merge_cl2)
+
+CT_list <- list(
+ciliary_epithelial = c(6,8),
+RPE = c(0,2,3,1,5),
+VE = c(7),
+Stromal = c(4),
+Microglia = c(9)
+)
+
+Mouse_RPE_merge_cl2$celltype = "unknown"
+
+for(i in 1:length(CT_list)){
+    ###
+    k = which(Mouse_RPE_merge_cl2$seurat_clusters %in% CT_list[[i]] == T)
+    Mouse_RPE_merge_cl2$celltype[k] = names(CT_list)[i]
+}
+
+########
+######## OK!!!! save the results !!!! ####
+########
+
+Mouse_RPE_merge_cl2 <- RunUMAP(Mouse_RPE_merge_cl2, reduction = "pca", dims = 1:15)
+Plot("RPE2",Mouse_RPE_merge_cl2)
+
+rm_clusters <- c(5)
+Mouse_RPE_merge_cl3 = Mouse_RPE_merge_cl2[,which(Mouse_RPE_merge_cl2$seurat_clusters %in% rm_clusters == F)]
+
+Mouse_RPE_merge_cl3 <- RunUMAP(Mouse_RPE_merge_cl3, reduction = "pca", dims = 1:35)
+Plot("RPE3",Mouse_RPE_merge_cl3)
+
+saveRDS(Mouse_RPE_merge_cl3,file="Mouse_RPE_RNA_Final_Jul16")
+
+
+#####
+##### OK!!! 马上做ATAC ！！ #####
+#####
+
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate ArchR
+R
+library(Seurat)
+library(ArchR)
+
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/")
+
+###### add arrows ######
+###### add annotations ######
+###### add RPEs ####
+
+addArchRGenome("mm10")
+addArchRThreads(threads = 25) 
+
+inputFiles = list.files()[c(1:3)]
+names = inputFiles
+inputFiles = paste0(inputFiles,"/outs/atac_fragments.tsv.gz")
+
+names(inputFiles) <- names
+
+ArrowFiles <- createArrowFiles(
+  inputFiles = inputFiles,
+  sampleNames = names(inputFiles),
+  filterTSS = 4, #Dont set this too high because you can always increase later
+  filterFrags = 1000, 
+  addTileMat = TRUE,
+  addGeneScoreMat = TRUE
+)
+
+
+
+
+#######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+####### This time we will plot the RPE cells #######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#######-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+setwd("/zp1/data/plyu3/Mouse_RPE_Jul12/RNA")
+Mouse_RPE_merge_RNA <- readRDS(file="Mouse_RPE_RNA_Final_Jul16")
+
+Meta = Mouse_RPE_merge_RNA@meta.data
+UMAPs = Mouse_RPE_merge_RNA@reductions$umap@cell.embeddings
+colnames(UMAPs) <- c("UMAP_1","UMAP_2")
+Meta = cbind(Meta,UMAPs)
+
+table(Meta$celltype)
+celltype_levels = c("RPE","Microglia","Stromal","VE","ciliary_epithelial")
+
+Meta$celltype = factor(Meta$celltype,levels=celltype_levels)
+
+#######
+#######
+
+library(ggplot2)
+celltypes <- c("RPE","Microglia","Stromal","VE","ciliary_epithelial")
+cols = c("#804537","#61BFB9","#9EA220","#026AB1","#EF9000")
+
+
+###celltypes <- c("MG","AC","Cone","RGC","HC","Rod","BC","RPE","Microglia","Astrocyte")
+###cols = c("#D11536","#F6BA00","#9EA220","#AAA9A9","#EF9000","#026AB1","#804537","#936DAD","#61BFB9","#EC6F64")
+
+ggplot(Meta,aes(x=UMAP_1,y=UMAP_2,color=celltype)) + geom_point(size=0.1, alpha=1) + theme_classic() +
+scale_color_manual(values=cols) + scale_x_continuous(limits=c()) + scale_y_continuous(limits=c())+ theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=1)) 
+ggsave("Mouse_RPE_RNA_UMAPs.png",height=4,width=6)
+
+#####
+##### Next we will plot cell numbers !!! ####
+#####
+
+
+#######
+####### 然后计算下每个时间点的 cell #####
+#######
+head(Meta)
+
+Meta$age = sapply(strsplit(Meta$sample,split="_"),function(x) x[[1]])
+
+Meta$age <- factor(Meta$age,levels=c("5W","49W","91W"))
+
+celltype = names(table(Meta$celltype))
+age = names(table(Meta$age))
+
+mat = matrix(0,nrow=length(age),ncol=length(celltype))
+rownames(mat) = age
+colnames(mat) = celltype
+
+for(i in 1:dim(mat)[1]){
+    for(j in 1:dim(mat)[2]){
+        ####
+        sample_tmp = rownames(mat)[i]
+        celltype_tmp = colnames(mat)[j]
+        ####
+        k = which(Meta$celltype == celltype_tmp & Meta$age == sample_tmp)
+        mat[i,j] <- length(k)
+    }
+}
+
+library(reshape2)
+
+mat_tab <- mat
+mat_tab <- melt(mat_tab,varnames = c("Row", "Column"), value.name = "Value")
+
+mat_tab$Column = factor(mat_tab$Column,levels=celltype_levels)
+
+library(ggplot2)
+
+cols = c("#804537","#61BFB9","#9EA220","#026AB1","#EF9000")
+ggplot(mat_tab,aes(x=Row,y=Value,fill=Column)) + geom_bar(stat="identity",width=0.75,alpha=0.5) + theme_classic() + scale_fill_manual(values=cols) +
+ylab("Number of cells") + xlab("Age") + scale_y_continuous(expand=c(0,0),limits=c(0,12000))
+
+ggsave("Mouse_RPE_RNA_cell_bar.png",height=4,width=5)
+
+#####
+##### OK!!! 结束 ！！！ #####
+#####
+
+##### 
+
+
+
+
