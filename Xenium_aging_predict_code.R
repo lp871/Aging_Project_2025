@@ -256,7 +256,7 @@ NMDA_samples_seurat <- Injury_merge_seurat_all_2023Dec[,which(Injury_merge_seura
 table(NMDA_samples_seurat$sample)
 
 CTs <- names(table(NMDA_samples_seurat$new_celltype))
-CTs_Need = c("Rod","Cone","RestMG") ##### ignore RPEs ###
+CTs_Need = c("Rod","Cone","RestMG","RGC") ##### ignore RPEs ###
 
 ##########
 library(Seurat)
@@ -318,7 +318,6 @@ load("Zebrafish_Rod_model")
 load("Zebrafish_Cone_model")
 load("Zebrafish_RGC_model")
 
-
 Injury_MG_res = PredictAgeFromModel(expr_mat=NMDA_samples_seurat_cl_sp_clocks_input$RestMG$Matrix,test_meta=NMDA_samples_seurat_cl_sp_clocks_input$RestMG$Meta,fit_res=Zebrafish_MG_model$model)
 Injury_Rod_res = PredictAgeFromModel(expr_mat=NMDA_samples_seurat_cl_sp_clocks_input$Rod$Matrix,test_meta=NMDA_samples_seurat_cl_sp_clocks_input$Rod$Meta,fit_res=Zebrafish_Rod_model$model)
 Injury_Cone_res = PredictAgeFromModel(expr_mat=NMDA_samples_seurat_cl_sp_clocks_input$Cone$Matrix,test_meta=NMDA_samples_seurat_cl_sp_clocks_input$Cone$Meta,fit_res=Zebrafish_Cone_model$model)
@@ -340,7 +339,7 @@ tapply(Injury_Rod_res$preds,Injury_Rod_res$sample,summary)
 
 library(ggplot2)
 ggplot(Injury_Rod_res,aes(x=sample ,y=preds,color=sample)) + scale_y_continuous(expand=c(0,0)) + geom_boxplot(outlier.shape = NA,size=1)+ theme_classic() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
-ggsave("Injury_Rod_res.png",height=4,width=7) 
+ggsave("Injury_Rod_res2.png",height=4,width=7) 
 
 
 Injury_Cone_res$sample = factor(Injury_Cone_res$sample,levels=c("Control_2","NMDA_36hr","NMDA_54hr","NMDA_72hr","NMDA_96hr","NMDA_7D","NMDA_14D"))
@@ -350,6 +349,42 @@ library(ggplot2)
 ggplot(Injury_Cone_res,aes(x=sample ,y=preds,color=sample)) + scale_y_continuous(expand=c(0,0)) + geom_boxplot(outlier.shape = NA,size=1)+ theme_classic() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),panel.border = element_rect(color = "black", fill = NA, size = 1)) + xlab("") + ylab("")
 ggsave("Injury_Cone_res.png",height=4,width=7) 
 
+######## calculate the pvalue for Injury samples to control #########
+
+Injury_MG_res$sample = as.factor(Injury_MG_res$sample)
+Injury_Rod_res$sample = as.factor(Injury_Rod_res$sample)
+Injury_Cone_res$sample = as.factor(Injury_Cone_res$sample)
+Injury_RGC_res$sample = as.factor(Injury_RGC_res$sample)
+
+                                  
+all_groups <- levels(Injury_RGC_res$sample)
+test_groups <- setdiff(all_groups, "Control_2")
+
+tapply(Injury_RGC_res$preds,Injury_RGC_res$sample,summary)
+        
+# 2. 提取对照组数据
+control_vals <- Injury_RGC_res$preds[Injury_RGC_res$sample == "Control_2"]
+
+# 3. 循环做 t 检验
+res_list <- lapply(test_groups, function(grp) {
+  grp_vals <- Injury_RGC_res$preds[Injury_RGC_res$sample == grp]
+  tt <- t.test(grp_vals, control_vals)
+  data.frame(
+    sample      = grp,
+    t_statistic = unname(tt$statistic),
+    p_value     = tt$p.value,
+    mean_diff   = diff(tt$estimate)   # grp_mean - control_mean
+  )
+})
+
+# 4. 合并结果并做多重检验校正
+res_df <- do.call(rbind, res_list)
+res_df$p_adj <- p.adjust(res_df$p_value, method = "BH")
+
+# 5. 查看结果
+print(res_df)
+
+                                  
 ########
 ########
 ########
