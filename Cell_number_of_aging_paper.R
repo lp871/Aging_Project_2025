@@ -19,11 +19,13 @@ Zebrafish_seurat <- readRDS("Zebrafish_seurat_merge_clcl_2025")
 table(Zebrafish_seurat$sample)
 #####
 Zebrafish_seurat_cl = Zebrafish_seurat[,which(Zebrafish_seurat$sample %in% c("28_Rep1","28_Rep2") == F)]
-
 table(Zebrafish_seurat_cl$sample)
-
 library(Seurat)
 
+
+
+  
+#######
 ####### Next for the mouse #######
 #######
 
