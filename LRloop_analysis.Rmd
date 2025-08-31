@@ -1,0 +1,2379 @@
+---
+title: "LRloop_analysis"
+output: html_document
+date: "2025-08-31"
+author: "Yang Jin"
+---
+
+
+# Load library
+```{r}
+
+library(LRLoop)
+library(tidyverse)
+library(reshape2)
+library(ggplot2)
+library(pheatmap)
+library(miceadds)
+library(Seurat)
+library(ggrepel)
+library(readxl)
+library(writexl)
+library(ggforce)
+library(ggrepel)
+library(ggvenn)
+library(viridis)
+library(RColorBrewer)
+
+Celltype_order = c("MG","GABA-AC","Gly-AC","Other-AC","RGC","HC","Cone-BC","Rod-BC","Cone","Rod")
+
+No_int_cells = c("Cone_GABA-AC","Cone_Gly-AC","Cone_HC",
+                               "GABA-AC_Cone","Gly-AC_Cone","HC_Cone",
+                               "Cone_Other-AC","Cone_RGC",
+                               "Other-AC_Cone","RGC_Cone",
+                               "Rod_GABA-AC","Rod_Gly-AC","Rod_HC","Rod_Other-AC","Rod_RGC",
+                               "GABA-AC_Rod","Gly-AC_Rod","Other-AC_Rod","HC_Rod","RGC_Rod")
+
+age_order_mouse = c("Wk5","Wk12","Wk17","Wk91","Wk106","Wk120")
+age_order_zebrafish = c(1,3,36,48)
+col_scale = colorRampPalette(c("#2166AC","#91C1DC","white","#fb6a4a","#67000d"))(1000)
+
+```
+
+# 1 Mouse
+
+## 1.1 LRLoop anlaysis major celltypes
+
+```{r}
+load("../Tempout_final/Downstream_all/DownStream_Mouse_Final_YoungvsOld_allrep.RData")
+
+## Prepare data for Old vs Young
+
+# Summarised expression of LR pairs that passed the cut-off (0.5)
+# First count the number of LR pairs that pass the cut-off
+L1R1score_filtered_sum_allrep <- list()
+L2R2score_filtered_sum_allrep <- list()
+for (i in 1:length(LRloop_basic_allrep)){
+  L1R1score_filtered_sum_allrep[[i]] <- L1R1score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Wk"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Sender","Receiver"),sep = "_")
+  names(L1R1score_filtered_sum_allrep)[[i]] <- names(LRloop_basic_allrep)[[i]]
+  
+  L2R2score_filtered_sum_allrep[[i]] <- L2R2score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Wk"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Receiver","Sender"),sep = "_")
+    names(L2R2score_filtered_sum_allrep)[[i]] <- names(LRloop_basic_allrep)[[i]]
+}
+
+LRscore_all_mouse <- do.call(rbind.data.frame,L1R1score_filtered_sum_allrep)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum_allrep))%>%
+        mutate(LR = paste(from,to,sep = "_"))%>%
+        separate(variable,into = c("Age","Rep"),sep = "_")%>%
+        mutate(Age_num=gsub("Wk","",Age)%>%
+           as.numeric())
+
+## Summarise all celltypes
+
+
+LRscore_all_mouse_sum<- LRscore_all_mouse%>%
+  mutate(Celltype=paste(Sender,Receiver,sep = "_"),
+         value=as.numeric(value))%>%
+  group_by(LR,Celltype,Age,Rep)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  group_by(Age,Rep,Celltype)%>%
+  summarise(sum=sum(value))%>%
+  ungroup()%>%
+  separate(Celltype,into = c("Sender","Receiver"),sep = "_")
+
+LRscore_sum_cat_mouse = LRscore_all_mouse_sum%>%
+  dplyr::filter(Sender%in%Celltype_order&Receiver%in%Celltype_order)%>%
+  mutate(Age_cat = ifelse(Age%in%c("Wk5","Wk12","Wk17"),"Young","Old")%>%
+           factor(levels=c("Young","Old")))%>%
+  mutate(Sender=factor(Sender,levels=Celltype_order),
+         Receiver = factor(Receiver,levels=Celltype_order))%>%
+  group_by(Age_cat,Sender,Receiver)%>%
+  summarise(sd=sd(sum),
+         mean=mean(sum))%>%
+  arrange(desc(mean))%>%
+  ungroup()
+
+Sum_LR_mouse = LRscore_sum_cat_mouse%>%
+  group_by(Age_cat,Receiver)%>%
+  summarise(LR_act = sum(mean))%>%
+  ungroup()%>%
+  mutate(Receiver=factor(Receiver,levels=Celltype_order),
+         Age_cat=factor(Age_cat,levels=c("Young","Old")))%>%
+  mutate(LR_act=as.numeric(LR_act))
+
+
+## Young (5,12, 17) vs old (91,106, 120wk)
+
+# Summarise all samples
+LRscore_edgeR_allrep <- LRscore_all_mouse%>%
+  mutate(value=as.numeric(value))%>% 
+  group_by(from,to,Sender,Receiver,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()%>%
+  group_by(from,to,Age,Rep,Sender,Receiver,LR,Age_num)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Sender,Receiver,sep = "_"))%>%
+  mutate(Age_cat = ifelse(Age_num%in%c("5","12","17","32","49","68"),"Young","Old"))%>% 
+  mutate(value=as.numeric(value))%>%
+  remove_rownames()%>%
+  unique()%>%
+  mutate(Age_cat=factor(Age_cat,levels=c("Young","Old")),
+         Rep=factor(Rep,levels=c("Rep1","Rep2")))%>%
+  unique()
+  
+# Anova 
+
+Mouse_aov <- LRscore_edgeR_allrep%>%
+  mutate(value= as.numeric(value))%>%
+  group_by(group,LR)%>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_rep = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat)%>%
+           as.numeric(),
+         pvalue_rep=unlist(pvalue_rep),
+         fdr= p.adjust(pvalue_Age_cat,method="BH"))
+
+Mouse_aov$fdr<- p.adjust(Mouse_aov$pvalue_Age_cat,method="BH")
+
+Mouse_sig_aov <- Mouse_aov%>%
+  left_join(LRscore_edgeR_allrep%>%
+  group_by(group,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(group,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("group","LR"))%>%
+  dplyr::filter(pvalue_Age_cat<0.01)%>%
+  dplyr::select(LR,group,Diff,pvalue_Age_cat,fdr)%>%
+  mutate(dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"),
+         group_all= paste(group,LR,sep = " : "))%>%
+  arrange(pvalue_Age_cat)
+
+#write_xlsx(Mouse_sig_aov,"../Tempout_final/Output/Mouse_sigLR_20240906.xlsx")
+
+Mouse_sig_sum <- Mouse_sig_aov%>%
+  group_by(group,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(group)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(group,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(group=factor(group,levels=unique(group)))
+
+circul_plot_mouse<- Mouse_sig_sum%>%
+  dcast(group~dir,value.var = "n_LR")%>%
+  melt(id.vars = "group")%>%
+  mutate(value=ifelse(is.na(value),0,value))%>%
+  separate(group,into = c("Sender","Receiver"),sep="_")%>%
+  dplyr::rename("dir"="variable")%>%
+  arrange(desc(dir))%>%
+  mutate(Sender= factor(Sender,levels= Celltype_order),
+         Receiver=factor(Receiver,levels= Celltype_order),
+         dir=factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(start = rep(c(-pi/2, pi/2), each=100))%>%
+  mutate(Sender_num=as.numeric(Sender),
+         Receiver_num=as.numeric(Receiver),
+         dir = factor(dir,levels=c("LR higher in Young","LR higher in old")))
+
+r <- 0.5
+scale <- r/max(sqrt(circul_plot_mouse$value))
+
+ggplot(circul_plot_mouse) + 
+  geom_arc_bar(aes(x0 = Sender_num, y0 = Receiver_num, r0 = 0, r = sqrt(value)*scale,
+                   start = start - (pi/2), end = start+ (pi/2), fill = dir),
+               color = "grey") + 
+  #geom_text(aes(x = Sender_num, y = Receiver_num,label=value,group=dir),position = position_dodge(0.8),size=4)+
+  guides(fill = guide_legend(title = "Number of significant LR interactions")) +
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order,position = "top")+
+  scale_y_reverse(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order)+
+  xlab("Sender Cells") + ylab("Receiver Cells") +
+  coord_fixed() +
+  theme_classic() +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        axis.text.x = element_text(angle = 45,hjust = -0.005))
+
+```
+
+## 1.2 Mouse RPE
+
+```{r}
+load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_Mouse_May_RPE_rep1.RData")
+load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_Mouse_May_RPE_rep2.RData")
+
+## Prepare data for Old vs Young
+# Summarised expression of LR pairs that passed the cut-off (0.5)
+# First count the number of LR pairs that pass the cut-off
+L1R1score_filtered_sum_rep1 <- list()
+L2R2score_filtered_sum_rep1 <- list()
+for (i in 1:length(LRloop_basic_rep1)){
+  L1R1score_filtered_sum_rep1[[i]] <- L1R1score_updated_rep1[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Wk"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_rep1)[[i]]))%>%
+    mutate(group=gsub("Cone_BC","Cone-BC",group),
+           group=gsub("Rod_BC","Rod-BC",group),
+           group=gsub("GABA_AC","GABA-AC",group),
+           group=gsub("Gly_AC","Gly-AC",group),
+           group=gsub("Other_AC","Other-AC",group))%>%
+    separate(group,into = c("Sender","Receiver"),sep = "_")
+  names(L1R1score_filtered_sum_rep1)[[i]] <- names(LRloop_basic_rep1)[[i]]
+  
+  L2R2score_filtered_sum_rep1[[i]] <- L2R2score_updated_rep1[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Wk"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_rep1)[[i]]))%>%
+    mutate(group=gsub("Cone_BC","Cone-BC",group),
+           group=gsub("Rod_BC","Rod-BC",group),
+           group=gsub("GABA_AC","GABA-AC",group),
+           group=gsub("Gly_AC","Gly-AC",group),
+           group=gsub("Other_AC","Other-AC",group))%>%
+    separate(group,into = c("Receiver","Sender"),sep = "_")
+    names(L2R2score_filtered_sum_rep1)[[i]] <- names(LRloop_basic_rep1)[[i]]
+}
+
+LRscore_all_rep1 <- do.call(rbind.data.frame,L1R1score_filtered_sum_rep1)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum_rep1))%>%
+        mutate(LR = paste(from,to,sep = "_"))%>%
+        mutate(Age=gsub("Wk","",variable)%>%
+           as.numeric(),
+           group_all=paste(Sender,Receiver,LR,sep = "_"))
+
+L1R1score_filtered_sum_rep2 <- list()
+L2R2score_filtered_sum_rep2 <- list()
+for (i in 1:length(LRloop_basic_rep2)){
+  L1R1score_filtered_sum_rep2[[i]] <- L1R1score_updated_rep2[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Wk"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_rep2)[[i]]))%>%
+    mutate(group=gsub("Cone_BC","Cone-BC",group),
+           group=gsub("Rod_BC","Rod-BC",group),
+           group=gsub("GABA_AC","GABA-AC",group),
+           group=gsub("Gly_AC","Gly-AC",group),
+           group=gsub("Other_AC","Other-AC",group))%>%
+    separate(group,into = c("Sender","Receiver"),sep = "_")
+  names(L1R1score_filtered_sum_rep2)[[i]] <- names(LRloop_basic_rep2)[[i]]
+  
+  L2R2score_filtered_sum_rep2[[i]] <- L2R2score_updated_rep2[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Wk"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_rep2)[[i]]))%>%
+    mutate(group=gsub("Cone_BC","Cone-BC",group),
+           group=gsub("Rod_BC","Rod-BC",group),
+           group=gsub("GABA_AC","GABA-AC",group),
+           group=gsub("Gly_AC","Gly-AC",group),
+           group=gsub("Other_AC","Other-AC",group))%>%
+    separate(group,into = c("Receiver","Sender"),sep = "_")
+    names(L2R2score_filtered_sum_rep2)[[i]] <- names(LRloop_basic_rep2)[[i]]
+}
+
+LRscore_all_rep2 <- do.call(rbind.data.frame,L1R1score_filtered_sum_rep2)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum_rep2))%>%
+        mutate(LR = paste(from,to,sep = "_"))%>%
+        mutate( Age=gsub("Wk","",variable)%>%
+           as.numeric(),
+           group_all=paste(Sender,Receiver,LR,sep = "_"))
+
+
+# Summarised LR scores
+LRscore_sum_RPE = rbind(LRscore_all_rep1,LRscore_all_rep2)%>%
+  mutate(value=as.numeric(value))%>%
+  group_by(from,to,variable,Sender,Receiver)%>%
+  summarise(value=mean(value))%>%
+  ungroup()
+LRscore_sum_RPE$variable%>%unique()
+
+library(gggenomes)
+SumScore_Mouse_RPE = LRscore_sum_RPE%>%
+  dplyr::filter(variable%in%c("Wk5","Wk91"))%>%
+  mutate(variable=ifelse(variable%in%c("Wk5"),"Young","Old"),
+         new_col = ifelse(Sender=="RPE",Receiver,Sender))%>%
+  group_by(variable,new_col)%>%
+  summarise(total = sum(value))%>%
+  ungroup()
+  
+
+order = c("Wk5","Wk91")
+# Linear
+Linear_allrep = rbind(LRscore_all_rep1,
+                      LRscore_all_rep2)%>%
+  mutate(group=paste(Sender,Receiver,sep = "_"))%>%
+  dplyr::filter(group=="Cone_RPE"|group=="RPE_Cone"|
+                  group=="Rod_RPE"|group=="RPE_Rod"|
+                  group=="RPE_RPE"|group=="RPE_MG"|group=="MG_RPE")%>%
+  group_by(Sender,Receiver,LR)%>% 
+  do(tidy(lm(value ~ Age, .)))%>%
+  ungroup()%>%
+  dplyr::filter(term=="Age")
+Linear_allrep_sig = Linear_allrep%>%
+  dplyr::filter(p.value<0.05)%>%
+  arrange(p.value)%>%
+  mutate(dir = ifelse(estimate>0,"Increase during aging","Decrease during aging"))
+
+
+# Summarise all samples
+LRscore_edgeR_rep1 <- LRscore_all_rep1%>%
+  dplyr::filter(variable%in%order)%>%
+  dplyr::select(LR,Age,Sender,Receiver,value)%>%
+  mutate(value=as.numeric(value))%>%
+  mutate(group_all=paste(Sender,Receiver,LR,sep = "_"),
+         rep="rep1")
+
+LRscore_edgeR_rep2 <- LRscore_all_rep2%>%
+    dplyr::filter(variable%in%order)%>%
+  dplyr::select(LR,Age,Sender,Receiver,value)%>%
+  mutate(group_all=paste(Sender,Receiver,LR,sep = "_"),
+         rep="rep2")
+
+LRscore_wilcox_data_mouse <- rbind(
+  LRscore_edgeR_rep1[LRscore_edgeR_rep1$group_all%in%LRscore_edgeR_rep2$group_all,],
+  LRscore_edgeR_rep2[LRscore_edgeR_rep2$group_all%in%LRscore_edgeR_rep1$group_all,]
+)%>%
+  mutate(group=paste(Sender,Receiver,sep = "_"))%>% 
+  group_by(Sender,Receiver,LR)%>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()%>%
+  dplyr::filter(group=="Cone_RPE"|group=="RPE_Cone"|
+                  group=="Rod_RPE"|group=="RPE_Rod"|
+                  group=="RPE_RPE"|group=="RPE_MG"|group=="MG_RPE")%>%
+  mutate(Age_cat = ifelse(Age%in%c("5","49"),"Young","Old"))%>% 
+  mutate(value=as.numeric(value))%>%
+  group_by(group,LR) %>% 
+  ungroup()%>%
+  mutate(Age_cat=factor(Age_cat,levels=c("Young","Old")),
+         rep=factor(rep,levels=c("rep1","rep2")))
+
+LRscore_wilcox_data_mouse_sig <- LRscore_wilcox_data_mouse%>%
+  group_by(group,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  ungroup()%>%
+  group_by(group,LR,Diff)%>%
+  do(w = t.test(value~Age_cat, data=.))%>% 
+  summarise(group,LR,Diff, pvalue = w$p.value)%>%
+  mutate(fdr = p.adjust(pvalue,method="BH"),
+         sig = ifelse(pvalue<0.05,"pvalue<0.05","non-sig"))%>%
+  arrange(pvalue)%>%
+  mutate(group=paste(group,LR,sep = " : "))%>%
+  mutate(LR_cell=paste(group,LR,sep = " : "),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))
+
+#write_xlsx(LRscore_wilcox_data_mouse_sig,"../Tempout_final/Output/Mouse_allLR_RPE_20240919.xlsx")
+
+LRscore_wilcox_sig_mouse_RPE <- LRscore_wilcox_data_mouse_sig%>%
+  dplyr::filter(sig=="pvalue<0.05")%>%
+  dplyr::select(LR,group,Diff,pvalue)%>%
+  arrange(Diff)%>%
+  mutate(group = factor(group,levels=unique(group)),
+         dir = ifelse(Diff>0,"LR higher in Old","LR higher in Young")%>%
+           factor(levels = c("LR higher in Young","LR higher in Old")))
+
+```
+
+# 2 Zebrafish
+
+## 2.1 LRLoop analysis major celltypes
+
+```{r}
+load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_zebrafish_Final_OldYoungOnly_20240817.RData")
+
+## Prepare for DEA 
+L1R1score_filtered_sum <- list()
+L2R2score_filtered_sum <- list()
+
+for (i in 1:length(LRloop_basic)){
+  L1R1score_filtered_sum[[i]] <- LRscore_updated[[i]]%>%
+    as.data.frame()%>%
+    mutate(LR=paste(from,to,sep = "_"),
+           cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Rep"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(value=as.numeric(value))%>%
+    mutate(group=gsub("\\.RData*","",names(LRloop_basic)[[i]]))%>%
+    mutate(group=gsub("Cone_BC","Cone-BC",group),
+           group=gsub("Rod_BC","Rod-BC",group),
+           group=gsub("GABA_AC","GABA-AC",group),
+           group=gsub("Gly_AC","Gly-AC",group),
+           group=gsub("Other_AC","Other-AC",group))%>%
+    separate(group,into = c("Cell1","Cell2"),sep = "_")%>%
+    mutate(Celltype=paste(Cell1,Cell2,sep = "_"))
+  names(L1R1score_filtered_sum)[[i]] <- names(LRloop_basic)[[i]]
+  
+  L2R2score_filtered_sum[[i]] <- L2R2score_updated[[i]]%>%
+    as.data.frame()%>%
+    mutate(LR=paste(from,to,sep = "_"),
+           cond_max=as.numeric(cond_max))%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    dplyr::select(contains("Rep"),from,to)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(value=as.numeric(value))%>%
+    mutate(group=gsub("\\.RData","",names(LRloop_basic)[[i]]))%>%
+    mutate(group=gsub("Cone_BC","Cone-BC",group),
+           group=gsub("Rod_BC","Rod-BC",group),
+           group=gsub("GABA_AC","GABA-AC",group),
+           group=gsub("Gly_AC","Gly-AC",group),
+           group=gsub("Other_AC","Other-AC",group))%>%
+    separate(group,into = c("Cell1","Cell2"),sep = "_")%>%
+    mutate(Celltype=paste(Cell2,Cell1,sep = "_"))
+  names(L2R2score_filtered_sum)[[i]] <- names(LRloop_basic)[[i]]  
+}
+
+LRscore_all_zebrafish <- do.call(rbind.data.frame,L1R1score_filtered_sum)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum))%>%
+  separate(variable,into = c("Age","Rep"),sep = "_")%>%
+  mutate(LR=paste(from,to,sep = "_"),
+         Age=as.numeric(Age))
+
+LRscore_all_zebrafish_sum<- LRscore_all_zebrafish%>%
+  group_by(LR,Celltype,Age,Rep)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+    group_by(Age,Rep,Celltype)%>%
+    summarise(n=n(),
+              sum=sum(value),
+              average=sum/n)%>%
+    ungroup()%>%
+  #dplyr::filter(!Celltype%in%No_int_cells)%>%
+    separate(Celltype,into = c("Sender","Receiver"),sep = "_")
+
+LRscore_sum_cat_zebrafish = LRscore_all_zebrafish_sum%>%
+  dplyr::filter(Sender%in%Celltype_order&Receiver%in%Celltype_order)%>%
+  mutate(Age_cat = ifelse(Age%in%c(1,3),"Young","Old")%>%
+           factor(levels=c("Young","Old")))%>%
+  mutate(Sender=factor(Sender,levels=Celltype_order),
+         Receiver = factor(Receiver,levels=Celltype_order))%>%
+  group_by(Age_cat,Sender,Receiver)%>%
+  summarise(sd=sd(sum),
+         mean=mean(sum))%>%
+  arrange(desc(mean))%>%
+  ungroup()
+
+Sum_LR_zebrafish = LRscore_sum_cat_zebrafish%>%
+  group_by(Age_cat,Receiver)%>%
+  summarise(LR_act = sum(mean))%>%
+  ungroup()%>%
+  mutate(Receiver=factor(Receiver,levels=Celltype_order),
+         Age_cat=factor(Age_cat,levels=c("Young","Old")))%>%
+  mutate(LR_act=as.numeric(LR_act))
+
+
+## Young (3 and 6 month) vs old (36,48)
+
+# Summarise all samples
+LRscore_edgeR_zebrafish <- LRscore_all_zebrafish%>%
+  dplyr::filter(Cell1%in%Celltype_order&Cell2%in%Celltype_order)%>%
+  dplyr::select(LR,Age,Celltype,value,Rep)%>%
+  group_by(LR,Age,Celltype,Rep)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Celltype,LR,sep = "_"))
+
+LRscore_wilcox_data_zebrafish <-   LRscore_edgeR_zebrafish%>%
+  separate(Celltype,into = c("Sender","Receiver"),sep = "_")%>%
+  dplyr::filter(Sender%in%Celltype_order&Receiver%in%Celltype_order)%>%
+  mutate(Age_cat = ifelse(Age%in%c(1,3),"Young","Old"),
+         Celltype=paste(Sender,Receiver,sep = "_"))%>% 
+  group_by(Celltype,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()
+
+LRscore_wilcox_data_zebrafish$Rep = gsub("Rep3","Rep1",LRscore_wilcox_data_zebrafish$Rep)
+Zebrafish_aov <- LRscore_wilcox_data_zebrafish%>%
+  dplyr::group_by(Celltype,LR) %>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_Rep = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat),
+         pvalue_Rep=unlist(pvalue_Rep))
+
+Zebrafish_aov$fdr = p.adjust(Zebrafish_aov$pvalue_Age_cat,method="BH")
+
+Zebrafish_sig_aov <- Zebrafish_aov%>%
+  left_join(LRscore_wilcox_data_zebrafish%>%
+  group_by(Celltype,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(Celltype,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("Celltype","LR"))%>%
+  dplyr::filter(pvalue_Age_cat<0.01)%>%
+  dplyr::select(LR,Celltype,Diff,pvalue_Age_cat,fdr)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(Celltype,into = c("Sender","Receiver"),sep = "_")%>%
+  mutate(LR_cell=paste(Sender,Receiver,sep = " -> "),
+         LR = paste(Ligand,Receptor,sep = "_"),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))%>%
+  arrange(pvalue_Age_cat)%>%
+  mutate(group=paste(LR_cell,LR,sep = ":"))
+
+write_xlsx(Zebrafish_sig_aov,"../Tempout_final/Output/Zebrafish_sigLR_20240906.xlsx")
+
+LRscore_sum_zebrafish <- Zebrafish_sig_aov%>%
+  group_by(LR_cell,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(LR_cell)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(LR_cell,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(LR_cell=factor(LR_cell,levels=unique(LR_cell)))
+
+circul_plot_zebrafish <- LRscore_sum_zebrafish%>%
+  dcast(LR_cell~dir,value.var = "n_LR")%>%
+  melt(id.vars = "LR_cell")%>%
+  dplyr::rename("dir"="variable")%>%
+  full_join(circul_plot_mouse%>%
+              mutate(LR_cell=paste(Sender,Receiver,sep = " -> "))%>%
+              dplyr::select(LR_cell,dir),by=c("LR_cell","dir"))%>%
+  mutate(value=ifelse(is.na(value),0,value))%>%
+  separate(LR_cell,into = c("Sender","Receiver"),sep=" -> ")%>%
+  arrange(desc(dir))%>%
+  mutate(Sender= factor(Sender,levels= Celltype_order),
+         Receiver=factor(Receiver,levels= Celltype_order),
+         dir=factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(start = rep(c(-pi/2, pi/2), each=100))%>%
+  mutate(Sender_num=as.numeric(Sender),
+         Receiver_num=as.numeric(Receiver),
+         dir = factor(dir,levels=c("LR higher in Young","LR higher in old")))
+
+r <- 0.5
+scale <- r/max(sqrt(circul_plot_zebrafish$value))
+
+
+ggplot(circul_plot_zebrafish) + 
+  geom_arc_bar(aes(x0 = Sender_num, y0 = Receiver_num, r0 = 0, r = sqrt(value)*scale*2,
+                   start = start - (pi/2), end = start+ (pi/2), fill = dir),
+               color = "grey") + 
+  #geom_text(aes(x = Sender_num, y = Receiver_num,label=value,group=dir),position = position_dodge(0.8),size=4)+
+  guides(fill = guide_legend(title = "Number of significant LR interactions")) +
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order,position = "top")+
+  scale_y_reverse(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order)+
+  xlab("Sender Cells") + ylab("Receiver Cells") +
+  coord_fixed() +
+  theme_classic() +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        axis.text.x = element_text(angle = 45,hjust = -0.005))
+```
+
+## 2.2 Zebrafish RPE
+```{r}
+# Summarise all samples
+LRscore_edgeR_zebrafish <- LRscore_all_zebrafish%>%
+  dplyr::filter(Cell1=="RPE"|Cell2=="RPE")%>%
+  dplyr::select(LR,Age,Celltype,value,Rep)%>%
+  group_by(LR,Age,Celltype,Rep)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Celltype,LR,sep = "_"))
+
+
+# summarised LR scores RPE
+# Summarised LR scores
+LRscore_sum_RPE_zebrafish = LRscore_edgeR_zebrafish%>%
+  mutate(value=as.numeric(value))%>%
+  group_by(LR,Celltype,Age,group)%>%
+  summarise(value=mean(value))%>%
+  ungroup()
+
+SumScore_Zebrafish_RPE = LRscore_sum_RPE_zebrafish%>%
+  dplyr::filter(Age%in%c(1,3,36,48))%>%
+  separate(Celltype,into = c("Sender","Receiver"),sep = "_")%>%
+  mutate(Age=ifelse(Age%in%c(1,3),"Young","Old"),
+         new_col = ifelse(Sender=="RPE",Receiver,Sender))%>%
+  group_by(Age,new_col)%>%
+  summarise(total = sum(value))%>%
+  ungroup()%>%
+  dplyr::filter(new_col%in%c("Cone","Rod","RPE","MG"))%>%
+  dplyr::rename("variable"="Age")
+
+LRscore_edgeR_zebrafish$Age%>%unique()
+LRscore_wilcox_data_zebrafish <-   LRscore_edgeR_zebrafish%>%
+  dplyr::filter(Age%in%c(1,3,36,48))%>%
+  separate(Celltype,into = c("Sender","Receiver"),sep = "_")%>%
+  mutate(Age_cat = ifelse(Age%in%c(1,3,6),"Young","Old"),
+         Celltype=paste(Sender,Receiver,sep = "_"))%>% 
+  group_by(Celltype,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()
+
+LRscore_wilcox_data_zebrafish$Rep = gsub("Rep3","Rep1",LRscore_wilcox_data_zebrafish$Rep)
+LRscore_wilcox_result_zebrafish_aov <- LRscore_wilcox_data_zebrafish%>%
+  dplyr::group_by(Celltype,LR) %>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_rep = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat),
+         pvalue_rep=unlist(pvalue_rep))
+
+LRscore_wilcox_sig_zebrafish_aov_RPE <- LRscore_wilcox_result_zebrafish_aov%>%
+  left_join(LRscore_wilcox_data_zebrafish%>%
+  group_by(Celltype,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(Celltype,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("Celltype","LR"))%>%
+  #dplyr::filter(pvalue_Age_cat<0.05)%>%
+  mutate(fdr=p.adjust(pvalue_Age_cat,method="BH"))%>%
+  dplyr::select(LR,Celltype,Diff,pvalue_Age_cat,fdr)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(Celltype,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+  mutate(LR_cell=paste(Ligand_Cell,Receptor_Cell,sep = "_"),
+         LR = paste(Ligand,Receptor,sep = "_"),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))%>%
+  arrange(pvalue_Age_cat)%>%
+  mutate(group=paste(LR_cell,LR,sep = ":"))
+
+write_xlsx(LRscore_wilcox_sig_zebrafish_aov_RPE,"../Tempout_final/Output/LRscore_wilcox_sig_zebrafish_aov_RPE.xlsx")
+
+LRscore_wilcox_sum <- LRscore_wilcox_sig_zebrafish_aov%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  group_by(LR_cell,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(LR_cell)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(LR_cell,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(LR_cell=factor(LR_cell,levels=unique(LR_cell)))
+
+ggplot(LRscore_wilcox_sum,aes(x=LR_cell,y=n_LR,fill=dir))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,80))+
+  coord_flip()+
+  ylab("Number of significant LR")+
+  xlab("")+
+  theme(text = element_text(size=13))
+
+```
+
+
+# 3 Human      
+## 3.1 LRLoop analysis major celltypes
+
+```{r}
+
+# Load human and data 
+load("../Tempout_final/Downstream_all/DownStream_newHumandata_withoutRPE_20250506.RData")
+meta_all = read_csv("../Tempout_final/raw/human_meta_all.csv")%>%
+  mutate(age=gsub(" years","",donor_age),
+           age=gsub(">","",age)%>%
+             as.numeric())%>%
+    dplyr::filter(age<21|age>59)
+
+meta_human= meta_all%>%
+  dplyr::select(donor_id,age,sex)%>%
+  unique()
+
+
+## Prepare for DEA
+
+L1R1score_filtered_sum_human <- list()
+L2R2score_filtered_sum_human <- list()
+
+for (i in 1:length(LRloop_basic_allrep)){
+  L1R1score_filtered_sum_human[[i]] <- L1R1score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(LR=paste(from,to,sep = "_"),
+           cond_max=as.numeric(cond_max))%>%
+    dplyr::select(-cond_max,-cond_mean,-twowaymax,-twowaymean,-LR)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(value=as.numeric(value))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Cell1","Cell2"),sep = "_")%>%
+    mutate(Celltype=paste(Cell1,Cell2,sep = "_"))
+  names(L1R1score_filtered_sum_human)[[i]] <- names(LRloop_basic_allrep)[[i]]
+  
+  L2R2score_filtered_sum_human[[i]] <- L2R2score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(LR=paste(from,to,sep = "_"),
+           cond_max=as.numeric(cond_max))%>%
+    dplyr::select(-cond_max,-cond_mean,-twowaymax,-twowaymean,-LR)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(value=as.numeric(value))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Cell1","Cell2"),sep = "_")%>%
+    mutate(Celltype=paste(Cell2,Cell1,sep = "_"))
+  names(L2R2score_filtered_sum_human)[[i]] <- names(LRloop_basic_allrep)[[i]]  
+}
+
+LRscore_all_human <- do.call(rbind.data.frame,L1R1score_filtered_sum_human)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum_human))%>%
+  mutate(LR=paste(from,to,sep = "_"))%>%
+  left_join(meta_human%>%
+              mutate(variable=donor_id),by="variable")%>%
+  group_by(from,to,variable,donor_id,Cell1,Cell2,LR,Celltype,age,sex)%>%
+  summarise(value=mean(value))%>%
+  ungroup()
+
+
+
+## Double check and remove outlier samples
+
+human_exp_count = LRscore_all_human%>%
+  dplyr::filter(value>0)%>%
+  group_by(variable,Celltype)%>%
+  summarise(n=n())
+
+ggplot(human_exp_count,aes(x=variable,y=n,fill=variable))+
+  geom_point()+
+  geom_boxplot()+
+  theme_bw()+
+  coord_flip()+
+  ylab("Numbder of expressed LRI (LRI > 0)")
+
+# Expression 
+human_raw = LRscore_all_human%>%
+  mutate(group=paste(Celltype,LR,sep = ":"))%>%
+  dcast(group~donor_id,value.var = "value")%>%
+  column_to_rownames("group")
+
+human_p = human_raw[rowSums(human_raw)>0,]
+
+pheatmap(human_p,show_rownames = F,cluster_cols = F,cluster_rows = F,scale = "row",color = col_scale)
+
+
+## Summarise all celltypes
+
+
+# Prepare the data
+LRscore_all_human_sum<- LRscore_all_human%>%
+  group_by(LR,Celltype,age,sex)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+    group_by(age,sex,Celltype)%>%
+    summarise(n=n(),
+              sum=sum(value),
+              average=sum/n)%>%
+    ungroup()%>%
+  #dplyr::filter(!Celltype%in%No_int_cells)%>%
+    separate(Celltype,into = c("Sender","Receiver"),sep = "_")
+
+LRscore_sum_cat_human = LRscore_all_human_sum%>%
+  dplyr::filter(Sender%in%Celltype_order&Receiver%in%Celltype_order)%>%
+  mutate(Age_cat = ifelse(age<=20,"Young","Old")%>%
+           factor(levels=c("Young","Old")))%>%
+  mutate(Sender=factor(Sender,levels=Celltype_order),
+         Receiver = factor(Receiver,levels=Celltype_order))%>%
+  group_by(Age_cat,Sender,Receiver)%>%
+  summarise(sd=sd(sum),
+         mean=mean(sum))%>%
+  arrange(desc(mean))%>%
+  ungroup()
+
+Sum_LR_human = LRscore_sum_cat_human%>%
+  group_by(Age_cat,Receiver)%>%
+  summarise(LR_act = sum(mean))%>%
+  ungroup()%>%
+  mutate(Receiver=factor(Receiver,levels=Celltype_order),
+         Age_cat=factor(Age_cat,levels=c("Young","Old")))%>%
+  mutate(LR_act=as.numeric(LR_act))
+
+
+## Differential expression old (>=60) vs young (<=20)
+
+# Summarise all samples
+LRscore_edgeR_human <- LRscore_all_human%>%
+  dplyr::select(LR,age,Celltype,value,sex,variable)%>%
+  group_by(LR,age,Celltype,sex,variable)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Celltype,LR,sep = "_"))
+
+LRscore_wilcox_data_human <- LRscore_edgeR_human%>%
+  #dplyr::filter(age>=60|age<=20)%>%
+  mutate(Age_cat = ifelse(age<=20,"Young","Old"))%>% 
+  group_by(Celltype,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()%>%
+  filter(!variable%in%c("17D013","19_D017")) # remove 3 wierd samples
+
+# Try anova 
+LRscore_wilcox_result_human_aov <- LRscore_wilcox_data_human%>%
+  group_by(Celltype,LR)%>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+sex, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_rep = summary(aov(value ~ Age_cat+sex, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat),
+         pvalue_rep=unlist(pvalue_rep))
+
+LRscore_wilcox_human_aov <- LRscore_wilcox_result_human_aov%>%
+  left_join(LRscore_wilcox_data_human%>%
+  group_by(Celltype,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(Celltype,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("Celltype","LR"))%>%
+  mutate(pvalue_Age_cat=as.numeric(pvalue_Age_cat))
+LRscore_wilcox_human_aov$fdr = p.adjust(LRscore_wilcox_human_aov$pvalue_Age_cat,method="BH")
+
+Human_sig_aov = LRscore_wilcox_human_aov%>%
+  dplyr::filter(pvalue_Age_cat<0.01)%>%
+  dplyr::select(LR,Celltype,Diff,pvalue_Age_cat,fdr)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(Celltype,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+  mutate(LR_cell=paste(Ligand_Cell,Receptor_Cell,sep = " -> "),
+         LR = paste(Ligand,Receptor,sep = "_"),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))%>%
+  arrange(pvalue_Age_cat)%>%
+  mutate(group=paste(LR_cell,LR,sep = ":"))
+
+#write_xlsx(Human_sig_aov,"../Tempout_final/Output/Human_sigLR_newhuman_20250507.xlsx")
+
+LRscore_sum_human <- Human_sig_aov%>%
+  group_by(LR_cell,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(LR_cell)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(LR_cell,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(LR_cell=factor(LR_cell,levels=unique(LR_cell)))
+
+circul_plot_human<- LRscore_sum_human%>%
+  dcast(LR_cell~dir,value.var = "n_LR")%>%
+  melt(id.vars = "LR_cell")%>%
+  mutate(value=ifelse(is.na(value),0,value))%>%
+  separate(LR_cell,into = c("Sender","Receiver"),sep=" -> ")%>%
+  dplyr::rename("dir"="variable")%>%
+  arrange(desc(dir))%>%
+  mutate(Sender= factor(Sender,levels= Celltype_order),
+         Receiver=factor(Receiver,levels= Celltype_order),
+         dir=factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(start = rep(c(-pi/2, pi/2), each=100))%>%
+  mutate(Sender_num=as.numeric(Sender),
+         Receiver_num=as.numeric(Receiver),
+         dir = factor(dir,levels=c("LR higher in Young","LR higher in old")))
+
+r <- 0.5
+scale <- r/max(sqrt(circul_plot_human$value))
+
+ggplot(circul_plot_human) + 
+  geom_arc_bar(aes(x0 = Sender_num, y0 = Receiver_num, r0 = 0, r = sqrt(value)*scale,
+                   start = start - (pi/2), end = start+ (pi/2), fill = dir),
+               color = "grey") + 
+  #geom_text(aes(x = Sender_num, y = Receiver_num,label=value,group=dir),position = position_dodge(0.8),size=4)+
+  guides(fill = guide_legend(title = "Number of significant LR interactions")) +
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order,position = "top")+
+  scale_y_reverse(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order)+
+  xlab("Sender Cells") + ylab("Receiver Cells") +
+  coord_fixed() +
+  theme_classic() +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        axis.text.x = element_text(angle = 45,hjust = -0.005))
+
+
+```
+
+## 3.2 RPE
+
+```{r}
+load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_newHumandata_RPE_20250507.RData")
+
+## Prepare data for Old vs Young
+# Summarised expression of LR pairs that passed the cut-off (0.5)
+# First count the number of LR pairs that pass the cut-off
+L1R1score_filtered_sum <- list()
+L2R2score_filtered_sum <- list()
+for (i in 1:length(LRloop_basic_allrep)){
+  L1R1score_filtered_sum[[i]] <- L1R1score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    dplyr::select(-cond_max,-cond_mean,-twowaymax,-twowaymean)%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Sender","Receiver"),sep = "_")
+  names(L1R1score_filtered_sum)[[i]] <- names(LRloop_basic_allrep)[[i]]
+  
+  L2R2score_filtered_sum[[i]] <- L2R2score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    dplyr::select(-cond_max,-cond_mean,-twowaymax,-twowaymean)%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Receiver","Sender"),sep = "_")
+    names(L2R2score_filtered_sum)[[i]] <- names(LRloop_basic_allrep)[[i]]
+}
+
+LRscore_all_RPE <- do.call(rbind.data.frame,L1R1score_filtered_sum)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum))%>%
+        mutate(LR = paste(from,to,sep = "_"))%>%
+        mutate(Celltype=paste(Sender,Receiver,sep = "_"),
+               value=as.numeric(value))%>%
+  left_join(meta_human%>%
+              mutate(variable=donor_id),by="variable")%>%
+  group_by(from,to,variable,donor_id,LR,Celltype,age,sex)%>%
+  summarise(value=mean(value))%>%
+  ungroup()
+
+LRscore_edgeR_human_RPE <- LRscore_all_RPE%>%
+  dplyr::select(LR,age,Celltype,value,sex,variable)%>%
+  group_by(LR,age,Celltype,sex,variable)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Celltype,LR,sep = "_"))
+
+LRscore_wilcox_data_human_RPE <- LRscore_edgeR_human_RPE%>%
+  #dplyr::filter(age>=60|age<=20)%>%
+  mutate(Age_cat = ifelse(age<=20,"Young","Old"))%>% 
+  group_by(Celltype,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()%>%
+  filter(!variable%in%c("17D013","19_D017")) # remove 3 wierd samples
+
+LRscore_wilcox_data_human_RPE%>%
+  dplyr::select(age,sex,variable,Age_cat)%>%
+  unique()%>%
+  print(n=24)
+
+# Try anova 
+LRscore_wilcox_result_human_aov_RPE <- LRscore_wilcox_data_human_RPE%>%
+  group_by(Celltype,LR)%>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+sex, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_rep = summary(aov(value ~ Age_cat+sex, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat),
+         pvalue_rep=unlist(pvalue_rep))
+
+LRscore_wilcox_human_aov_RPE <- LRscore_wilcox_result_human_aov_RPE%>%
+  left_join(LRscore_wilcox_data_human_RPE%>%
+  group_by(Celltype,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(Celltype,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("Celltype","LR"))%>%
+  mutate(pvalue_Age_cat=as.numeric(pvalue_Age_cat))
+LRscore_wilcox_human_aov_RPE$fdr = p.adjust(LRscore_wilcox_human_aov_RPE$pvalue_Age_cat,method="BH")
+
+Human_sig_aov_RPE = LRscore_wilcox_human_aov_RPE%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  dplyr::select(LR,Celltype,Diff,pvalue_Age_cat,fdr)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(Celltype,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+  mutate(LR_cell=paste(Ligand_Cell,Receptor_Cell,sep = " -> "),
+         LR = paste(Ligand,Receptor,sep = "_"),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))%>%
+  arrange(pvalue_Age_cat)%>%
+  mutate(group=paste(LR_cell,LR,sep = ":"))
+
+write_xlsx(Human_sig_aov_RPE,"../Tempout_final/Output/Human_sigLR_newhuman_RPE_20250507.xlsx")
+
+LRscore_wilcox_sum_RPE <- Human_sig_aov_RPE%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  group_by(LR_cell,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(LR_cell)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(LR_cell,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(LR_cell=factor(LR_cell,levels=unique(LR_cell)))
+
+ggplot(LRscore_wilcox_sum_RPE,aes(x=LR_cell,y=n_LR,fill=dir))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,10))+
+  coord_flip()+
+  ylab("Number of significant LR")+
+  xlab("")+
+  theme(text = element_text(size=13))
+
+
+```
+
+
+# Figure 5B Total number of sig LRI
+```{r}
+
+DELR_num <- rbind(Human_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.01)%>%
+                    group_by(dir)%>%
+                    summarise(Number=n())%>%
+                    mutate(species="Human"),
+                    Mouse_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.01)%>%
+                    group_by(dir)%>%
+                    summarise(Number=n())%>%
+                    mutate(species="Mouse"),
+                    Zebrafish_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.01)%>%
+                    group_by(dir)%>%
+                    summarise(Number=n())%>%
+                    mutate(species="Zebrafish"))%>%
+                    mutate(dir= factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+                    mutate(species=factor(species,levels=c("Zebrafish","Mouse","Human")))
+  
+ggplot(DELR_num,aes(x=species,y=Number,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,1850))+
+  ylab("Num of Significantly Changed LR Interactions")+
+  theme(axis.text  = element_text(size=13,color="black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_discrete(labels=c("Z","M","H"))
+
+
+DELR_MG <- rbind(Human_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.01)%>%
+                    dplyr::filter(Ligand_Cell%in%c("MG")|Receptor_Cell%in%c("MG"))%>%
+  group_by(dir)%>%
+  summarise(Number=n())%>%
+  mutate(species="Human"),
+  Mouse_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.05)%>%
+    separate(group,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+    dplyr::filter(Ligand_Cell%in%c("MG")|Receptor_Cell%in%c("MG"))%>%
+  group_by(dir)%>%
+  summarise(Number=n())%>%
+  mutate(species="Mouse"),
+  Zebrafish_sig_aov%>%
+    dplyr::filter(pvalue_Age_cat<0.05)%>%
+    dplyr::filter(Sender%in%c("MG")|Receiver%in%c("MG"))%>%
+  group_by(dir)%>%
+  summarise(Number=n())%>%
+  mutate(species="Zebrafish"))%>%
+  mutate(dir= factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(species=factor(species,levels=c("Zebrafish","Mouse","Human")))
+
+ggplot(DELR_MG,aes(x=species,y=Number,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,300),breaks = c(0,100,200,300))+
+  ylab("Num of Significantly Changed MG-associated LR Interactions")+
+  theme(text = element_text(size=13,color = "black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  theme(axis.text  = element_text(size=13,color="black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_discrete(labels=c("Z","M","H"))
+
+DELR_photo <- rbind(Human_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.01)%>%
+                    dplyr::filter(!Ligand_Cell%in%c("MG","HC","GABA_AC","Gly_AC","Other_AC","RGC")&
+                                    !Receptor_Cell%in%c("MG","GABA_AC","HC","Gly_AC","Other_AC","RGC"))%>%
+                    group_by(dir)%>%
+                    summarise(Number=n())%>%
+                    mutate(species="Human"),
+  Mouse_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.01)%>%
+                    separate(group,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+                  dplyr::filter(!Ligand_Cell%in%c("MG","HC","GABA_AC","Gly_AC","Other_AC","RGC")&
+                                  !Receptor_Cell%in%c("MG","GABA_AC","HC","Gly_AC","Other_AC","RGC"))%>%
+                  group_by(dir)%>%
+                  summarise(Number=n())%>%
+                  mutate(species="Mouse"),
+  Zebrafish_sig_aov%>%
+                    dplyr::filter(pvalue_Age_cat<0.05)%>%
+  dplyr::filter(!Sender%in%c("MG","HC","GABA_AC","Gly_AC","Other_AC","RGC")&
+                  !Receiver%in%c("MG","GABA_AC","HC","Gly_AC","Other_AC","RGC"))%>%
+  group_by(dir)%>%
+  summarise(Number=n())%>%
+  mutate(species="Zebrafish"))%>%
+  mutate(dir= factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(species=factor(species,levels=c("Mouse","Zebrafish","Human")))
+
+ggplot(DELR_photo,aes(x=species,y=Number,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,750),breaks = c(0,200,400,600))+
+  ylab("Num of Significantly Changed MG-associated LR Interactions")+
+  theme(text = element_text(size=13,color = "black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  theme(axis.text  = element_text(size=13,color="black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_discrete(labels=c("M","Z","H"))
+  
+
+```
+
+# Figure 5C circus plot
+
+```{r}
+
+circul_plot_all = rbind(circul_plot_zebrafish%>%
+                          mutate(species="zebrafish"),
+                        circul_plot_mouse%>%
+                          mutate(species="mouse"),
+                        circul_plot_human%>%
+                          mutate(species="human"))
+
+r <- 0.5
+scale <- r/max(sqrt(circul_plot_all$value))
+
+ggplot(circul_plot_all) + 
+  geom_arc_bar(aes(x0 = Sender_num, y0 = Receiver_num, r0 = 0, r = sqrt(value)*scale*1.2,
+                   start = start - (pi/2), end = start+ (pi/2), fill = dir),
+               color = "grey") + 
+  geom_text(aes(x = Sender_num, y = Receiver_num,label=value,group=dir),position = position_dodge(0.8),size=4)+
+  guides(fill = guide_legend(title = "Number of significant LR interactions")) +
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order,position = "top")+
+  scale_y_reverse(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order)+
+  xlab("Sender Cells") + ylab("Receiver Cells") +
+  coord_fixed() +
+  theme_classic() +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        strip.text = element_blank(),
+        strip.background = element_blank(),
+        axis.text.x = element_text(angle = 45,hjust = -0.005))+
+  facet_wrap(~species)
+
+All_DELR_table = list(
+  "Zebrafish" = rbind(
+  Zebrafish_sig_aov%>%
+    mutate(LR= paste(Ligand,Receptor,sep = "_"),
+           group = paste(Sender,Receiver,sep="_"))%>%
+    dplyr::rename("pvalue"="pvalue_Age_cat")%>%
+    dplyr::select(LR,group,Diff,pvalue,fdr,dir),
+  LRscore_wilcox_sig_zebrafish_aov_RPE%>%
+    mutate(LR= paste(Ligand,Receptor,sep = "_"),
+           group = paste(Ligand_Cell,Receptor_Cell,sep="_"))%>%
+    dplyr::rename("pvalue"="pvalue_Age_cat")%>%
+    dplyr::filter(pvalue<0.05)%>%
+    dplyr::select(LR,group,Diff,pvalue,fdr,dir)),
+  "Mouse" = rbind(
+  Mouse_sig_aov%>%
+    dplyr::select(-group_all)%>%
+    dplyr::rename("pvalue"="pvalue_Age_cat"),
+  LRscore_wilcox_data_mouse_sig%>%
+    dplyr::filter(pvalue<0.05)%>%
+    mutate(group=gsub(" :.*","",group))%>%
+    dplyr::select(-LR_cell,-sig)),
+  "Human" = rbind(
+  Human_sig_aov%>%
+    mutate(LR= paste(Ligand,Receptor,sep = "_"),
+           group = paste(Ligand_Cell,Receptor_Cell,sep="_"))%>%
+    dplyr::rename("pvalue"="pvalue_Age_cat")%>%
+    dplyr::select(LR,group,Diff,pvalue,fdr,dir),
+  Human_sig_aov_RPE%>%
+    mutate(LR= paste(Ligand,Receptor,sep = "_"),
+           group = paste(Ligand_Cell,Receptor_Cell,sep="_"))%>%
+    dplyr::rename("pvalue"="pvalue_Age_cat")%>%
+    dplyr::filter(pvalue<0.05)%>%
+    dplyr::select(LR,group,Diff,pvalue,fdr,dir))
+)
+
+write_xlsx(All_DELR_table,"../manuscript_Yang/Yang_Figure5_sigLR.xlsx")
+```
+
+#Figure 5D Shared sig LRI
+```{r}
+Mouse_to_Human <- read.delim("../Tempout_final/Output/Human_to_Mouse_ensemble.txt")%>%
+  dplyr::rename("Human_gene"="Gene.name")%>%
+  dplyr::rename("Mouse_gene" = "Mouse.gene.name")%>%
+  dplyr::select(Mouse_gene,Human_gene)%>%
+  dplyr::filter(!Mouse_gene==""&!Human_gene=="")
+Zebrafish_to_Human <- read.delim("../raw/Human_to_zebrafish.txt")%>%
+  dplyr::rename("Human_gene"="Gene.name")%>%
+  dplyr::rename("Zebrafish_gene" = "Zebrafish.gene.name")%>%
+  dplyr::select(Zebrafish_gene,Human_gene)%>%
+  dplyr::filter(!Zebrafish_gene==""&!Human_gene=="")%>%
+  unique()
+
+DELR_human <- Human_sig_aov%>%
+  mutate(LR=paste(Ligand,Receptor,sep = "_"),
+         group=paste(Ligand,Receptor,Ligand_Cell,Receptor_Cell,sep = "_"),
+         Ligand_Receptor_group = paste(Ligand,Receptor_Cell,Receptor,sep = "_"),
+         Receptor_group = paste(Receptor_Cell,Receptor,sep = "_"),
+         Ligand_group = paste(Ligand_Cell,Ligand,sep = "_"))%>%
+  dplyr::filter(pvalue_Age_cat<0.01)
+
+DELR_mouse <- Mouse_sig_aov%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(group,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+  full_join(Mouse_to_Human,by=c("Ligand"="Mouse_gene"))%>%
+  dplyr::rename("Ligand_human"="Human_gene")%>%
+  full_join(Mouse_to_Human,by=c("Receptor"="Mouse_gene"))%>%
+  dplyr::rename("Receptor_human"="Human_gene")%>%
+  dplyr::filter(!is.na(Ligand_human)&!is.na(Receptor_human))%>%
+  mutate(LR=paste(Ligand_human,Receptor_human,sep = "_"),
+         group=paste(Ligand_human,Receptor_human,Ligand_Cell,Receptor_Cell,sep = "_"),
+         Ligand_Receptor_group = paste(Ligand_human,Receptor_Cell,Receptor_human,sep = "_"),
+         Receptor_group = paste(Receptor_Cell,Receptor_human,sep = "_"),
+         Ligand_group = paste(Ligand_Cell,Ligand_human,sep = "_"))%>%
+  dplyr::select(-group_all)%>%
+  dplyr::filter(pvalue_Age_cat<0.01)
+
+DELR_zebrafish  <- Zebrafish_sig_aov%>%
+  mutate(group=paste(Sender,Receiver,sep = "_"))%>%
+  full_join(Zebrafish_to_Human,by=c("Ligand"="Zebrafish_gene"))%>%
+  dplyr::rename("Ligand_human"="Human_gene")%>%
+  full_join(Zebrafish_to_Human,by=c("Receptor"="Zebrafish_gene"))%>%
+  dplyr::rename("Receptor_human"="Human_gene")%>%
+  dplyr::filter(!is.na(Ligand_human)&!is.na(Receptor_human))%>%
+  mutate(LR=paste(Ligand_human,Receptor_human,sep = "_"),
+         group=paste(Ligand_human,Receptor_human,Sender,Receiver,sep = "_"),
+         Ligand_Receptor_group = paste(Ligand_human,Receiver,Receptor_human,sep = "_"),
+         Receptor_group = paste(Receiver,Receptor_human,sep = "_"),
+         Ligand_group = paste(Sender,Ligand_human,sep = "_"))%>%
+  dplyr::filter(pvalue_Age_cat<0.01)
+
+
+DEG <- list(
+  "Zebrafish" = unique(DELR_zebrafish$group),
+    "Mouse" = unique(DELR_mouse$group),
+    "Human" = unique(DELR_human$group)
+)
+
+  intersect(DEG$Human,DEG$Mouse)
+
+ggvenn(DEG,fill_color = c("#999933","#ff6666","#0066cc"),show_percentage = F,set_name_size = 0,text_color = NA)
+
+# if we merge all isomers
+DEG_Receptor <- list(
+      "Zebrafish" = unique(DELR_zebrafish$Receptor_group),
+    "Mouse" = unique(DELR_mouse$Receptor_group),
+    "Human" = unique(DELR_human$Receptor_group)
+)
+
+intersect(intersect(DEG_Receptor$Mouse,DEG_Receptor$Zebrafish),DEG_Receptor$Human)
+
+ggvenn(DEG_Receptor,fill_color = c("#999933","#ff6666","#0066cc"),show_percentage = F,set_name_size = 4,text_color = NA)
+
+
+DEG_Ligand <- list(
+  "Zebrafish" = DELR_zebrafish$Ligand_group,
+    "Mouse" = DELR_mouse$Ligand_group,
+    "Human" = DELR_human$Ligand_group
+)
+
+intersect(intersect(DEG_Ligand$Mouse,DEG_Ligand$Zebrafish),DEG_Ligand$Human)
+
+ggvenn(DEG_Ligand,fill_color = c("#999933","#ff6666","#0066cc"),show_percentage = F,set_name_size = 4,text_color = NA)
+
+Shared_all3species = list(
+    "Receptor_ReceiverCell" = merge(
+    DELR_human%>%
+      mutate(Diff_Human= Diff,
+             pvalue_Human=pvalue_Age_cat,
+             Human_Ligand_Cell = Ligand_Cell)%>%
+      dplyr::select(Receptor_group,Ligand,Receptor,Human_Ligand_Cell,Receptor_Cell,Diff_Human,pvalue_Human),
+    DELR_mouse%>%
+      mutate(Diff_mouse=Diff,
+             pvalue_Mouse=pvalue_Age_cat,
+             Mouse_Ligand_Cell = Ligand_Cell)%>%
+      dplyr::select(Receptor_group,Mouse_Ligand_Cell,Diff_mouse,pvalue_Mouse),by="Receptor_group")%>%
+    unique()%>%
+    merge(DELR_zebrafish%>%
+      mutate(Diff_zebrafish=Diff,
+             pvalue_zebrafish=pvalue_Age_cat,
+             zebrafish_Ligand_Cell = Sender)%>%
+      dplyr::select(Receptor_group,zebrafish_Ligand_Cell,Diff_zebrafish,pvalue_zebrafish),by="Receptor_group"),
+  
+    "Ligand_SenderCell" = merge(
+    DELR_human%>%
+      mutate(Diff_Human= Diff,
+             pvalue_Human=pvalue_Age_cat,
+             Human_Receptor_Cell = Receptor_Cell)%>%
+      dplyr::select(Ligand_group,Ligand,Receptor,Ligand_Cell,Human_Receptor_Cell,Diff_Human,pvalue_Human),
+    DELR_mouse%>%
+      mutate(Diff_mouse=Diff,
+             pvalue_Mouse=pvalue_Age_cat,
+             Mouse_Receptor_Cell = Receptor_Cell)%>%
+      dplyr::select(Ligand_group,Mouse_Receptor_Cell,Diff_mouse,pvalue_Mouse),by="Ligand_group")%>%
+    unique()%>%
+    merge(DELR_zebrafish%>%
+      mutate(Diff_zebrafish=Diff,
+             pvalue_zebrafish=pvalue_Age_cat,
+             zebrafish_Receptor_Cell = Receiver)%>%
+      dplyr::select(Ligand_group,zebrafish_Receptor_Cell,Diff_zebrafish,pvalue_zebrafish),by="Ligand_group")
+  )
+
+library(writexl)
+write_xlsx(Shared_all3species,"../Tempout_final/Output/SharedLR_all3species_20240906.xlsx")
+
+
+```
+
+
+
+# Figure 5E and 5F Heatmaps
+## Mouse
+
+```{r}
+Seth_mark = read_excel("../Tempout_final/Output/Mouse_cell-cell_low_padj_081624.xlsx")
+load("../Tempout_final/Output/M_Seurat_ave_Yang_anno_20240820.RData")
+Mouse_ave = M_Seurat_ave_Yang_anno_20240820%>%
+  as.data.frame()
+
+Seth_mark = Seth_mark%>%
+  mutate(Ligand = gsub("_.*","",LR),
+         Receptor = gsub(".*_","",LR),
+         Sender = gsub("_.*","",group),
+         Receiver = gsub(".*_","",group))
+
+Final_mark = Seth_mark
+Final_mark$Ligand_exp = ""
+Final_mark$Receptor_exp = ""
+for (i in 1:nrow(Seth_mark)){
+  L_exp = Mouse_ave[Seth_mark$Ligand[[i]],Seth_mark$Sender[[i]]]
+  R_exp = Mouse_ave[Seth_mark$Receptor[[i]],Seth_mark$Receiver[[i]]]
+  Final_mark$Ligand_exp[[i]] = L_exp
+  Final_mark$Receptor_exp[[i]] = R_exp
+}
+
+write_xlsx(Final_mark,"Mouse_sigLR_Seth-commented_withExp.xlsx")
+
+Final_mark_filter = Final_mark%>%
+  dplyr::filter(Ligand_exp>0.1&Receptor_exp>0.1|group_all=="MG_MG : Efna5_Epha3"|group_all=="RGC-MG : Efna5_Epha3")%>%
+  dplyr::filter(!group_all=="Gly-AC_Cone : Efna5_Ephb2"&!group_all=="Other-AC_Cone : Efna5_Ephb2")
+
+ann_row = Final_mark_filter%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Sender,Receiver)%>%
+  mutate(Sender= factor(Sender,levels=Celltype_order),
+         Receiver= factor(Receiver,levels=Celltype_order))
+
+Mouse_heat_p = LRscore_edgeR_allrep%>%
+  mutate(LR=paste(from,to,sep = "_"))%>%
+  mutate(group_all = paste(group,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Final_mark_filter$group_all)%>%
+  mutate(Age = gsub("Wk106","Wk108",Age))%>%
+  mutate(Age_new = paste(Age,Rep,sep = "_"))%>%
+  dcast(group_all~Age_new,value.var = "value")%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Wk5_Rep1,Wk5_Rep2,
+                Wk12_Rep1,Wk12_Rep2,
+                Wk17_Rep1,Wk17_Rep2,
+                Wk91_Rep1,Wk91_Rep2,
+                Wk108_Rep1,Wk108_Rep2,
+                Wk120_Rep1,Wk120_Rep2)
+
+label = gsub(".* : ","",rownames(Mouse_heat_p))
+
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"#6a3d9a")
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = Celltype_order
+names(anno_color[[2]]) = Celltype_order
+
+ann_col = colnames(Mouse_heat_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("col"=".")%>%
+  mutate(Age = gsub("_.*","",col))%>%
+  column_to_rownames("col")%>%
+  mutate(Age=factor(Age,levels=c("Wk5","Wk12","Wk17",
+                                 "Wk91","Wk108","Wk120")))
+
+
+
+pheatmap(Mouse_heat_p,color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+# RPE 
+RPE_mouse_sig = LRscore_wilcox_sig_mouse_RPE%>%
+  dplyr::select(-LR)%>%
+  separate(group,into = c("LR_cell","LR"),sep = " : ")%>%
+  arrange(pvalue)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(LR_cell,into = c("Sender","Receiver"),sep = "_")
+
+load("../Tempout_final/Output/M_Seurat_ave_withRPE_Yang_anno_20240820.RData")
+Mouse_ave_RPE = as.data.frame(M_Seurat_ave_withRPE_Yang_anno_20240820)
+
+Final_mark_RPE_mouse = RPE_mouse_sig
+Final_mark_RPE_mouse$Ligand_exp = ""
+Final_mark_RPE_mouse$Receptor_exp = ""
+for (i in 1:nrow(RPE_mouse_sig)){
+  L_exp = Mouse_ave_RPE[RPE_mouse_sig$Ligand[[i]],RPE_mouse_sig$Sender[[i]]]
+  R_exp = Mouse_ave_RPE[RPE_mouse_sig$Receptor[[i]],RPE_mouse_sig$Receiver[[i]]]
+  Final_mark_RPE_mouse$Ligand_exp[[i]] = L_exp
+  Final_mark_RPE_mouse$Receptor_exp[[i]] = R_exp
+}
+
+write_xlsx(Final_mark_RPE_mouse,"Mouse_sigLR_RPE_20240919.xlsx")
+
+Final_mark_RPE_mouse_filter = Final_mark_RPE_mouse%>%
+  dplyr::filter(Ligand_exp>0.1&Receptor_exp>0.1)%>%
+  dplyr::filter(pvalue<0.01)%>%
+  mutate(LR=paste(Ligand,Receptor,sep = "_"),
+         group=paste(Sender,Receiver,sep = "_"),
+         group_all=paste(group,LR,sep = " : "))
+
+color = c("#e41a1c",
+"#377eb8",
+"#4daf4a",
+"#984ea3")
+
+ann_row = Final_mark_RPE_mouse_filter%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Sender,Receiver)%>%
+  mutate(Sender= factor(Sender,levels=c("RPE","MG","Cone","Rod")),
+         Receiver= factor(Receiver,levels=c("RPE","MG","Cone","Rod")))
+
+Mouse_heat_RPE_p = LRscore_wilcox_data_mouse%>%
+  mutate(group_all = paste(group,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Final_mark_RPE_mouse_filter$group_all)%>%
+  mutate(Age = paste("Wk",Age,sep = ""))%>%
+  mutate(Age_new = paste(Age,rep,sep = "_"))%>%
+  dcast(group_all~Age_new,value.var = "value")%>%
+  column_to_rownames("group_all")
+
+label = gsub(".* : ","",rownames(Mouse_heat_RPE_p))
+
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = c("RPE","MG","Cone","Rod")
+names(anno_color[[2]]) = c("RPE","MG","Cone","Rod")
+
+ann_col = colnames(Mouse_heat_RPE_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("col"=".")%>%
+  mutate(Age = gsub("_.*","",col))%>%
+  column_to_rownames("col")%>%
+  mutate(Age=factor(Age,levels=c("Wk5",
+                                 "Wk91")))
+
+
+
+pheatmap(Mouse_heat_RPE_p,color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+
+```
+
+## Zebrafish
+
+```{r}
+Zebrafish_DEG = Zebrafish_sig_aov%>%
+  dplyr::filter(pvalue_Age_cat<0.001)%>%
+  mutate(group=paste(Sender,Receiver,sep = "_"))%>%
+  dplyr::filter(!group%in%No_int_cells)
+
+load("../Tempout_final/Output/Z_Seurat_ave_Yang_anno_20240820.RData")
+Zebrafish_ave = Z_Seurat_ave_Yang_anno_20240820%>%
+  as.data.frame()
+
+Zebrafish_DEG = Zebrafish_DEG%>%
+  mutate(Sender = gsub("_.*","",group),
+         Receiver = gsub(".*_","",group))
+
+Final_mark_dre = Zebrafish_DEG
+Final_mark_dre$Ligand_exp = ""
+Final_mark_dre$Receptor_exp = ""
+for (i in 1:nrow(Zebrafish_DEG)){
+  L_exp = Zebrafish_ave[Zebrafish_DEG$Ligand[[i]],Zebrafish_DEG$Sender[[i]]]
+  R_exp = Zebrafish_ave[Zebrafish_DEG$Receptor[[i]],Zebrafish_DEG$Receiver[[i]]]
+  Final_mark_dre$Ligand_exp[[i]] = L_exp
+  Final_mark_dre$Receptor_exp[[i]] = R_exp
+}
+Final_mark_dre= Final_mark_dre%>%
+  mutate(LR= gsub("ACVR1C","acvr1c",LR),
+         LR= gsub("tnc","tncb",LR),
+         LR= gsub("TNC","tnca",LR))
+
+write_xlsx(Final_mark_dre,"Zebrafish_sigLR_withExp_20240919.xlsx")
+
+Final_mark_dre_filter = Final_mark_dre%>%
+  dplyr::filter(Ligand_exp>0.05&Receptor_exp>0.05)%>%
+  mutate()%>%
+  mutate(group_all=paste(paste(group,LR,sep = " : ")))
+
+ann_row = Final_mark_dre_filter%>%
+  mutate(group_all = paste(group,LR,sep = " : "))%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Sender,Receiver)%>%
+  mutate(Sender= factor(Sender,levels=Celltype_order),
+         Receiver= factor(Receiver,levels=Celltype_order))
+
+Zebrafish_heat_p = LRscore_wilcox_data_zebrafish%>%
+  mutate(Age=paste("Mo",Age,sep = ""))%>%
+  mutate(Age_new = paste(Age,Rep,sep = "_"))%>%
+  mutate(LR= gsub("ACVR1C","acvr1c",LR),
+         LR= gsub("tnc","tncb",LR),
+         LR= gsub("TNC","tnca",LR))%>%
+  mutate(group_all = paste(Celltype,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Final_mark_dre_filter$group_all)%>%
+  dcast(group_all~Age_new,value.var = "value")%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Mo1_Rep1,Mo1_Rep2,
+                Mo3_Rep1,Mo3_Rep2,
+                Mo36_Rep1,
+                Mo48_Rep1,Mo48_Rep2)
+
+label = gsub(".* : ","",rownames(Zebrafish_heat_p))
+
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"#6a3d9a")
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = Celltype_order
+names(anno_color[[2]]) = Celltype_order
+
+ann_col = colnames(Zebrafish_heat_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("col"=".")%>%
+  mutate(Age = gsub("_.*","",col))%>%
+  column_to_rownames("col")%>%
+  mutate(Age=factor(Age,levels=c("Mo1","Mo3","Mo36",
+                                 "Mo48")))
+
+
+
+pheatmap(Zebrafish_heat_p,color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+#RPE 
+Zebrafish_DEG = LRscore_wilcox_sig_zebrafish_aov%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  mutate(group=paste(Ligand_Cell,Receptor_Cell,sep = "_"))%>%
+  dplyr::filter(!group%in%No_int_cells)%>%
+  dplyr::filter(Ligand_Cell%in%c("RPE","MG","Rod","Cone"))%>%
+  dplyr::filter(Receptor_Cell%in%c("RPE","MG","Rod","Cone"))
+
+load("../Tempout_final/Output/Z_Seurat_ave_Yang_anno_20240820.RData")
+Zebrafish_ave = Z_Seurat_ave_Yang_anno_20240820%>%
+  as.data.frame()
+
+Zebrafish_DEG = Zebrafish_DEG%>%
+  mutate(Sender = gsub("_.*","",group),
+         Receiver = gsub(".*_","",group))
+
+Final_mark_dre = Zebrafish_DEG
+Final_mark_dre$Ligand_exp = ""
+Final_mark_dre$Receptor_exp = ""
+for (i in 1:nrow(Zebrafish_DEG)){
+  L_exp = Zebrafish_ave[Zebrafish_DEG$Ligand[[i]],Zebrafish_DEG$Sender[[i]]]
+  R_exp = Zebrafish_ave[Zebrafish_DEG$Receptor[[i]],Zebrafish_DEG$Receiver[[i]]]
+  Final_mark_dre$Ligand_exp[[i]] = L_exp
+  Final_mark_dre$Receptor_exp[[i]] = R_exp
+}
+
+write_xlsx(Final_mark_dre,"Zebrafish_sigLR_RPE_withExp_20240919.xlsx")
+
+Final_mark_dre_filter = Final_mark_dre%>%
+  dplyr::filter(Ligand_exp>0.1&Receptor_exp>0.1)%>%
+  mutate(group_all=paste(paste(group,LR,sep = " : ")))
+
+ann_row = Final_mark_dre_filter%>%
+  mutate(group_all = paste(group,LR,sep = " : "))%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Sender,Receiver)%>%
+  mutate(Sender= factor(Sender,levels=c("RPE","MG","Cone","Rod")),
+         Receiver= factor(Receiver,levels=c("RPE","MG","Cone","Rod")))
+
+Zebrafish_heat_p = LRscore_wilcox_data_zebrafish%>%
+  mutate(Age=paste("Mo",Age,sep = ""))%>%
+  mutate(Age_new = paste(Age,rep,sep = "_"))%>%
+  mutate(group_all = paste(Celltype,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Final_mark_dre_filter$group_all)%>%
+  dcast(group_all~Age_new,value.var = "value")%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Mo1_Rep1,Mo1_Rep2,
+                Mo3_Rep1,Mo3_Rep2,
+                Mo36_Rep1,
+                Mo48_Rep1,Mo48_Rep2)
+
+label = gsub(".* : ","",rownames(Zebrafish_heat_p))
+
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = c("RPE","MG","Cone","Rod")
+names(anno_color[[2]]) = c("RPE","MG","Cone","Rod")
+
+ann_col = colnames(Zebrafish_heat_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("col"=".")%>%
+  mutate(Age = gsub("_.*","",col))%>%
+  column_to_rownames("col")%>%
+  mutate(Age=factor(Age,levels=c("Mo1","Mo3","Mo36",
+                                 "Mo48")))
+
+
+
+pheatmap(Zebrafish_heat_p,color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+
+```
+
+## Human 
+```{r}
+## Mouse
+
+Human_DEG = Human_sig_aov%>%
+  dplyr::filter(pvalue_Age_cat<0.00005&abs(Diff)>0.1)%>%
+  mutate(group=paste(Ligand_Cell,Receptor_Cell,sep = "_"))%>%
+  dplyr::filter(!group%in%No_int_cells)
+
+load("../Tempout_final/Output/H_Seurat_ave_Yang_anno_20240907.RData")
+Human_ave = H_Seurat_ave_Yang_anno_20240907%>%
+  as.data.frame()
+colnames(Human_ave) = gsub("Rod-BP","Rod-BC",colnames(Human_ave))
+colnames(Human_ave) = gsub("Cone_BC","Cone-BC",colnames(Human_ave))
+Human_ave$Gene = rownames(Human_ave)
+
+Human_DEG = Human_DEG%>%
+  mutate(Sender = gsub("_.*","",group),
+         Receiver = gsub(".*_","",group))
+
+Final_mark_hsa = Human_DEG
+Final_mark_hsa$Ligand_exp = ""
+Final_mark_hsa$Receptor_exp = ""
+for (i in 1:nrow(Human_DEG)){
+  L_exp = Human_ave[Human_DEG$Ligand[[i]],Human_DEG$Sender[[i]]]
+  R_exp = Human_ave[Human_DEG$Receptor[[i]],Human_DEG$Receiver[[i]]]
+  Final_mark_hsa$Ligand_exp[[i]] = L_exp
+  Final_mark_hsa$Receptor_exp[[i]] = R_exp
+}
+
+write_xlsx(Final_mark_hsa,"Human_sigLR_withExp_2025_0507.xlsx")
+
+# Filter with expression and manual curation 
+Final_mark_hsa_filter = Final_mark_hsa%>%
+  dplyr::filter((Ligand_exp>0.25&Receptor_exp>0.25))%>%
+  dplyr::filter(!Ligand=="GNAI2")%>%
+  mutate(group_all=paste(paste(group,LR,sep = " : ")))
+
+ann_row = Final_mark_hsa_filter%>%
+  mutate(group_all = paste(group,LR,sep = " : "))%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Sender,Receiver)%>%
+  mutate(Sender= factor(Sender,levels=Celltype_order),
+         Receiver= factor(Receiver,levels=Celltype_order))
+
+
+ann_col = LRscore_wilcox_data_human%>%
+  dplyr::select(variable,sex,age)%>%
+  mutate(Age=ifelse(age<=20,"Young (<20yr)","Aged (>60yr)")%>%
+           factor(levels = c("Young (<20yr)","Aged (>60yr)")),
+         Gender=sex)%>%
+  dplyr::select(variable,Age)%>%
+  unique()%>%
+  column_to_rownames("variable")
+
+Human_heat_p = LRscore_wilcox_data_human%>%
+  mutate(group_all = paste(Celltype,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Final_mark_hsa_filter$group_all)%>%
+  dcast(group_all~variable,value.var = "value")%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(rownames(ann_col))
+
+label = gsub(".* : ","",rownames(Human_heat_p))
+
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"#6a3d9a")
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = Celltype_order
+names(anno_color[[2]]) = Celltype_order
+
+pheatmap(Human_heat_p,color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+#RPE 
+Human_RPE_DEG = Human_sig_aov_RPE%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  mutate(group=paste(Ligand_Cell,Receptor_Cell,sep = "_"))%>%
+  dplyr::filter(Ligand_Cell%in%c("RPE","MG","Rod","Cone"))%>%
+  dplyr::filter(Receptor_Cell%in%c("RPE","MG","Rod","Cone"))
+
+Human_RPE_DEG = Human_RPE_DEG%>%
+  mutate(Sender = gsub("_.*","",group),
+         Receiver = gsub(".*_","",group))%>%
+  mutate(group_all = paste(group,LR,sep = " : "))
+
+ann_row = Human_RPE_DEG%>%
+  mutate(group_all = paste(group,LR,sep = " : "))%>%
+  column_to_rownames("group_all")%>%
+  dplyr::select(Sender,Receiver)%>%
+  mutate(Sender= factor(Sender,levels=c("RPE","MG","Cone","Rod")),
+         Receiver= factor(Receiver,levels=c("RPE","MG","Cone","Rod")))
+
+Human_heat_p = LRscore_wilcox_data_human_RPE%>%
+  mutate(group_all = paste(Celltype,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Human_RPE_DEG$group_all)%>%
+  arrange(age)%>%
+  dcast(group_all~variable,value.var = "value")%>%
+  column_to_rownames("group_all")
+
+color = c("#e41a1c",
+"#377eb8",
+"#4daf4a",
+"#984ea3")
+
+
+label = gsub(".* : ","",rownames(Human_heat_p))
+
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = c("RPE","MG","Cone","Rod")
+names(anno_color[[2]]) = c("RPE","MG","Cone","Rod")
+
+ann_col = LRscore_wilcox_data_human_RPE%>%
+  mutate(group_all = paste(Celltype,LR,sep = " : "))%>%
+  dplyr::filter(group_all%in%Human_RPE_DEG$group_all)%>%
+  arrange(age)%>%
+  dplyr::select(variable,Age_cat)%>%
+  unique()%>%
+  mutate(Age_cat=factor(Age_cat,levels=c("Young","Old")))%>%
+  column_to_rownames("variable")
+
+
+pheatmap(Human_heat_p[,rownames(ann_col)],color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+
+```
+
+
+# Sup Figure - Inflammatory response
+```{r}
+# DELR list
+file_path <- "../manuscript_Yang/Yang_Figure5_sigLR.xlsx"
+sheet_names <- excel_sheets(file_path)
+DELR_list <- lapply(sheet_names, read_excel, path = file_path)
+names(DELR_list) <- sheet_names
+
+# inflammtory gene set
+# GO 0006954 Inflammatory response
+inflam_path <- "../raw/Inflammatory_response_GO_geneset.xlsx"
+sheet_names <- excel_sheets(inflam_path)
+Inflamm_gene <- lapply(sheet_names, read_excel, path = inflam_path)
+names(Inflamm_gene) <- sheet_names
+
+Zebrafish_to_Human <- read.delim("../raw/Human_to_zebrafish.txt")%>%
+  dplyr::rename("Human_gene"="Gene.name")%>%
+  dplyr::rename("Zebrafish_gene" = "Zebrafish.gene.name")%>%
+  dplyr::select(Zebrafish_gene,Human_gene)%>%
+  dplyr::filter(!Zebrafish_gene==""&!Human_gene=="")%>%
+  unique()
+
+Inflamm_gene$Zebrafish <- data.frame("Zebrafish"= Zebrafish_to_Human[Zebrafish_to_Human$Human_gene%in%Inflamm_gene$Human$Human,]$Zebrafish_gene%>%unique())
+
+# Immune response 
+immune_path <- "../raw/Immune_system_GO_geneset.xlsx"
+sheet_names <- excel_sheets(immune_path)
+immune_gene <- lapply(sheet_names, read_excel, path = immune_path)
+names(immune_gene) <- sheet_names
+
+immune_gene$Zebrafish <- data.frame("Zebrafish"= Zebrafish_to_Human[Zebrafish_to_Human$Human_gene%in%immune_gene$Human$Human,]$Zebrafish_gene%>%unique())
+
+DELR_list_new= list()
+for (i in 1:length(DELR_list)){
+  species = names(DELR_list)[[i]]
+  inflam = Inflamm_gene[[species]][[1]]
+  immune = immune_gene[[species]][[1]]
+  DELR_list_new[[i]] = DELR_list[[i]]%>%
+    separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+    mutate(Inflam_mark = ifelse(Ligand%in%inflam|Receptor%in%inflam|Ligand%in%immune|Receptor%in%immune,"yes","no"),
+           species=species,
+           LR=paste(Ligand,Receptor,sep = "_"))
+}
+
+DELR_all = do.call(rbind.data.frame,DELR_list_new)%>%
+  mutate(dir=factor(dir,levels = c("LR higher in Young","LR higher in old")))%>%
+  separate(group,into = c("Sender","Receiver"),sep = "_")%>%
+  dplyr::filter(!Sender=="RPE"&!Receiver=="RPE")
+
+DELR_num = DELR_all%>%
+  group_by(species,dir,Inflam_mark)%>%
+  summarise(Number=n())%>%
+  ungroup()
+
+ggplot(DELR_num,aes(x=Inflam_mark,y=Number,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  ylab("Num of Significantly Changed LR Interactions")+
+  theme(axis.text  = element_text(size=13,color="black"),
+        strip.text = element_text(size=13,color="black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  facet_wrap(~species,ncol = 3)+
+  scale_y_continuous(expand = c(0,0),limits = c(0,1250))+
+  scale_x_discrete(limits=c("yes","no"),label=c("Inflammation genes","Other genes"))
+
+DELR_MG_num = DELR_all%>%
+  dplyr::filter(Sender=="MG"|Receiver=="MG")%>%
+  group_by(species,dir,Inflam_mark)%>%
+  summarise(Number=n())%>%
+  ungroup()
+
+ggplot(DELR_MG_num,aes(x=Inflam_mark,y=Number,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  ylab("Num of Significantly Changed LR Interactions")+
+  theme(axis.text  = element_text(size=13,color="black"),
+        strip.text = element_text(size=13,color="black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  facet_wrap(~species,ncol = 3)+
+  scale_y_continuous(expand = c(0,0),limits = c(0,250))+
+  scale_x_discrete(limits=c("yes","no"),label=c("Inflammation genes","Other genes"))
+
+non_inflam = DELR_all%>%
+  dplyr::filter(Inflam_mark=="yes")
+
+circul_plot_<- non_inflam%>%
+  mutate(group=paste(Sender,Receiver,sep = "_"))%>%
+  group_by(species,dir,group)%>%
+  summarise(Number=n())%>%
+  dcast(group~dir+species,value.var = "Number")%>%
+  melt(id.vars = "group")%>%
+  mutate(value=ifelse(is.na(value),0,value))%>%
+  separate(group,into = c("Sender","Receiver"),sep="_")%>%
+  separate(variable,into=c("dir","species"),sep = "_")%>%
+  arrange((dir))%>%
+  mutate(Sender= factor(Sender,levels= Celltype_order),
+         Receiver=factor(Receiver,levels= Celltype_order),
+         dir=factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(start = rep(c(-pi/2, pi/2), each=300))%>%
+  mutate(Sender_num=as.numeric(Sender),
+         Receiver_num=as.numeric(Receiver),
+         dir = factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(species=factor(species,levels = c("Zebrafish","Mouse","Human")))
+
+r <- 0.5
+scale <- r/max(sqrt(circul_plot_$value))
+
+ggplot(circul_plot_) + 
+  geom_arc_bar(aes(x0 = Sender_num, y0 = Receiver_num, r0 = 0, r = sqrt(value)*scale,
+                   start = start - (pi/2), end = start+ (pi/2), fill = dir),
+               color = "grey") + 
+  #geom_text(aes(x = Sender_num, y = Receiver_num,label=value,group=dir),position = position_dodge(0.8),size=4)+
+  guides(fill = guide_legend(title = "Number of significant LR interactions")) +
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order,position = "top")+
+  scale_y_reverse(breaks = c(1,2,3,4,5,6,7,8,9,10),labels = Celltype_order)+
+  xlab("Sender Cells") + ylab("Receiver Cells") +
+  coord_fixed() +
+  theme_classic() +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        axis.text.x = element_text(angle = 45,hjust = -0.005))+
+  facet_wrap(~species)
+
+
+```
+
+# Sup Figure - Microglia
+
+##Zebrafish
+```{r}
+
+# Zebrafish
+# Summarise all samples
+LRscore_edgeR_zebrafish_Microglia <- LRscore_all_zebrafish%>%
+  dplyr::filter(Cell1=="Microglia"|Cell2=="Microglia")%>%
+  dplyr::select(LR,Age,Celltype,value,Rep)%>%
+  group_by(LR,Age,Celltype,Rep)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Celltype,LR,sep = "_"))
+
+
+# summarised LR scores RPE
+# Summarised LR scores
+LRscore_sum_Microglia_zebrafish = LRscore_edgeR_zebrafish_Microglia%>%
+  mutate(value=as.numeric(value))%>%
+  group_by(LR,Celltype,Age,group)%>%
+  summarise(value=mean(value))%>%
+  ungroup()
+
+LRscore_edgeR_zebrafish_Microglia$Age%>%unique()
+LRscore_wilcox_data_zebrafish_Microglia <-   LRscore_edgeR_zebrafish_Microglia%>%
+  dplyr::filter(Age%in%c(1,3,36,48))%>%
+  separate(Celltype,into = c("Sender","Receiver"),sep = "_")%>%
+  mutate(Age_cat = ifelse(Age%in%c(1,3,6),"Young","Old"),
+         Celltype=paste(Sender,Receiver,sep = "_"))%>% 
+  group_by(Celltype,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()
+
+LRscore_wilcox_data_zebrafish_Microglia$Rep = gsub("Rep3","Rep1",LRscore_wilcox_data_zebrafish_Microglia$Rep)
+LRscore_wilcox_result_zebrafish_aov_Microglia <- LRscore_wilcox_data_zebrafish_Microglia%>%
+  dplyr::group_by(Celltype,LR) %>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_rep = summary(aov(value ~ Age_cat+Rep, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat),
+         pvalue_rep=unlist(pvalue_rep))
+
+LRscore_wilcox_result_zebrafish_aov_Microglia <- LRscore_wilcox_result_zebrafish_aov_Microglia%>%
+  left_join(LRscore_wilcox_data_zebrafish_Microglia%>%
+  group_by(Celltype,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(Celltype,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("Celltype","LR"))%>%
+  #dplyr::filter(pvalue_Age_cat<0.05)%>%
+  mutate(fdr=p.adjust(pvalue_Age_cat,method="BH"))%>%
+  dplyr::select(LR,Celltype,Diff,pvalue_Age_cat,fdr)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(Celltype,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+  mutate(LR_cell=paste(Ligand_Cell,Receptor_Cell,sep = "_"),
+         LR = paste(Ligand,Receptor,sep = "_"),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))%>%
+  arrange(pvalue_Age_cat)%>%
+  mutate(group=paste(LR_cell,LR,sep = ":"))
+
+write_xlsx(LRscore_wilcox_result_zebrafish_aov_Microglia,"../Tempout_final/Output/LRscore_wilcox_sig_zebrafish_aov_Microglia_20250529.xlsx")
+
+LRscore_wilcox_sum_Microglia <- LRscore_wilcox_result_zebrafish_aov_Microglia%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  group_by(LR_cell,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(LR_cell)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(LR_cell,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(LR_cell=factor(LR_cell,levels=unique(LR_cell)))
+
+
+
+
+
+
+```
+
+##Human
+
+```{r}
+load("./Downstream_all/DownStream_newHumandata_Microglia_20250507.RData")
+
+L1R1score_filtered_sum <- list()
+L2R2score_filtered_sum <- list()
+for (i in 1:length(LRloop_basic_allrep)){
+  L1R1score_filtered_sum[[i]] <- L1R1score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    dplyr::select(-cond_max,-cond_mean,-twowaymax,-twowaymean)%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Sender","Receiver"),sep = "_")
+  names(L1R1score_filtered_sum)[[i]] <- names(LRloop_basic_allrep)[[i]]
+  
+  L2R2score_filtered_sum[[i]] <- L2R2score_updated_allrep[[i]]%>%
+    as.data.frame()%>%
+    mutate(cond_max=as.numeric(cond_max))%>%
+    dplyr::select(-cond_max,-cond_mean,-twowaymax,-twowaymean)%>%
+    #dplyr::filter(cond_max>0.5)%>%
+    melt(id.vars=c("from","to"))%>%
+    mutate(group=gsub("\\.R.*","",names(LRloop_basic_allrep)[[i]]))%>%
+    separate(group,into = c("Receiver","Sender"),sep = "_")
+    names(L2R2score_filtered_sum)[[i]] <- names(LRloop_basic_allrep)[[i]]
+}
+
+LRscore_all_Microglia <- do.call(rbind.data.frame,L1R1score_filtered_sum)%>%
+  rbind(do.call(rbind.data.frame,L2R2score_filtered_sum))%>%
+        mutate(LR = paste(from,to,sep = "_"))%>%
+        mutate(Celltype=paste(Sender,Receiver,sep = "_"),
+               value=as.numeric(value))%>%
+  left_join(meta_human%>%
+              mutate(variable=donor_id),by="variable")%>%
+  group_by(from,to,variable,donor_id,LR,Celltype,age,sex)%>%
+  summarise(value=mean(value))%>%
+  ungroup()
+
+LRscore_edgeR_human_Microglia <- LRscore_all_Microglia%>%
+  dplyr::select(LR,age,Celltype,value,sex,variable)%>%
+  group_by(LR,age,Celltype,sex,variable)%>%
+  summarise(value=mean(value))%>%
+  ungroup()%>%
+  mutate(group=paste(Celltype,LR,sep = "_"))
+
+LRscore_wilcox_data_human_Microglia <- LRscore_edgeR_human_Microglia%>%
+  #dplyr::filter(age>=60|age<=20)%>%
+  mutate(Age_cat = ifelse(age<=20,"Young","Old"))%>% 
+  group_by(Celltype,LR) %>% 
+  filter(any(value >0.5))%>% # Filter if there is at least one value larger than 0.5
+  ungroup()%>%
+  filter(!variable%in%c("17D013","19_D017")) # remove 3 wierd samples
+
+# Try anova 
+LRscore_wilcox_result_human_aov_Microglia <- LRscore_wilcox_data_human_Microglia%>%
+  group_by(Celltype,LR)%>%
+  dplyr::do(pvalue_Age_cat = summary(aov(value ~ Age_cat+sex, data = .))[[1]]$`Pr(>F)`[[1]],
+            pvalue_rep = summary(aov(value ~ Age_cat+sex, data = .))[[1]]$`Pr(>F)`[[2]])%>%
+  mutate(pvalue_Age_cat=unlist(pvalue_Age_cat),
+         pvalue_rep=unlist(pvalue_rep))
+
+LRscore_wilcox_human_aov_Microglia <- LRscore_wilcox_result_human_aov_Microglia%>%
+  left_join(LRscore_wilcox_data_human_Microglia%>%
+  group_by(Celltype,LR)%>%
+  mutate(Diff = mean(value[Age_cat == 'Old']) - mean(value[Age_cat == 'Young']))%>%
+  dplyr::select(Celltype,LR,Diff)%>%
+  ungroup()%>%
+    unique(),by=c("Celltype","LR"))%>%
+  mutate(pvalue_Age_cat=as.numeric(pvalue_Age_cat))
+LRscore_wilcox_human_aov_Microglia$fdr = p.adjust(LRscore_wilcox_human_aov_Microglia$pvalue_Age_cat,method="BH")
+
+Human_sig_aov_Microglia = LRscore_wilcox_human_aov_Microglia%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  dplyr::select(LR,Celltype,Diff,pvalue_Age_cat,fdr)%>%
+  separate(LR,into = c("Ligand","Receptor"),sep = "_")%>%
+  separate(Celltype,into = c("Ligand_Cell","Receptor_Cell"),sep = "_")%>%
+  mutate(LR_cell=paste(Ligand_Cell,Receptor_Cell,sep = " -> "),
+         LR = paste(Ligand,Receptor,sep = "_"),
+         dir = ifelse(Diff>0,"LR higher in old","LR higher in Young"))%>%
+  arrange(pvalue_Age_cat)%>%
+  mutate(group=paste(LR_cell,LR,sep = ":"))
+
+write_xlsx(Human_sig_aov_Microglia,"../Tempout_final/Output/Human_sigLR_newhuman_Microglia_20250530.xlsx")
+
+LRscore_wilcox_sum_Microglia <- Human_sig_aov_Microglia%>%
+  dplyr::filter(pvalue_Age_cat<0.05)%>%
+  group_by(LR_cell,dir)%>%
+  mutate(n_LR = n())%>%
+  ungroup()%>%
+  group_by(LR_cell)%>%
+  mutate(n_LR_total = n())%>%
+  ungroup()%>%
+  dplyr::select(LR_cell,dir,n_LR,n_LR_total)%>%
+  unique()%>%
+  arrange(n_LR_total)%>%
+  mutate(LR_cell=factor(LR_cell,levels=unique(LR_cell)))
+
+ggplot(LRscore_wilcox_sum_Microglia,aes(x=LR_cell,y=n_LR,fill=dir))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,100))+
+  coord_flip()+
+  ylab("Number of significant LR")+
+  xlab("")+
+  theme(text = element_text(size=13))
+
+
+```
+
+
+
+## Number of sig LR
+
+```{r}
+Microglia_zebrafish = LRscore_wilcox_result_zebrafish_aov_Microglia%>%
+  dplyr::filter(pvalue_Age_cat<0.05)
+
+Microglia_Human = Human_sig_aov_Microglia%>%
+  dplyr::filter(pvalue_Age_cat<0.05)
+
+
+# shared sig
+DELR_human <- Microglia_Human%>%
+  mutate(LR=paste(Ligand,Receptor,sep = "_"),
+         group=paste(Ligand,Receptor,Ligand_Cell,Receptor_Cell,sep = "_"),
+         Ligand_Receptor_group = paste(Ligand,Receptor_Cell,Receptor,sep = "_"),
+         Receptor_group = paste(Receptor_Cell,Receptor,sep = "_"),
+         Ligand_group = paste(Ligand_Cell,Ligand,sep = "_"))
+
+
+DELR_zebrafish  <- Microglia_zebrafish%>%
+  full_join(Zebrafish_to_Human,by=c("Ligand"="Zebrafish_gene"))%>%
+  dplyr::rename("Ligand_human"="Human_gene")%>%
+  full_join(Zebrafish_to_Human,by=c("Receptor"="Zebrafish_gene"))%>%
+  dplyr::rename("Receptor_human"="Human_gene")%>%
+  dplyr::filter(!is.na(Ligand_human)&!is.na(Receptor_human))%>%
+  mutate(LR=paste(Ligand_human,Receptor_human,sep = "_"),
+         group=paste(Ligand_human,Receptor_human,Ligand_Cell,Receptor_Cell,sep = "_"),
+         Ligand_Receptor_group = paste(Ligand_human,Receptor_Cell,Receptor_human,sep = "_"),
+         Receptor_group = paste(Receptor_Cell,Receptor_human,sep = "_"),
+         Ligand_group = paste(Ligand_Cell,Ligand_human,sep = "_"))
+
+DEG <- list(
+    "Zebrafish" = unique(DELR_zebrafish$group),
+    "Human" = unique(DELR_human$group)
+)
+intersect(DEG$Zebrafish,DEG$Human)
+ggvenn(DEG,fill_color = c("#999933","#0066cc"),show_percentage = F,set_name_size = 4,text_color = "red4")
+
+DEG_Receptor <- list(
+    "Zebrafish" = unique(DELR_zebrafish$Receptor_group),
+    "Human" = unique(DELR_human$Receptor_group)
+)
+intersect(DEG_Receptor$Zebrafish,DEG_Receptor$Human)
+
+ggvenn(DEG_Receptor,fill_color = c("#999933","#0066cc"),show_percentage = F,set_name_size = 4,text_color = "red4")
+
+
+DEG_Ligand <- list(
+    "Zebrafish" = DELR_zebrafish$Ligand_group,
+    "Human" = DELR_human$Ligand_group
+)
+
+intersect(DEG_Ligand$Zebrafish,DEG_Ligand$Human)[grep("Microglia",intersect(DEG_Ligand$Zebrafish,DEG_Ligand$Human))]
+
+
+ggvenn(DEG_Ligand,fill_color = c("#999933","#0066cc"),show_percentage = F,set_name_size = 4,text_color = "red4")
+
+# Sig sum 
+Microglia_sig_p = rbind(Microglia_zebrafish%>%
+                    group_by(dir,)%>%
+                    summarise(n = n())%>%
+                    ungroup()%>%
+                    mutate(species = "Z"),
+                    Microglia_Human%>%
+                    group_by(dir)%>%
+                    summarise(n = n())%>%
+                    ungroup()%>%
+                    mutate(species = "H"))%>%
+            mutate(species=factor(species,levels=c("Z","H")))
+  
+ggplot(Microglia_sig_p,aes(x=species,y=n,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,650))+
+  ylab("Num of Significantly Changed LR Interactions")+
+  theme(axis.text  = element_text(size=13,color="black"))+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_discrete(labels=c("Z","H"))
+
+
+# Sig sum celltype
+Microglia_sig_p_celltype = rbind(Microglia_zebrafish%>%
+                    mutate(species = "Z"),
+                    Microglia_Human%>%
+                    mutate(species = "H"))%>%
+            mutate(species=factor(species,levels=c("Z","H")))%>%
+            mutate(dir=factor(dir,levels=c("LR higher in Young","LR higher in old")),
+                   celltype_new = ifelse(Ligand_Cell=="Microglia",Receptor_Cell,Ligand_Cell))%>%
+            group_by(species,dir,celltype_new)%>%
+                    summarise(n = n())%>%
+                    ungroup()
+  
+ggplot(Microglia_sig_p_celltype,aes(x=celltype_new,y=n,fill=dir))+
+  geom_bar(stat = "identity",position = position_dodge(),color="black",width = 0.8)+
+  theme_bw()+
+  scale_y_continuous(expand = c(0,0),limits = c(0,100))+
+  scale_x_discrete(limits=Celltype_order_microglia)+
+  ylab("Num of Significantly Changed LR Interactions")+
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  facet_wrap(~species) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        axis.text.x = element_text(angle = 45,hjust = 0.9,vjust= 1))
+
+```
+
+## Circu plot
+```{r}
+DELR_microliga = rbind(Microglia_zebrafish%>%
+                         mutate(species="Zebrafish"),
+Microglia_Human%>%
+                         mutate(species="Human") )
+
+Celltype_order_microglia = c("Microglia","MG","GABA-AC","Gly-AC","Other-AC","RGC","HC","Cone-BC","Rod-BC", "Cone","Rod"    )
+
+circul_plot_<- DELR_microliga%>%
+  mutate(group=paste(Ligand_Cell,Receptor_Cell,sep = "_"))%>%
+  group_by(species,dir,group)%>%
+  summarise(Number=n())%>%
+  dcast(group~dir+species,value.var = "Number")%>%
+  melt(id.vars = "group")%>%
+  mutate(value=ifelse(is.na(value),0,value))%>%
+  separate(group,into = c("Sender","Receiver"),sep="_")%>%
+  separate(variable,into=c("dir","species"),sep = "_")%>%
+  arrange((dir))%>%
+  mutate(Sender= factor(Sender,levels= Celltype_order_microglia),
+         Receiver=factor(Receiver,levels= Celltype_order_microglia),
+         dir=factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(start = rep(c(-pi/2, pi/2), each=46))%>%
+  mutate(Sender_num=as.numeric(Sender),
+         Receiver_num=as.numeric(Receiver),
+         dir = factor(dir,levels=c("LR higher in Young","LR higher in old")))%>%
+  mutate(species=factor(species,levels = c("Zebrafish","Mouse","Human")))
+
+r <- 0.5
+scale <- r/max(sqrt(circul_plot_$value))
+
+ggplot(circul_plot_) + 
+  geom_arc_bar(aes(x0 = Sender_num, y0 = Receiver_num, r0 = 0, r = sqrt(value)*scale,
+                   start = start - (pi/2), end = start+ (pi/2), fill = dir),
+               color = "grey") + 
+  #geom_text(aes(x = Sender_num, y = Receiver_num,label=value,group=dir),position = position_dodge(0.8),size=4)+
+  guides(fill = guide_legend(title = "Number of significant LR interactions")) +
+  scale_fill_manual(values = c("#99cccc","#ffcccc"))+
+  scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11),labels = Celltype_order_microglia,position = "top")+
+  scale_y_reverse(breaks = c(1,2,3,4,5,6,7,8,9,10,11),labels = Celltype_order_microglia)+
+  xlab("Sender Cells") + ylab("Receiver Cells") +
+  coord_fixed() +
+  theme_classic() +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1),
+        text = element_text(size=16,color = "black"),
+        axis.text = element_text(color="black"),
+        axis.text.x = element_text(angle = 45,hjust = -0.005))+
+  facet_wrap(~species)
+
+
+```
+
+
+## heatmap
+```{r}
+
+# Zebrafish
+zebrafish_MGRGC = Microglia_zebrafish%>%
+  slice_max(n = 20,order_by  = pvalue_Age_cat)%>%
+  mutate(all_group=paste(LR,LR_cell,sep = "_"))
+zebrafish_MGRGC_p = LRscore_wilcox_data_zebrafish_Microglia%>%
+  mutate(all_group=paste(LR,Celltype,sep = "_"))%>%
+  dplyr::filter(all_group%in%zebrafish_MGRGC$all_group)%>%
+  dplyr::arrange(Age_cat)%>%
+  mutate(group_new=paste(Age,Rep,sep = "_"))%>%
+  dcast(all_group~group_new,value.var = "value")%>%
+  column_to_rownames("all_group")
+anno = rownames(zebrafish_MGRGC_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("all_group"=".")%>%
+  separate(all_group,into = c("Ligand","Receptor","Sender","Receiver"),sep = "_")%>%
+  mutate(all_group=paste(Ligand,Receptor,Sender,Receiver,sep = "_"),
+         label=paste(Ligand,Receptor,sep = "_"))%>%
+  column_to_rownames("all_group")
+
+ann_row= anno%>%
+  dplyr::select(Sender,Receiver)
+
+label = anno$label
+
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"#6a3d9a",
+"#b15928",
+"#ffff99"
+)
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = c(Celltype_order_microglia,"RPE")
+names(anno_color[[2]]) =  c(Celltype_order_microglia,"RPE")
+
+ann_col = colnames(zebrafish_MGRGC_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("col"=".")%>%
+  mutate(Age = gsub("_.*","",col))%>%
+  column_to_rownames("col")%>%
+  mutate(Age=paste("Mo",Age,sep=""),
+         Age=factor(Age,levels=c("Mo1","Mo3","Mo36",
+                                 "Mo48")))
+
+pheatmap(zebrafish_MGRGC_p,color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+
+
+# Human
+human_MGRGC = Microglia_Human%>%
+  dplyr::filter(!LR=="GLG1_SELE"&!LR=="RTN4_TNFRSF19")%>% # remove wierd LR
+  slice_max(n = 20,order_by  = pvalue_Age_cat)%>%
+  mutate(all_group=paste(LR,LR_cell,sep = "_"),
+         all_group=gsub(" -> ","_",all_group))
+human_MGRGC_p = LRscore_wilcox_data_human_Microglia%>%
+  mutate(all_group=paste(LR,Celltype,sep = "_"))%>%
+  dplyr::filter(all_group%in%human_MGRGC$all_group)%>%
+  dplyr::arrange(Age_cat)%>%
+  dcast(all_group~variable,value.var = "value")%>%
+  column_to_rownames("all_group")
+
+ann_col = LRscore_wilcox_data_human_Microglia%>%
+  dplyr::select(age,variable,Age_cat)%>%
+  unique()%>%
+  arrange(age)%>%
+  dplyr::select(-age)%>%
+  column_to_rownames("variable")
+
+anno = rownames(human_MGRGC_p)%>%
+  as.data.frame()%>%
+  dplyr::rename("all_group"=".")%>%
+  separate(all_group,into = c("Ligand","Receptor","Sender","Receiver"),sep = "_")%>%
+  mutate(all_group=paste(Ligand,Receptor,Sender,Receiver,sep = "_"),
+         label=paste(Ligand,Receptor,sep = "_"))%>%
+  column_to_rownames("all_group")
+
+ann_row= anno%>%
+  dplyr::select(Sender,Receiver)
+
+label = anno$label
+
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"#6a3d9a",
+"#b15928"
+)
+anno_color = list ("Sender" = color,
+                   "Receiver" = color)
+names(anno_color[[1]]) = Celltype_order_microglia
+names(anno_color[[2]]) =Celltype_order_microglia
+
+pheatmap(human_MGRGC_p[,rownames(anno_col)],color = col_scale,scale="row",annotation_col = ann_col,annotation_row = ann_row,cluster_cols = F,show_colnames = F,clustering_method = "ward.D2",annotation_colors = anno_color,labels_row = label)
+
+
+
+```
+

@@ -1,0 +1,1223 @@
+---
+title: "Spatial_analysis"
+output: html_document
+date: "2025-08-31"
+author: "Yang Jin"
+---
+
+
+# Load library and data
+```{r}
+
+library(Seurat)
+library(ggplot2)
+library(tidyverse)
+library(reshape2)
+library(Matrix)
+library(readxl)
+library(corrplot)
+library(LRLoop)
+
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"grey",
+"yellow")
+
+
+Spatial_seurat = readRDS("../Tempout_final/spatial/R1_4_seurat_Merged_dim_RNA_2024.rds")
+Spatial_anno = readRDS("../Tempout_final/spatial/R1_4_seurat_Merged_dim_2024.rds")
+Spatial_predict = readRDS("../Tempout_final/spatial/All_Xenium_predict_2024.rds")
+
+# Split each Xenium sample into 4 replicates
+meta = Spatial_seurat@meta.data%>%
+  rownames_to_column("cells")%>%
+  left_join(Spatial_anno,by="cells")%>%
+  column_to_rownames("cells")
+
+coord_R1 = meta%>%
+  dplyr::filter(sample1=="R1")%>%
+  mutate(rep = ifelse(x<=2300,"rep1",NA),
+         rep = ifelse(x>2300&x<=5000,"rep2",rep),
+         rep = ifelse(x>5000&x<7500,"rep3",rep),
+         rep = ifelse(x>7500,"rep4",rep))
+
+coord_R2 = meta%>%
+  dplyr::filter(sample1=="R2")%>%
+  mutate(rep = ifelse(x<=2300,"rep1",NA),
+         rep = ifelse(x>2300&x<=5000,"rep2",rep),
+         rep = ifelse(x>5000&x<7500,"rep3",rep),
+         rep = ifelse(x>7500,"rep4",rep))
+
+coord_R3 = meta%>%
+  dplyr::filter(sample1=="R3")%>%
+  mutate(rep = ifelse(x<=2300,"rep1",NA),
+         rep = ifelse(x>2300&x<=4200,"rep2",rep),
+         rep = ifelse(x>4200&x<7500,"rep3",rep),
+         rep = ifelse(x>7500,"rep4",rep))
+
+coord_R4 = meta%>%
+  dplyr::filter(sample1=="R4")%>%
+  mutate(rep = ifelse(x<=3000,"rep1",NA),
+         rep = ifelse(x>3000&x<=6300,"rep2",rep),
+         rep = ifelse(x>6300&x<8700,"rep3",rep),
+         rep = ifelse(x>8700,"rep4",rep))
+
+meta = rbind(coord_R1,coord_R2,coord_R3,coord_R4)
+
+Spatial_seurat = CreateSeuratObject(
+  counts = Spatial_seurat@assays$SCT@counts,
+  meta.data = meta
+)
+predict = Spatial_predict%>%
+  dplyr::rename("predicted_age"="predict")%>%
+  dplyr::select(age,predicted_age)
+Spatial_seurat = AddMetaData(Spatial_seurat,metadata = predict)
+
+# Normalize 
+Spatial_seurat = subset(Spatial_seurat,subset = sample2=="NEW")
+Spatial_seurat = NormalizeData(Spatial_seurat)
+
+# Remove celltype with low cell numbers
+Spatial_seurat = subset(Spatial_seurat,subset = celltype%in%c("Adipose Cells","Fibroblasts","Corneal Epithelial","Melanocyte"),invert=T)
+
+# 
+ggplot(meta%>%
+         dplyr::filter(sample1=="R3"&rep=="rep1")%>%
+         dplyr::filter(x>1350&x<1410&y>2250&y<2750)%>%
+         mutate(celltype_new = ifelse(celltype=="MG"|celltype=="AC",celltype,"Other")),aes(x=x,y=y,fill=celltype_new))+
+  geom_point(shape=21,size=4)+
+  theme_void()+
+  scale_fill_manual(values = c("grey","grey","grey"))
+  
+
+```
+
+# Figure 6E Proximity effect
+
+```{r}
+
+# remove cells without age prediction
+Spatial_seurat_sub = subset(Spatial_seurat,subset = age%in%c("5wk" ,"12wk", "52wk", "112wk"))
+
+# remove HC because of too low cells 
+Spatial_seurat_sub = subset(Spatial_seurat_sub,subset = celltype%in%c("HC"),invert=T)
+Spatial_seurat_sub$age = gsub("wk","",Spatial_seurat_sub$age)%>%as.numeric()
+
+# Split samples and save as h5ad
+Spatial_seurat_sub =   SplitObject(Spatial_seurat_sub,split.by = "sample1")
+for (i in 1:length(Spatial_seurat_sub)){
+  file = paste("../Tempout_final/spatial/ageing/ageing_H5ad/",names(Spatial_seurat_sub)[[i]],".h5Seurat",sep="")
+  SaveH5Seurat(Spatial_seurat_sub[[i]], filename = file)
+  Convert(file, dest = "h5ad")
+}
+
+```
+
+```{python}
+# calculate distance 
+conda activate cell_proximity
+
+python
+
+import spatialclock.deploy # for deploying spatial aging clocks
+import spatialclock.proximity # for running proximity effect analysis
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import scanpy as sc
+import squidpy as sq
+import anndata as ad
+import os
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import squidpy as sq
+import anndata as ad
+from scipy.stats import ttest_ind, mannwhitneyu
+from sklearn.neighbors import BallTree
+
+# Set default working directory
+os.chdir("/Users/YUC199/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/spatial/ageing_niches/ageing_H5ad/")
+
+folder_path = "/Users/YUC199/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/spatial/ageing_niches/ageing_h5ad/"
+
+for idx, filename in enumerate(os.listdir(folder_path)):
+  if filename.endswith('h5ad'): 
+    file = os.path.join(folder_path, filename)
+    # Path to your h5ad file
+    adata = sc.read_h5ad(file)
+    niches_cluster = pd.unique(adata.obs["latent_leiden_0.2"])
+    spatialclock.proximity.nearest_distance_to_celltype(adata,
+                             celltype_list=niches_cluster)
+
+
+
+
+```
+
+```{r}
+# prepare cut-off file
+file_list = list.files("../Tempout_final/spatial/ageing/acc_meta")
+medium = list()
+for (i in 1:length(file_list)){
+  file_path = paste("../Tempout_final/spatial/ageing/acc_meta/",file_list[[i]],sep = "")
+  cell_dist = read.csv(file_path)%>%
+      dplyr::select(sample1,celltype,contains("nearest_distance"))%>%
+      melt(id.vars=c("celltype","sample1"))%>%
+      mutate(effector = gsub("_nearest_distance","",variable))
+  medium[[i]] = cell_dist%>%
+      mutate(ct_ct = paste(effector,celltype,sep = "_"))%>%
+      group_by(ct_ct)%>%
+      summarise(dist = median(value))%>%
+      ungroup()
+  path = paste("../Tempout_final/spatial/ageing/acc_meta/",cell_dist$sample1%>%unique(),"_cutoff_ageing.csv",sep = "")
+  write.csv(medium[[i]],path)
+}
+
+cell_dist = do.call(rbind.data.frame,cell_dist)
+
+ggplot(cell_dist,aes(x=celltype,y=value,color=celltype))+
+  geom_boxplot()+
+  theme_bw()+
+  facet_wrap(~sample1+effector,scales = "free",ncol = 6)
+
+medium = cell_dist%>%
+  mutate(ct_ct = paste(effector,celltype,sep = "_"))%>%
+  group_by(sample1,ct_ct)%>%
+  summarise(dist = median(value))%>%
+  ungroup()
+
+write.csv(medium,"../Tempout_final/spatial/ageing/acc_meta/cutoff_ageing.csv")
+```
+
+
+```{python}
+#conda create -n cell_proximity python=3.8
+conda activate cell_proximity
+
+#<pip install any additional dependencies>
+#pip install spatial-aging-clock
+#pip install pyreadr scanpy
+
+
+python
+
+import spatialclock.deploy # for deploying spatial aging clocks
+import spatialclock.proximity # for running proximity effect analysis
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import scanpy as sc
+import squidpy as sq
+import anndata as ad
+import os
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import squidpy as sq
+import anndata as ad
+from scipy.stats import ttest_ind, mannwhitneyu
+from sklearn.neighbors import BallTree
+
+# Set default working directory
+os.chdir("/Users/YUC199/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/spatial/ageing/ageing_h5ad/")
+
+folder_path = "/Users/YUC199/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/spatial/ageing/ageing_h5ad/"
+
+for idx, filename in enumerate(os.listdir(folder_path)):
+  if filename.endswith('h5ad'): 
+    file = os.path.join(folder_path, filename)
+    # Path to your h5ad file
+    adata = sc.read_h5ad(file)
+    adata.obsm["spatial"] = adata.obs[["x", "y"]].to_numpy()
+    adata.obs["mouse_id"] = adata.obs["sample1"].astype(str).str.cat(adata.obs["rep"].astype(str), sep="_")
+    adata.obs["cohort"] = adata.obs["rep"]
+    adata.obs["region"] = "region1"
+    adata.obs['celltype'] = adata.obs['celltype'].astype('category')
+    # Get cutoff data
+    cut_off_filename = os.path.join("/Users/YUC199/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/spatial/ageing/acc_meta/", adata.obs["sample1"].unique()[0]+".csv")
+    cutoff = pd.read_csv(cut_off_filename)
+    cutoff = cutoff.set_index("ct_ct")["dist"].to_dict()
+    #Calculate age acceleration
+    get_age_acceleration(adata)
+    # Set cut-off based on median distance
+    celltypes = pd.unique(adata.obs["celltype"]).sort_values()
+    # Calculate nearest cells
+    spatialclock.proximity.nearest_distance_to_celltype(adata,
+                               celltype_list=celltypes,
+                               sub_id=None)
+    filesave = filename+".csv"
+    adata.obs.to_csv(filesave)
+    df = compute_proximity_effects(adata,
+                                cutoff, 
+                                celltypes,
+                                min_pairs=20)    
+    filesave1 = filename+"_Proximity_effect.csv"                            
+    df.to_csv(filesave1)
+
+                                                      
+
+def compute_proximity_effects (adata, cutoff, celltypes, cutoff_multiplier=1, region_obs="region", animal_obs="mouse_id", comparison="farthest", min_pairs=50):
+    '''
+    Compute proximity stats
+        cutoff [int or dict] - if int, then use this cutoff distance for all examples
+                             - if dict, then use {cutoff[region] = int} distance 
+        celltypes [lst] - list of strings specifying effector cell types to compute proximity effects for
+        cutoff_multiplier [float] - multipler for radius cutoff
+        ring_width [None or float] - width of ring to sample near cells where outer distance is cutoff*cutoff_multipler; if None, then sample all cells within cutoff (i.e. circle)
+        region_obs [str] - key in adata.obs to get region labels
+        celltype_obs [str] - key in adata.obs to get cell type labels
+        animal_obs [str] - key in adata.obs to get animal/sample labels
+        comparison [str] - how to determine "far" comparison group ("farthest", "random", "transcript_count")
+        min_pairs [int] - minimum number of cells in near/far set to compute proximity effect for
+    Returns:
+        comb_df [Dataframe] - containing the following columns:
+            "Near Cell", effector cell type name
+            "AgeAccel Cell", target cell type name
+            "n", cutoff multiplier used
+            "t", t-test statistic
+            "p", p-value from t-test
+            "Aging Effect", Proximity Effect
+            "Near Freq", normalized frequency of interactions
+            "Near Num", number of interactions
+    '''
+    comb_df = pd.DataFrame([])
+    for celltype in celltypes:
+        for ct in pd.unique(adata.obs.celltype).sort_values():
+            sub_adata = adata[adata.obs["celltype"]==ct]
+                        # get distance cutoff for "near"
+            ct_ct = celltype + "_" +ct
+            if isinstance(cutoff, int):
+                cutoff_dist = cutoff * cutoff_multiplier
+            else:
+                cutoff_dist = cutoff[ct_ct] * cutoff_multiplier
+            # get paired proximity sets
+            near_ages = get_paired_proximity_labels(sub_adata, cutoff_dist,celltype,
+                                                    region_obs=region_obs,
+                                                    animal_obs=animal_obs,
+                                                    comparison=comparison)
+            # run test
+            df = get_stats_df(sub_adata, near_ages, cutoff_multiplier, celltype, ct,
+                              min_pairs=min_pairs)
+            comb_df = pd.concat((comb_df, df))
+    return (comb_df)    
+
+
+
+  
+def get_paired_proximity_labels (adata,cutoff_dist,celltype, region_obs="region",animal_obs="mouse_id", comparison="farthest"):
+    '''
+    Returns proximity labels for cell types based on cutoff distance
+        celltype [str] - effector cell type to compute proximity relation to
+        cutoff_multiplier [float] - multipler for radius cutoff
+        ring_width [None or float] - width of ring to sample near cells where outer distance is cutoff*cutoff_multipler; if None, then sample all cells within cutoff (i.e. circle)
+        celltype_obs [str] - key in adata.obs to get cell type labels
+        animal_obs [str] - key in adata.obs to get animal/sample labels
+        comparison [str] - how to determine "far" comparison group ("farthest", "random", "transcript_count")
+    Returns:
+        prox_labels [arr] - array of strings ("Near" or "Far" or "Other") specifying proximity label for each cell
+    '''
+    # init labels
+    prox_labels = np.array(["Other"]*adata.shape[0])
+    # region-based labeling
+    for mouse in np.unique(adata.obs[animal_obs]):
+        sub_adata = adata[adata.obs[animal_obs]==mouse].copy()
+        mouse_bool = (adata.obs[animal_obs]==mouse)
+        sub_prox_labels = np.array(["Other"]*sub_adata.shape[0])
+        for region in np.unique(sub_adata.obs[region_obs]):
+            # get "near" cells
+            near_bool = (sub_adata.obs.region==region)&(sub_adata.obs[f"{celltype}_nearest_distance"] < cutoff_dist)
+            num_near = np.sum(near_bool)
+            # get "far" cells
+            if num_near > 0: # takes care of edge case where num_near==0
+                try:
+                    region_idxs = np.arange(sub_adata.shape[0])[(sub_adata.obs.region==region)&(sub_adata.obs[f"{celltype}_nearest_distance"] >= cutoff_dist)]
+                    region_dists = np.array(sub_adata.obs[f"{celltype}_nearest_distance"])[region_idxs]
+                    
+                    if comparison == "farthest":
+                        farthest_in_region = np.argpartition(region_dists,-num_near)[-num_near:]
+                        far_idxs = region_idxs[farthest_in_region]    
+                    elif comparison == "random":
+                        np.random.seed(444)
+                        far_idxs = np.random.choice(region_idxs, num_near, replace=False)
+                    elif comparison == "transcript_count":
+                        near_mean_transcript_count = sub_adata[near_bool].obs.transcript_count.mean()
+                        region_counts = np.array(sub_adata.obs.transcript_count)[region_idxs]
+                        matched_in_region = np.argpartition(np.abs(region_counts-near_mean_transcript_count),num_near)[:num_near]
+                        far_idxs = region_idxs[matched_in_region]
+                    else:
+                        raise Exception ("'comparison' not recognized")
+                    # Update if everything is matched correctly
+                    sub_prox_labels[near_bool] = "Near"
+                    sub_prox_labels[far_idxs] = "Far"
+                except:
+                    pass
+        prox_labels[mouse_bool] = sub_prox_labels
+    return (prox_labels)
+
+
+
+def get_stats_df (adata, near_ages, cutoff_multiplier, celltype, ct, label=None,
+                  min_pairs=50):
+    '''
+    Computes all statistics associated with proximity effect analysis including the proximity effect
+        adata [AnnData] - object containing the spatial transcriptomics data
+        near_ages [arr] - array with "Near", "Far", "Other" values
+        cutoff_multiplier [float] - cutoff multiplier (only saved to the output)
+        celltype [str] - effector cell type label (only saved to the output)
+        ct [str] - target cell type label (only saved to the output)
+        full_adata - unused argument [will remove in future iterations]
+        label [str] - additional label to add to first column of output if not None
+        min_pairs [int] - minimum number of cells in near/far set to compute proximity effect for
+    Returns:
+        df [Dataframe] - containing the following columns:
+            "label", label if any
+            "Near Cell", effector cell type name
+            "AgeAccel Cell", target cell type name
+            "n", cutoff multiplier used
+            "t", t-test statistic
+            "p", p-value from t-test
+            "Aging Effect", Proximity Effect
+            "Near Freq", normalized frequency of interactions
+            "Near Num", number of interactions
+    '''
+    # run test
+    t,p = ttest_ind(adata.obs['normalized_age_acceleration'].copy()[near_ages=="Near"],
+                    adata.obs['normalized_age_acceleration'].copy()[near_ages=="Far"],
+                    nan_policy='omit')
+    # compute aging effect
+    group1 = adata.obs['normalized_age_acceleration'].copy()[near_ages=="Near"]
+    group2 = adata.obs['normalized_age_acceleration'].copy()[near_ages=="Far"]
+    n1 = np.sum(~np.isnan(group1))
+    n2 = np.sum(~np.isnan(group2))
+    if (n1 > min_pairs) and (n2 > min_pairs):
+        mean_diff = np.nanmean(group1)-np.nanmean(group2)
+        pooled_sd = np.sqrt((n1*np.nanstd(group1)**2 + n2*np.nanstd(group2)**2) / (n1+n2)) 
+        aging_effect = mean_diff/pooled_sd # cohen's d = mean_diff/pooled_sd
+    else:
+        aging_effect = np.nan
+    # compute normalized near freq
+    near_freq = np.sum(near_ages=="Near") / len(near_ages)
+    near_num = np.sum(near_ages=="Near")
+    # compile stats
+    if label is None:
+        df = pd.DataFrame([[celltype, ct, cutoff_multiplier, t, p, aging_effect, near_freq, near_num]],
+                          columns=["Near Cell", "AgeAccel Cell", "n", "t", "p", "Aging Effect", "Near Freq", "Near Num"])
+    else:
+        df = pd.DataFrame([[label, celltype, ct, cutoff_multiplier, t, p, aging_effect, near_freq, near_num]],
+                          columns=["label", "Near Cell", "AgeAccel Cell", "n", "t", "p", "Aging Effect", "Near Freq", "Near Num"])
+    return (df)  
+
+
+
+
+def get_age_acceleration (adata):
+    '''
+    Computes age acceleration and normalized age acceleration for AnnData in place
+        NOTE: 'normalized_age_acceleration' is "age acceleration" as defined in the paper Sun et al. (2024)
+    adata must have obs variables: `age` and `predicted_age`
+    '''
+    # round for aesthetic purposes (and accuracy)
+    adata.obs["age"] = np.array([round(a,2) for a in adata.obs['age']])
+    # raw age acceleration
+    #adata.obs['age_acceleration'] = adata.obs['predicted_age'].values-adata.obs['age'].values
+    #adata.obs['age_acceleration'] = adata.obs['age_acceleration'].astype('float64')
+    # normalized using average predicted age instead of calendar age
+    avg_pred_age = adata.obs["predicted_age"].values.copy()
+    for mouse_id in np.unique(adata.obs['mouse_id']):
+        for ct in np.unique(adata.obs['celltype']):
+            mean_pred = np.mean(adata.obs["predicted_age"].values[(adata.obs['mouse_id']==mouse_id)&(adata.obs['celltype']==ct)])
+            avg_pred_age[(adata.obs['mouse_id'] == mouse_id)&(adata.obs['celltype'] == ct)] = mean_pred
+    adata.obs['normalized_age_acceleration'] = adata.obs['predicted_age'].values-avg_pred_age
+    adata.obs['normalized_age_acceleration'] = adata.obs['normalized_age_acceleration'].astype('float64')
+
+
+
+## Permutation
+
+n_permutations = 30
+
+# ----------------------------------------------------------------
+
+np.random.seed(444)
+random_seeds = np.random.randint(0,50000,size=n_permutations)
+
+# iterate seeds for permutation
+for seed in random_seeds:
+    for idx, filename in enumerate(os.listdir(folder_path)):
+      if filename.endswith('h5ad'): 
+        file = os.path.join(folder_path, filename)
+        # Path to your h5ad file  
+        # read fresh data
+        adata = sc.read_h5ad(file)
+        adata.obsm["spatial"] = adata.obs[["x", "y"]].to_numpy()
+        adata.obs["mouse_id"] = adata.obs["sample1"].astype(str).str.cat(adata.obs["rep"].astype(str), sep="_")
+        adata.obs["cohort"] = adata.obs["rep"]
+        adata.obs["region"] = "region1"
+        adata.obs['celltype'] = adata.obs['celltype'].astype('category')
+        # permute cells in each sample
+        for mid in np.unique(adata.obs.mouse_id):
+            spatial_coords = np.array(adata.obsm["spatial"][adata.obs.mouse_id==mid,:]).copy()
+            np.random.seed(seed)
+            permuted_idxs = np.random.permutation(np.arange(spatial_coords.shape[0]))
+            adata.obsm["spatial"][adata.obs.mouse_id==mid,:] = spatial_coords[permuted_idxs,:]
+        # get age acceleration
+        spatialclock.deploy.get_age_acceleration(adata)
+        # Compute nearest to cell type distances
+        spatialclock.proximity.nearest_distance_to_celltype(adata,
+                                 celltype_list=pd.unique(adata.obs.celltype).sort_values(),
+                                 sub_id="mouse_id")
+        fileperm = filename+f"_permutation_{seed}.csv"
+        adata.obs.to_csv(fileperm)
+
+
+# Plot proximate results
+
+# Heatmap
+
+file_list = list.files("../Tempout_final/spatial/ageing/Proximity_effect")
+prox = list()
+for (i in 1:length(file_list)){
+  path = paste("../Tempout_final/spatial/ageing/Proximity_effect/",file_list[[i]],sep = "")
+  prox[[i]] = read.csv(path)%>%
+      mutate(Aging.Effect = ifelse(p<0.05,Aging.Effect,NA))%>%
+      dplyr::select(Near.Cell,AgeAccel.Cell,Aging.Effect)%>%
+      dcast(Near.Cell~AgeAccel.Cell,value.var = "Aging.Effect")%>%
+      column_to_rownames("Near.Cell")
+  names(prox)[[i]] = gsub(".h5ad_Proximity_effect.csv","",file_list[[i]])
+}
+
+library(pheatmap)
+breaksList = seq(-0.3, 0.3, by = 0.001)
+col_scale = colorRampPalette(c("#336666","#99cccc","white","#ffcccc","#996666"))(length(breaksList))
+pheatmap(prox[[3]],color = col_scale,breaks = breaksList,cluster_rows = F,cluster_cols = F,main ="Wk52",na_col = "white")
+
+prox_perm =read.csv("./Proximity_effect_20241230_old_permutation.csv")
+
+# Barplot 
+file_list = list.files("../Tempout_final/spatial/ageing/all_meta/")
+Prox_orig = list()
+cut_off = list()
+for (i in 1:length(file_list)){
+  path = paste("../Tempout_final/spatial/ageing/all_meta/",file_list[[i]],sep = "")
+  Prox_orig[[i]] = read.csv(path)
+  sample = Prox_orig[[i]]$sample1%>%unique()
+  path_cutoff = paste("../Tempout_final/spatial/ageing/acc_meta/",sample,".csv",sep = "")
+  cut_off[[i]] = read.csv(path_cutoff)%>%
+    mutate(sample1=sample)
+}
+cut_off = do.call(rbind.data.frame,cut_off)%>%
+  dplyr::select(-X)%>%
+  separate(ct_ct,into = c("effector_celltype","celltype"),sep = "_")
+
+Prox_test_bar = do.call(rbind.data.frame,Prox_orig)%>%
+  dplyr::select(X,sample1,mouse_id,celltype,x,y,age,predicted_age,rep,normalized_age_acceleration,contains("nearest_distance"))%>%
+  melt(id.vars=c("X","sample1","mouse_id","celltype","x","y","age","predicted_age","rep","normalized_age_acceleration"))%>%
+  mutate(effector_celltype = gsub("_nearest_distance","",variable),
+         nearest_distance = value)%>%
+  left_join(cut_off,by=c("celltype","effector_celltype","sample1"))%>%
+  mutate(dist_cat = ifelse(nearest_distance>dist,"far","near")%>%
+           factor(levels = c("near","far")))%>%
+  dplyr::filter(!celltype=="HC"&!effector_celltype=="HC")%>%
+  dplyr::filter((effector_celltype=="MG"&celltype%in%c("BC","AC","Rod"))|
+                  (effector_celltype=="Rod"&celltype%in%c("BC"))|
+                     (effector_celltype=="Cone"&celltype%in%c("BC","Rod")))%>%
+  group_by(sample1,effector_celltype,celltype,dist_cat)%>%
+  summarise(mean = mean(normalized_age_acceleration),
+            sd = sd(normalized_age_acceleration),
+            n = n())%>%
+  mutate(all = paste(mean,sd,n,sep = "_"))%>%
+  dcast(effector_celltype+celltype+sample1~dist_cat,value.var = c("all"))%>%
+  separate(near,into = c("near_mean","near_sd","near_n"),sep = "_")%>%
+  separate(far,into = c("far_mean","far_sd","far_n"),sep = "_")%>%
+  mutate(Diff= as.numeric(near_mean)-as.numeric(far_mean),
+         sd = sqrt((as.numeric(near_n) * as.numeric(near_sd)^2 + as.numeric(far_n) * as.numeric(far_sd)^2) / (as.numeric(near_n) + as.numeric(far_n))),
+         Proximate = Diff/sd)%>%
+  arrange(Proximate)%>%
+  mutate(ct_ct = paste(effector_celltype,celltype,sep = " => "),
+         dir = ifelse(Proximate>0,"pro-ageing","pro-rejuvenating"))
+
+Prox_test_bar$ct_ct = factor(Prox_test_bar$ct_ct,levels = as.character(Prox_test_bar$ct_ct%>%unique()))
+
+
+ggplot(Prox_test_bar%>%
+         dplyr::filter(!ct_ct=="Cone => BC"),aes(x=Proximate,y=ct_ct,fill=dir))+
+  geom_bar(stat = "identity",width = 0.7,color="black")+
+  theme_bw()+
+  facet_wrap(~sample1,ncol = 4)+
+  geom_vline(xintercept = 0)+
+  theme(axis.text = element_text(color="black",size=13),
+        text = element_text(color="black",size=13),
+        legend.position = "none",
+        legend.title = element_blank(),
+        strip.background = element_blank(),
+        legend.text = element_text(color="black",size=13))+
+  ylab("")+
+  xlab("Average proximity effect")+
+  scale_x_continuous(limits = c(-0.3,0.3),breaks = c(-0.2,0,0.2))+
+  scale_fill_manual(values = c("#ffcccc","#99cccc"))
+
+
+File_list = list.files("../Tempout_final/spatial/ageing/Permutation")
+Prox_perm = list()
+for (i in 1:length(File_list)){
+  file = paste("../Tempout_final/spatial/ageing/Permutation/",File_list[[i]],sep = "")
+  Prox_perm[[i]] = read.csv(file)%>%
+  mutate(sample = File_list[[i]])
+}
+Prox_perm = do.call(rbind.data.frame,Prox_perm)
+
+Prox_perm_all = Prox_perm%>%
+  dplyr::select(X,sample1,mouse_id,celltype,x,y,age,predicted_age,rep,normalized_age_acceleration,contains("nearest_distance"),sample)%>%
+  melt(id.vars=c("X","sample1","mouse_id","celltype","x","y","age","predicted_age","rep","sample","normalized_age_acceleration"))%>%
+  mutate(effector_celltype = gsub("_nearest_distance","",variable),
+         nearest_distance = value)%>%
+  left_join(cut_off,by=c("celltype","effector_celltype","sample1"))%>%
+  mutate(dist_cat = ifelse(nearest_distance>dist,"far","near")%>%
+           factor(levels = c("near","far")))%>%
+  dplyr::filter((effector_celltype=="MG"&celltype%in%c("BC","AC","Rod"))|
+                  (effector_celltype=="Rod"&celltype%in%c("BC"))|
+                     (effector_celltype=="Cone"&celltype%in%c("BC","Rod")))%>%
+  group_by(effector_celltype,celltype,dist_cat,sample,sample1)%>%
+  summarise(mean = mean(normalized_age_acceleration),
+            sd = sd(normalized_age_acceleration),
+            n = n())%>%
+  ungroup()%>%
+  mutate(all = paste(mean,sd,n,sep = "_"))%>%
+  dcast(effector_celltype+celltype+sample1+sample~dist_cat,value.var = c("all"))%>%
+  separate(near,into = c("near_mean","near_sd","near_n"),sep = "_")%>%
+  separate(far,into = c("far_mean","far_sd","far_n"),sep = "_")%>%
+  mutate(Diff= as.numeric(near_mean)-as.numeric(far_mean),
+         sd = sqrt((as.numeric(near_n) * as.numeric(near_sd)^2 + as.numeric(far_n) * as.numeric(far_sd)^2) / (as.numeric(near_n) + as.numeric(far_n))),
+         Proximate = Diff/sd)%>%
+  group_by(effector_celltype,celltype,sample1)%>%
+  summarise(Proximate = mean(Proximate))%>%
+  ungroup()%>%
+  arrange(Proximate)%>%
+  mutate(ct_ct = paste(effector_celltype,celltype,sep = " => "),
+         dir = ifelse(Proximate>0,"pro-ageing","pro-rejuvenating"))
+
+
+Prox_perm_all$ct_ct = factor(Prox_perm_all$ct_ct,levels = as.character(Prox_test_bar$ct_ct%>%unique()))
+
+
+ggplot(Prox_perm_all%>%
+         dplyr::filter(!ct_ct=="Cone => BC"),aes(x=Proximate,y=ct_ct),fill="grey")+
+  geom_bar(stat = "identity",width = 0.7,color="black")+
+  theme_bw()+
+  geom_vline(xintercept = 0)+
+  facet_wrap(~sample1,ncol = 4)+
+  theme(axis.text = element_text(color="black",size=13),
+        text = element_text(color="black",size=13),
+        legend.title = element_blank(),
+        strip.background = element_blank(),
+        legend.text = element_text(color="black",size=13))+
+  ylab("")+
+  xlab("Average proximity effect")+
+  scale_x_continuous(limits = c(-0.3,0.3),breaks = c(-0.2,0,0.2))+
+  scale_fill_manual(values = c("#fc8d59","#91bfdb"))
+
+```
+
+# Figure 7A and 7B Region-specific gene expression
+
+```{r}
+
+# Subset young and old samples
+Young_mouse = "R1"
+Old_mouse = "R4"
+
+Spatial_sub = subset(Spatial_seurat,subset=sample1%in%c(Young_mouse,Old_mouse))
+Spatial_sub$Age_cat = ifelse(Spatial_sub$sample1=="R4","Old","Young")%>%
+           factor(levels = c("Young","Old"))
+#Spatial_sub = subset(Spatial_sub,subset=celltype%in%c("MG","Rod","Cone","AC","BC","RGC","RPE"))
+
+# Visulize different celltypes 
+Meta_LR = Spatial_sub@meta.data%>%
+  rownames_to_column("cell")%>%
+  mutate(x_axis=y,
+         y_axis=x,
+         Age_cat=factor(Age_cat,levels=c("Young","Old")))
+color = c("#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99",
+"#e31a1c",
+"#fdbf6f",
+"#ff7f00",
+"#cab2d6",
+"#6a3d9a",
+"#ffff99",
+"#b15928")
+
+# Add region cut-off
+
+Young_rep1 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Young"&rep=="rep1")%>%
+  mutate(region=ifelse(x_axis-y_axis<1500, "Region_1","Region_2")) #y=x-1500
+Young_rep2 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Young"&rep=="rep2")%>%
+  mutate(region=ifelse(x_axis-y_axis< -1500, "Region_1","Region_2")) #y=x+1500
+Young_rep3 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Young"&rep=="rep3")%>%
+  mutate(region=ifelse(x_axis< 1750, "Region_1","Region_2"))
+Young_rep4 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Young"&rep=="rep4")%>%
+  mutate(region=ifelse(x_axis*0.75-y_axis< -7250, "Region_1","Region_2")) #y=0.75x+7250
+Old_rep1 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Old"&rep=="rep1")%>%
+  mutate(region=ifelse(y_axis>1500, "Region_1","Region_2")) 
+Old_rep2 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Old"&rep=="rep2")%>%
+  mutate(region=ifelse(y_axis< 4750, "Region_1","Region_2")) #y=x+1500
+Old_rep3 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Old"&rep=="rep3")%>%
+  mutate(region=ifelse(y_axis> 7750, "Region_1","Region_2"))
+Old_rep4 = Meta_LR%>%
+  dplyr::filter(Age_cat=="Old"&rep=="rep4")%>%
+  mutate(region=ifelse(y_axis> 10250, "Region_1","Region_2")) #y=0.75x+7250
+Meta_new = rbind(Young_rep1,Young_rep2,Young_rep3,Young_rep4,
+                    Old_rep1,Old_rep2,Old_rep3,Old_rep4)%>%
+          mutate(group_new = paste(Age_cat,rep,sep = "-")%>%
+                   factor(levels = c("Young-rep1","Young-rep2","Young-rep3","Young-rep4","Old-rep1","Old-rep2","Old-rep3","Old-rep4")))
+
+region_meta = Meta_new%>%
+  dplyr::select(cell,region)%>%
+  column_to_rownames("cell")
+
+Spatial_sub = AddMetaData(Spatial_sub,metadata = region_meta)
+
+# Supplementary region figure
+meta_fig = split(Meta_new,list(Meta_new$celltype))
+p = list()
+for (i in 1:length(meta_fig)){
+  p[[i]] <- ggplot(meta_fig[[i]],aes(x=x_axis,y=y_axis,color=region))+
+  geom_point(size=0.1)+
+  theme_bw()+
+  #scale_color_manual(values = color)+
+  facet_wrap(~group_new,scales = "free",ncol = 4)+
+  ggtitle(label = names(meta_fig)[[i]])+
+  theme(axis.text = element_text(color="black",size=13),
+        text = element_text(color="black",size=13),
+        strip.background = element_blank(),
+        strip.text = element_text(color="black",size=13),
+        title = element_text(color="black",size=13),
+        legend.title = element_blank(),
+        legend.text = element_text(color="black",size=13))+ 
+  guides(colour = guide_legend(override.aes = list(size=2)))
+    
+}
+
+
+library(gridExtra)
+
+ggsave(
+   filename = "../Tempout_final/spatial/Region_specific/Separate_region_celltypes.pdf", 
+   plot = marrangeGrob(p, nrow=1, ncol=1), 
+   width = 15, height = 7
+)
+
+# Now i split each sample into region 1 and region 2
+
+ggplot(Meta_new,aes(x=x_axis,y=y_axis,color=region))+
+  geom_point(size=0.3)+
+  facet_wrap(~group_new,scales = "free",nrow = 2)+
+  theme_bw()+
+  theme(axis.text = element_text(color="black",size=13),
+        text = element_text(color="black",size=13),
+        strip.background = element_blank(),
+        strip.text = element_text(color="black",size=13),
+        title = element_text(color="black",size=13),
+        legend.title = element_blank(),
+        legend.text = element_text(color="black",size=13))+ 
+  guides(colour = guide_legend(override.aes = list(size=2)))+
+  scale_color_manual(values = c("#5aae61","#9970ab"))
+
+# DEG between regions
+options(future.globals.maxSize = 2 * 1024^3)  # 2 GB
+
+Spatial_sub$tissue_region = paste(Spatial_sub$celltype,Spatial_sub$region,sep = ":")
+#Spatial_sub = SCTransform(Spatial_sub)
+
+Seurat_sub_new = SplitObject(Spatial_sub,split.by = "tissue_region")
+DEG_region = list()
+for (i in 1:length(Seurat_sub_new)){
+  Idents(Seurat_sub_new[[i]])<- "Age_cat"
+  DEG_region[[i]] = FindMarkers(Seurat_sub_new[[i]],
+                         ident.1 = "Old",
+                         ident.2 = "Young",
+                         logfc.threshold = 0)%>%
+    as.data.frame()%>%
+    rownames_to_column("gene")%>%
+    mutate(tissue_region = names(Seurat_sub_new)[[i]])
+}
+
+DEG_region_all = do.call(rbind.data.frame,DEG_region)%>%
+  mutate(pct_diff = pct.1-pct.2)%>%
+  separate(tissue_region,into=c("celltype","region"),sep = ":")
+
+load("../raw/DefaultNetworks/mm/NicheNet_and_NATMI_bonafide_filtered/lr_network.RData")
+
+DEG_region_split = DEG_region_all%>%
+  dplyr::filter(region=="Region_1")%>%
+  full_join(DEG_region_all%>%
+  dplyr::filter(region=="Region_2"),by=c("gene","celltype"))%>%
+  mutate(Log2FC_region1 = ifelse(is.na(avg_log2FC.x),0,avg_log2FC.x),
+         Log2FC_region2 = ifelse(is.na(avg_log2FC.y),0,avg_log2FC.y),
+         p_val_adj.x = ifelse(is.na(p_val_adj.x),1,p_val_adj.x),
+         p_val_adj.y = ifelse(is.na(p_val_adj.y),1,p_val_adj.y),
+         sig = ifelse(p_val_adj.x<0.05,"Sig in region 1","non-sig"),
+         sig = ifelse(p_val_adj.y<0.05,"Sig in region 2",sig),
+         sig = ifelse(p_val_adj.x<0.05&p_val_adj.y<0.05,"Sig in both regions",sig))%>%
+  mutate(LR = ifelse(gene%in%lr_network$from,"Ligand_gene","Other_genes"),
+         LR = ifelse(gene%in%lr_network$to,"Receptor_gene",LR))
+
+#library(writexl)
+#write_xlsx(DEG_region_split,"./DEGs_in_region1_region2_20250102_Yang.xlsx")
+DEG_region_split = read_excel("./spatial/DEGs_in_region1_region2_20250102_Yang.xlsx")%>%
+  mutate(Log2FC_region1 = ifelse(is.na(`log2FC Old vs Young in region1`),0,`log2FC Old vs Young in region1`),
+         Log2FC_region2 = ifelse(is.na(`log2FC Old vs Young in region2`),0,`log2FC Old vs Young in region2`),
+         p_val_adj_region1 = ifelse(is.na(`p_val_adj.Old vs Young in region1`),1,`p_val_adj.Old vs Young in region1`),
+         p_val_adj_region2 = ifelse(is.na(`p_val_adj.Old vs Young in region2`),1,`p_val_adj.Old vs Young in region2`),
+         sig = ifelse(`p_val_adj.Old vs Young in region1`<0.05,"Sig in region 1","non-sig"),
+         sig = ifelse(`p_val_adj.Old vs Young in region2`<0.05,"Sig in region 2",sig),
+         sig = ifelse(`p_val_adj.Old vs Young in region1`<0.05&`p_val_adj.Old vs Young in region2`<0.05,"Sig in both regions",sig))%>%
+  mutate(LR = ifelse(gene%in%lr_network$from,"Ligand_gene","Other_genes"),
+         LR = ifelse(gene%in%lr_network$to,"Receptor_gene",LR))
+         
+library(ggrepel)
+ggplot(DEG_region_split%>%
+         #dplyr::filter(!LR=="Other_genes")%>%
+         dplyr::filter(celltype%in%c("MG","Rod","Cone","AC","BC","RGC")),aes(x=Log2FC_region1,y=Log2FC_region2,color=sig))+
+  geom_point(size=1)+
+  facet_wrap(~celltype,ncol = 3)+
+  geom_text_repel(data = DEG_region_split%>%
+         dplyr::filter(abs(Log2FC_region1)>0.5|abs(Log2FC_region2)>0.5)%>%
+         dplyr::filter(celltype%in%c("MG","Rod","Cone","AC","BC","RGC"))%>%
+                    dplyr::filter(!sig=="non-sig"),aes(label=gene),size=3)+
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  theme_bw()+
+  xlab("Log2FC Old vs Young in region 1")+
+  ylab("Log2FC Old vs Young in region 2")+
+  scale_color_manual(values=c("grey","red","green4","purple3"))+
+  theme(axis.text = element_text(color="black",size=13),
+        text = element_text(color="black",size=13),
+        strip.background = element_blank(),
+        strip.text = element_text(color="black",size=13),
+        title = element_text(color="black",size=13),
+        legend.title = element_blank(),
+        legend.text = element_text(color="black",size=13))+ 
+  guides(colour = guide_legend(override.aes = list(size=2)))
+
+
+# Grik3 example 
+
+select_gene = "Cd36"
+Spatial_seurat = SCTransform(Spatial_seurat)
+Spatial_seurat = NormalizeData(Spatial_seurat,assay = "RNA")
+matrix = Spatial_seurat@assays$RNA$data
+meta = Spatial_seurat@meta.data%>%
+  rownames_to_column("cell")
+matrix_sub = matrix[rownames(matrix)%in%select_gene,]%>%
+    as.data.frame()%>%
+    rownames_to_column("cell")%>%
+    dplyr::rename("value"=".")%>%
+    left_join(meta,by="cell")%>%
+    dplyr::filter(celltype%in%c("MG"))%>%
+    mutate(value=as.numeric(value))
+
+color = colorRampPalette(colors = c("grey","red"))(1000)
+ggplot(matrix_sub,aes(x=y,y=x,color=value))+
+  geom_point(size=0.2)+
+  geom_point(data=matrix_sub%>%
+               dplyr::filter(value>0),size=0.2)+
+  theme_void()+
+  scale_color_gradientn(colours = color)+
+  facet_wrap(~sample1+rep,scales = "free")+
+  theme(axis.text = element_blank(),
+        text = element_text(color="black",size=13),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        title = element_text(color="black",size=13),
+        legend.title = element_blank(),
+        legend.text = element_text(color="black",size=13))
+
+#### Subset and plot only on representative samples
+
+matrix_sub_sub = matrix_sub%>%
+  dplyr::filter((age=="5wk"&rep=="rep4")|(age=="112wk"&rep=="rep2"))
+
+Spatial_seurat$Age_rep = paste(Spatial_seurat$age,Spatial_seurat$rep,sep = "_")
+spatial_examp = subset(Spatial_seurat,subset=Age_rep%in%c("5wk_rep4","112wk_rep2"))
+spatial_examp = subset(spatial_examp,subset=celltype=="MG")
+
+ImageFeaturePlot(spatial_examp, features = "Cd36")
+
+color = colorRampPalette(colors = c("grey","red"))(1000)
+ggplot(matrix_sub_sub,aes(x=y,y=x,color=value))+
+  geom_point(size=0.4,alpha=0.1)+
+  geom_point(data=matrix_sub_sub%>%
+               dplyr::filter(value>0),size=0.4)+
+  theme_bw()+
+  scale_color_gradientn(colours = color)+
+  facet_wrap(~sample1+rep,scales = "free")+
+  theme(axis.text = element_blank(),
+        panel.background = element_rect(fill = 'black'),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        text = element_text(color="black",size=13),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        title = element_text(color="black",size=13),
+        legend.title = element_blank(),
+        legend.text = element_text(color="black",size=13))
+
+# flatten the retina
+# Now lets try to do A2M
+A2M_Young_wCord = matrix_sub%>%
+  dplyr::filter(Age=="Young")%>%
+  dplyr::filter(y_axis>7500)
+  
+
+# Load necessary libraries
+data = A2M_Young_wCord
+
+# Find the index of the starting point
+start_index <- which(data$y_axis==max(data$y_axis))
+
+# Initialize the ordered path with the starting point
+ordered_data <- data[start_index, ]
+ordered_data$distance_to_last <- 0
+remaining_data <- data[-start_index, ]
+
+# Step 3: Iteratively find the nearest neighbor within a threshold distance
+while (nrow(remaining_data) > 0) {
+  last_point <- ordered_data[nrow(ordered_data), ]
+  # Calculate distances from the last point to each remaining point
+  remaining_data <- remaining_data %>%
+    mutate(distance_to_last = sqrt((x_axis - last_point$x_axis)^2 + (y_axis - last_point$y_axis)^2))
+  # Find the nearest point within the maximum distance threshold
+  nearest_index <- which.min(remaining_data$distance_to_last)
+  nearest_distance <- remaining_data$distance_to_last[nearest_index]
+  # If no points are within the threshold, increase the threshold or stop the loop
+  # Add the nearest point to the ordered path
+  ordered_data <- rbind(ordered_data, remaining_data[nearest_index, ])
+  # Remove the nearest point from remaining data
+  remaining_data <- remaining_data[-nearest_index, ]
+}
+
+# Step 4: Calculate cumulative distance for the ordered points
+ordered_data <- ordered_data %>%
+  mutate(distance = sqrt((x - lag(x))^2 + (y - lag(y))^2)) %>%
+  replace_na(list(distance = 0)) %>%
+  mutate(cumulative_distance = cumsum(distance))
+
+# Double check
+# remove bad points
+data_filter = ordered_data%>%
+  dplyr::filter(cumulative_distance<100000)
+
+library(cowplot)
+plot_grid(
+  ggplot(data,aes(x=x_axis,y=y_axis))+
+    geom_point()+
+    scale_x_continuous(limits = c(500,5000))+
+    scale_y_continuous(limits = c(7500,11000)),
+  ggplot(data_filter,aes(x=x_axis,y=y_axis))+
+    geom_point()+
+    scale_x_continuous(limits = c(500,5000))+
+    scale_y_continuous(limits = c(7500,11000)))
+
+ggplot(data_filter, aes(x = cumulative_distance, y = value, color = value)) +
+  geom_point() +
+  scale_color_gradient(low = "grey", high = "red") +
+  labs(x = "Cumulative Distance Along Curve", y = "Nrg1", title = "1D Representation of Nrg1 Along the Curve") +
+  theme_minimal() +
+  theme(legend.position = "right")+
+  scale_y_continuous(limits = c(0,5))
+
+cropped.coords <- Crop(Young[["fov"]], y = c(0, 2200), x = c(1000, 3500), coords = "plot")
+Young[["fov_cut"]] <- cropped.coords
+Young_sub = subset(Young,subset = celltypes%in%c("VE"))
+Young$celltypes = factor(Young$celltypes,levels = c("Cone","AC","RPE","Rod","RGC","MG","BC"))
+
+ImageDimPlot(Young_sub,fov = "fov_cut",group.by = "celltypes", axes = T,size = 0.5, border.color = "white", border.size = 0.1)
+a=ImageFeaturePlot(Young,fov = "fov",features = "C4b",size = 1)&scale_colour_gradientn(colors = colorRampPalette(colors = c("white","red"))(1000),limits=c(0, 3.2))&theme_bw()&ggtitle("Lrp1-Rod-Young")
+
+cropped.coords <- Crop(Old[["fov"]], y = c(0, 2800), x = c(1000, 4000), coords = "plot")
+Old[["fov_cut"]] <- cropped.coords
+Old$celltypes = factor(Old$celltypes,levels = c("Cone","AC","smooth muscle cell", "VE","Macrophages","RPE","Rod","RGC","MG","Keratocytes","BC","Pericyte","Astrocyte"))
+Old_sub = subset(Old,subset = celltypes%in%c("Cone"))
+Old_sub$celltypes = factor(Old_sub$celltypes,levels = c("Cone","AC","RPE","Rod","RGC","MG","BC"))
+
+ImageDimPlot(Old_sub,fov = "fov_cut",group.by = "celltypes", axes = T,size = 1, border.color = "white", border.size = 0.1)
+b=ImageFeaturePlot(Old,fov = "fov",features = "C4b",size = 1)&scale_colour_gradientn(colors = colorRampPalette(colors = c("white","red"))(1000),limits=c(0, 3.2))&theme_bw()&ggtitle("Lrp1-Rod-Old")
+
+library(cowplot)
+plot_grid(a,b)
+
+
+
+Seurat_sub = SplitObject(Seurat_LR,split.by = "celltypes")
+DEG = list()
+
+for (i in 1:length(Seurat_sub)){
+  Idents(Seurat_sub[[i]])<- "age"
+  DEG[[i]] = FindMarkers(Seurat_sub[[i]],
+                         ident.1 = "Old",
+                         ident.2 = "Young",
+                         logfc.threshold = 0)%>%
+    as.data.frame()%>%
+    rownames_to_column("gene")%>%
+    mutate(Tissue = names(Seurat_sub)[[i]])
+}
+
+DEG_all = do.call(rbind.data.frame,DEG)
+DEG_sig = DEG_all%>%
+  dplyr::filter(p_val_adj<0.05)%>%
+  mutate(pct_diff = pct.1-pct.2)
+
+# Plot DEGs
+ggplot(DEG_sig,aes(x=pct_diff,y=avg_log2FC,color= -log10(p_val_adj)))+
+  geom_point()+
+  theme_bw()+
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  facet_wrap(~Tissue)+
+  geom_text_repel(aes(label=gene))
+
+test_gene = "Wnt6"
+celltype="MG"
+LR_tb = rbind(LR_young,LR_old)%>%
+  dplyr::filter(gene%in%c("Wnt6"))%>%
+  dplyr::filter(celltypes%in%c("MG"))%>%
+  mutate(age=factor(age,levels=c("Young","Old")))
+
+ggplot(LR_tb,aes(x=x,y=y,color=value))+
+  geom_point(size=0.5)+
+  theme_bw()+
+  scale_color_viridis()+
+  facet_wrap(~age,scales = "free")+
+  ggtitle("Wnt6 expression in MG")
+
+# Wnt6 seems interesting, let;s check in detail
+cropped.coords <- Crop(Young[["fov"]], y = c(0, 2200), x = c(1000, 3500), coords = "plot")
+Young[["fov_cut"]] <- cropped.coords
+Young_sub = subset(Young,subset = celltypes%in%c("VE"))
+Young$celltypes = factor(Young$celltypes,levels = c("Cone","AC","RPE","Rod","RGC","MG","BC"))
+
+ImageDimPlot(Young_sub,fov = "fov_cut",group.by = "celltypes", axes = T,size = 0.5, border.color = "white", border.size = 0.1)
+a=ImageFeaturePlot(Young,fov = "fov",features = "C4b",size = 1)&scale_colour_gradientn(colors = colorRampPalette(colors = c("white","red"))(1000),limits=c(0, 3.2))&theme_bw()&ggtitle("Lrp1-Rod-Young")
+
+cropped.coords <- Crop(Old[["fov"]], y = c(0, 2800), x = c(1000, 4000), coords = "plot")
+Old[["fov_cut"]] <- cropped.coords
+Old$celltypes = factor(Old$celltypes,levels = c("Cone","AC","smooth muscle cell", "VE","Macrophages","RPE","Rod","RGC","MG","Keratocytes","BC","Pericyte","Astrocyte"))
+Old_sub = subset(Old,subset = celltypes%in%c("Cone"))
+Old_sub$celltypes = factor(Old_sub$celltypes,levels = c("Cone","AC","RPE","Rod","RGC","MG","BC"))
+
+ImageDimPlot(Old_sub,fov = "fov_cut",group.by = "celltypes", axes = T,size = 1, border.color = "white", border.size = 0.1)
+b=ImageFeaturePlot(Old,fov = "fov",features = "C4b",size = 1)&scale_colour_gradientn(colors = colorRampPalette(colors = c("white","red"))(1000),limits=c(0, 3.2))&theme_bw()&ggtitle("Lrp1-Rod-Old")
+
+library(cowplot)
+plot_grid(a,b)
+
+# Now lets try to do A2M
+A2M_Young_wCord = rbind(LR_young,LR_old)%>%
+  dplyr::filter(celltypes%in%c("MG"))%>%
+  dplyr::filter(age=="Old")%>%
+  dplyr::filter(x<3000, y<4500)
+
+ggplot(A2m_exp,aes(x=x_axis,y=y_axis))+
+  geom_point()
+
+A2m_exp = A2M_Young_wCord%>%
+  dplyr::filter(gene=="A2m")%>%
+  mutate(x_axis=y,
+         y_axis=x) %>%
+  arrange(y_axis, x_axis)
+
+ggplot(A2m_exp,aes(x=x_axis,y=y_axis))+
+  geom_point()
+
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+data = A2m_exp
+
+# Find the index of the starting point
+start_index <- which(data$y_axis == max(data$y_axis))
+
+# Initialize the ordered path with the starting point
+ordered_data <- data[start_index, ]
+ordered_data$distance_to_last <- 0
+remaining_data <- data[-start_index, ]
+
+# Step 2: Set a maximum distance threshold (tune this value)
+max_distance <- 100  # Adjust this threshold based on your curve's scale
+
+# Step 3: Iteratively find the nearest neighbor within a threshold distance
+while (nrow(remaining_data) > 0) {
+  last_point <- ordered_data[nrow(ordered_data), ]
+  # Calculate distances from the last point to each remaining point
+  remaining_data <- remaining_data %>%
+    mutate(distance_to_last = sqrt((x_axis - last_point$x_axis)^2 + (y_axis - last_point$y_axis)^2))
+  # Find the nearest point within the maximum distance threshold
+  nearest_index <- which.min(remaining_data$distance_to_last)
+  nearest_distance <- remaining_data$distance_to_last[nearest_index]
+  # If no points are within the threshold, increase the threshold or stop the loop
+  if (nearest_distance > max_distance) {
+    # Optionally increase the threshold dynamically or break the loop
+    max_distance <- max_distance * 1.5  # Increase threshold
+    next
+  }
+  # Add the nearest point to the ordered path
+  ordered_data <- rbind(ordered_data, remaining_data[nearest_index, ])
+  # Remove the nearest point from remaining data
+  remaining_data <- remaining_data[-nearest_index, ]
+}
+
+# Step 4: Calculate cumulative distance for the ordered points
+ordered_data <- ordered_data %>%
+  mutate(distance = sqrt((x - lag(x))^2 + (y - lag(y))^2)) %>%
+  replace_na(list(distance = 0)) %>%
+  mutate(cumulative_distance = cumsum(distance))
+
+# Double check
+# remove bad points
+data_filter = ordered_data%>%
+  dplyr::filter(cumulative_distance<7000)
+
+plot_grid(
+  ggplot(A2m_exp,aes(x=x_axis,y=y_axis))+
+    geom_point(),
+  ggplot(data_filter,aes(x=x_axis,y=y_axis))+
+    geom_point()+
+    scale_x_continuous(limits = c(1000,4000))+
+    scale_y_continuous(limits = c(800,2400)))
+
+# Step 6: Plot the 1D representation with color gradient (based on `A2m` values)
+ggplot(data_filter, aes(x = cumulative_distance, y = value, color = value)) +
+  geom_point() +
+  scale_color_gradient(low = "grey", high = "red") +
+  labs(x = "Cumulative Distance Along Curve", y = "A2m", title = "1D Representation of A2m Along the Curve") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+
+library(cowplot)
+plot_grid(
+ggplot(A2m_exp,aes(x=x_axis,y=y_axis))+
+  geom_point(),
+
+ggplot(ordered_data,aes(x=x_axis,y=y_axis,color=order))+
+  geom_point()
+)
+
+
+# Separate macrophage based on distance to smooth muscle cell
+
+## 1. Check both cells 
+other = c( "smooth muscle cell","Macrophages")
+Seurat_LR_sub = subset(Seurat_LR,subset=celltypes%in%other)
+
+Seurat_LR_sub <- FindVariableFeatures(Seurat_LR_sub, selection.method = "vst", nfeatures = 2000)
+Seurat_LR_sub <- ScaleData(Seurat_LR_sub)
+Seurat_LR_sub <- RunPCA(Seurat_LR_sub, features = VariableFeatures(object = Seurat_LR_sub))
+Seurat_LR_sub <- FindNeighbors(Seurat_LR_sub, dims = 1:10,reduction = "pca")
+Seurat_LR_sub <- FindClusters(Seurat_LR_sub, resolution = 0.05,reduction = "pca")
+Seurat_LR_sub <- RunUMAP(Seurat_LR_sub, dims = 1:10)
+p1<- DimPlot(Seurat_LR_sub, reduction = "umap",group.by = "celltypes")
+p2<- DimPlot(Seurat_LR_sub, reduction = "umap",group.by = "seurat_clusters")
+library(cowplot)
+plot_grid(p1,p2,nrow = 2)
+DimPlot(Seurat_LR_sub,group.by = "celltypes")
+
+Meta_LR_sub = Seurat_LR_sub@meta.data%>%
+  as.data.frame()%>%
+  rownames_to_column("cell")
+
+ggplot(Meta_LR_sub,aes(x=y,y=x,color=seurat_clusters))+
+  geom_point(size=0.2)+
+  theme_bw()+
+  facet_wrap(~age,scales = "free",nrow = 1)+ 
+  guides(colour = guide_legend(override.aes = list(size=2)))
+
+## 2. DEGs between ages and clusters
+Seurat_LR_sub_split = SplitObject(Seurat_LR_sub,split.by = "seurat_clusters")
+DEG= list()
+
+for (i in 1:length(Seurat_LR_sub_split)){
+  Idents(Seurat_LR_sub_split[[i]])="age"
+  DEG[[i]] = FindMarkers(Seurat_LR_sub_split[[i]],
+                         ident.1 = "Old",
+                         ident.2 = "Young",
+                         logfc.threshold = 0)%>%
+    as.data.frame()%>%
+    rownames_to_column("gene")%>%
+    mutate(Tissue = names(Seurat_LR_sub_split)[[i]])
+}
+
+DEG_all= do.call(rbind.data.frame,DEG)
+
+DEG_Macro = merge(DEG_all%>%
+                    dplyr::filter(Tissue=="1"),
+                  DEG_all%>%
+                    dplyr::filter(Tissue=="3"),by="gene")%>%
+  mutate(sig = ifelse(p_val_adj.x<0.05,"Sig in other-Macro","non-sig"),
+         sig = ifelse(p_val_adj.y<0.05,"Sig in retina-Macro",sig),
+         sig = ifelse(p_val_adj.x<0.05&p_val_adj.y<0.05,"Sig in both Macro",sig))
+
+
+# Plot DEGs
+ggplot(DEG_Macro%>%
+         dplyr::filter(gene%in%LR_gene),aes(x=avg_log2FC.x,y=avg_log2FC.y,color=sig))+
+  geom_point()+
+  theme_bw()+
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  geom_text_repel(aes(label=gene))+
+  scale_x_continuous(limits = c(-1.8,1.8))+
+  scale_y_continuous(limits = c(-1.8,1.8))+
+  xlab("Log2FC Old vs Young for other-Macro")+
+  ylab("Log2FC Old vs Young for retina-Macro")+
+  scale_color_manual(values = c("black","red3","green4"))
+
+matrix_sub = matrix[rownames(matrix)%in%LR_gene,colnames(matrix)%in%Meta_LR_sub$cell]%>%
+    as.data.frame()%>%
+    rownames_to_column("gene")%>%
+    melt(id.vars="gene")%>%
+    dplyr::rename("cell"="variable")%>%
+    left_join(Meta_LR_sub,by="cell")
+
+A2M = matrix_sub%>%
+  dplyr::filter(gene%in%c("Cd180","Cd36","Col1a2"))%>%
+  dplyr::filter(celltypes%in%c("Macrophages"))%>%
+  dplyr::filter(!seurat_clusters==0)%>%
+  unique()%>%
+  mutate(age=factor(age,levels=c("Young","Old")))
+
+color = colorRampPalette(colors = c("grey","red"))(1000)
+ggplot(A2M,aes(x=seurat_clusters,y=value,fill=age))+
+  geom_violin(adjust =1,trim=TRUE, scale = "width",position = position_dodge(0.8),width=0.8)+
+  theme_bw()+
+  facet_wrap(~gene,scales = "free",ncol = 1)
+
+
+```
+
+
+
+
+
+
