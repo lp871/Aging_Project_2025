@@ -1,0 +1,127 @@
+###########
+########### submit the Xenium ########
+###########
+###########
+
+see the folder: /zp1/data/plyu3/Xenium5k_Mouse
+
+###########
+cd /zp1/data/plyu3/Xenium5k_Mouse/OSK_New
+
+###########
+cd /zp1/data/plyu3/Xenium5k_Mouse/Aging_Upload
+
+###########
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+
+#!/bin/bash
+# 定义路径
+SRC="/zp1/data/plyu3/Xenium5k_Mouse/New/Region4"
+
+
+SRC="/zp1/data/plyu3/Xenium5k_Mouse/OSK_New/Region3"
+SRC="/zp1/data/plyu3/Xenium5k_Mouse/OSK_New/Region4"
+
+DEST="/zp1/data/plyu3/Xenium5k_Mouse/Aging_Upload"
+
+# 确保目标目录存在
+mkdir -p "$DEST"
+
+# 必须上传的最小可复现集文件列表
+FILES=(
+  "experiment.xenium"
+  "gene_panel.json"
+  "cell_feature_matrix.h5"
+  "cells.csv.gz"
+  "transcripts.parquet"
+  "cells.zarr.zip"
+  "cell_boundaries.csv.gz"
+  "nucleus_boundaries.csv.gz"
+  "morphology.ome.tif"
+)
+
+# 循环复制并重命名
+for f in "${FILES[@]}"; do
+  if [ -f "$SRC/$f" ]; then
+    cp "$SRC/$f" "$DEST/OSKRegion4_${f}"
+    echo "Copied $f -> $DEST/OSKRegion4_${f}"
+  else
+    echo "WARNING: $SRC/$f not found, skipped."
+  fi
+done
+
+echo "✅ Done. Files copied to $DEST"
+
+
+###########
+###########
+###########
+###########
+#!/bin/bash
+# 工作目录
+cd /zp1/data/plyu3/Xenium5k_Mouse/Aging_Upload || exit
+
+# 遍历所有前缀（提取文件名前的第一段，假设下划线前部分唯一标识 sample）
+for prefix in $(ls | sed 's/_.*//' | sort -u); do
+  echo "打包 Sample: $prefix"
+
+  # 找出该 sample 的所有文件
+  files=$(ls ${prefix}_* 2>/dev/null)
+
+  if [ -n "$files" ]; then
+    tar -czf ${prefix}_RAW.tar.gz $files
+    echo "✅ 已生成 ${prefix}_RAW.tar.gz"
+  else
+    echo "⚠️ 没找到 $prefix 对应的文件"
+  fi
+done
+
+
+
+#######
+#######
+
+
+ftp-private.ncbi.nlm.nih.gov
+geoftp
+inAlwokhodAbnib5
+
+########
+########
+uploads/pinlyu30@gmail.com_8v0Jo4qY
+
+#######
+#######
+
+ncftp -u geoftp ftp-private.ncbi.nlm.nih.gov
+
+#### enter password #####
+inAlwokhodAbnib5
+
+#### cd to target folder 
+cd uploads/pinlyu30@gmail.com_8v0Jo4qY
+
+mkdir Aging_Upload
+
+cd uploads/pinlyu30@gmail.com_8v0Jo4qY/Aging_Upload
+cd uploads/pinlyu30@gmail.com_8v0Jo4qY/Aging_Upload/
+#### lcd to old server folder 
+lcd /zp1/data/plyu3/Xenium5k_Mouse/Aging_Upload
+
+
+
+#### upload files begin with TH73A 
+put *_RAW.tar.gz
+
+
+
+
+
+
+
+
+
+
