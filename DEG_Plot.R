@@ -97,8 +97,8 @@ ggplot(Mouse_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
 
 ggsave("Mouse_data_barplot.png",width=7,height=3)
 
-
-###### Next for human #####
+######
+###### Next for human #######------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ######
 
 setwd("/zp1/data/share/Human_aging_new")
@@ -139,9 +139,9 @@ DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters,Middleclusters){
 
 
 kc = Human_DEGs_Plot_Kmeans_order[grep("_M__",Human_DEGs_Plot_Kmeans_order$genes),]
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
-Middleclusters = c(10,11,12)
+Middleclusters = c(5,6,7)
 Human_M_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
 
 ggplot(Human_M_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
@@ -164,9 +164,9 @@ ggsave("Human_M_barplot.png",width=7,height=3)
                  
 
 kc = Human_DEGs_Plot_Kmeans_order[grep("_F__",Human_DEGs_Plot_Kmeans_order$genes),]
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
-Middleclusters = c(10,11,12)
+Middleclusters = c(5,6,7)
 Human_F_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
 
                  
