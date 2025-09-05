@@ -592,9 +592,7 @@ ggsave("Mouse_trend2.png", height = 8, width = 1.2)
 ###########
 ########### ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ###########
-
-
-########### for Human #####
+########### for Human ##### --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ###########
 
 
@@ -662,8 +660,49 @@ names(Human_DEGs) <- names(Human_pseudo_count)
 
 
 #######
+DEGs_List = Human_DEGs
+Avgs_List = Human_pseudo_count
+  
+Merge_DEGs_genes_and_Avg_expression2 <- function(DEGs_List,Avgs_List,col_index){
+    #########
+    #########
+    Avgs_List2  = list()
+    for(i in 1:length(Avgs_List)){
+        print(i)
+        ####
+        tmp = Avgs_List[[i]][[1]]
+        rownames(tmp) = paste(names(Avgs_List)[i],rownames(tmp),sep="__")
+        print(dim(tmp))
+        tmp = tmp[,col_index]
+        Avgs_List2[[i]] = tmp
+    }
+    ######### colnames(Avgs_List2)[[1]]
+    #########
+    all_Matrix = do.call("rbind",Avgs_List2)
+    #########
+    for(i in 1:length(DEGs_List)){
+        print(i)
+        ####
+        tmp = DEGs_List[[i]]
+        tmp$Gene = paste(names(DEGs_List)[i],tmp$Gene,sep="__")
+        DEGs_List[[i]] = tmp
+    }
+    #########
+    all_DEGs = do.call("rbind",DEGs_List)
+    ######### all_Avg[grep("Clu",all_Avg$Gene),] #########
+    ######### all_Avg[grep("Xkr4",all_Avg$Gene),]
+    all_Matrix_cl = all_Matrix[which(rownames(all_Matrix) %in% all_DEGs$Gene == T),]
+    #########
+    #########
+    all_Matrix_cl_s = t(apply(all_Matrix_cl,1,scale))
+    rownames(all_Matrix_cl_s) = rownames(all_Matrix_cl)
+    colnames(all_Matrix_cl_s) = colnames(all_Matrix_cl)
+    #########
+    return(all_Matrix_cl_s)
+}
+
 col_index = as.character(c(10,25,37.5,50,60,70,80,90))
-Human_DEGs_Plot = Merge_DEGs_genes_and_Avg_expression(Human_DEGs,Human_pseudo_count,col_index)
+Human_DEGs_Plot = Merge_DEGs_genes_and_Avg_expression2(Human_DEGs,Human_pseudo_count,col_index)
 
 
 
