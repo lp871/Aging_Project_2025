@@ -709,7 +709,7 @@ Human_DEGs_Plot = Merge_DEGs_genes_and_Avg_expression2(Human_DEGs,Human_pseudo_c
 #######
 
 #######
-Human_DEGs_Plot_Kmeans = Kmeans_function(Human_DEGs_Plot,k=18)
+Human_DEGs_Plot_Kmeans = Kmeans_function(Human_DEGs_Plot,k=12)
 
 
 library('ComplexHeatmap')
@@ -762,7 +762,7 @@ dev.off()
 ###### rm clusters: ##########
 ######
 
-rm_clusters = c(9,8,13,16,18,2)
+####### rm_clusters = c(9,8,13,16,18,2)
 
 #######
 Human_DEGs_Plot_Kmeans_cl = Human_DEGs_Plot_Kmeans[which(Human_DEGs_Plot_Kmeans$cluster %in% rm_clusters == F),]
@@ -772,47 +772,47 @@ Human_DEGs_Plot_cl = Human_DEGs_Plot[which(rownames(Human_DEGs_Plot) %in% Human_
 
 
 ####
-celltype = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="_"),function(x) x[[1]])
-sex = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="_"),function(x) x[[2]])
+#celltype = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="_"),function(x) x[[1]])
+#sex = sapply(strsplit(rownames(Human_DEGs_Plot_cl),split="_"),function(x) x[[2]])
 
-anno_df = data.frame(
-  celltype = celltype,
-  sex = sex
-)
+#anno_df = data.frame(
+#  celltype = celltype,
+#  sex = sex
+#)
 
-col_list <- list(
-  celltype = c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64"),
-  sex = c("M"="blue","F"="red")
-)
+#col_list <- list(
+#  celltype = c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64"),
+#  sex = c("M"="blue","F"="red")
+#)
 
-row_anno <- rowAnnotation(df = anno_df, col = col_list)
+#row_anno <- rowAnnotation(df = anno_df, col = col_list)
 
 #######
 #######
 
-row_sp = as.factor(Human_DEGs_Plot_Kmeans_cl$cluster)
+#row_sp = as.factor(Human_DEGs_Plot_Kmeans_cl$cluster)
 
-colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
-col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
+#colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
+#col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
 
 
-labels = c("MG_M__APOE")
-at = match(labels,rownames(Human_DEGs_Plot_cl))
+#labels = c("MG_M__APOE")
+#at = match(labels,rownames(Human_DEGs_Plot_cl))
 
-setwd("/zp1/data/share/Human_aging_new")
+#setwd("/zp1/data/share/Human_aging_new")
 
-png('Human_DEGs2.png',height=7000,width=4500,res=72*12)
-Heatmap(Human_DEGs_Plot_cl, name = "XX",right_annotation = row_anno,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-2,-1,0,1,2)),row_split=row_sp) +
-rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
-dev.off()
+#png('Human_DEGs2.png',height=7000,width=4500,res=72*12)
+#Heatmap(Human_DEGs_Plot_cl, name = "XX",right_annotation = row_anno,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-2,-1,0,1,2)),row_split=row_sp) +
+#rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
+#dev.off()
 
 
 ######
 ###### Next we will order ###
 ######
 
-new_order = c(3,7,6,12,14,10,11,1,5,15,4,17)
-Human_DEGs_Plot_Kmeans_order = Human_DEGs_Plot_Kmeans_cl
+new_order = c(2,11,4,10,1,8,7,3,9,5,6,12)
+Human_DEGs_Plot_Kmeans_order = Human_DEGs_Plot_Kmeans
 Human_DEGs_Plot_Kmeans_order$cluster = match(Human_DEGs_Plot_Kmeans_order$cluster,new_order)
 
 
@@ -820,23 +820,24 @@ row_sp = as.factor(Human_DEGs_Plot_Kmeans_order$cluster)
 
 ####
 labels = c("RPE_M__APOE","Cone_F__STAT1","RPE_M__BTN3A3","MG_M__BTN3A3","AC_F__BTN3A3","RPE_M__DKK3")
-at = match(labels,rownames(Human_DEGs_Plot_cl))
+at = match(labels,rownames(Human_DEGs_Plot))
 
-rownames(Human_DEGs_Plot_cl)[grep("__DKK3",rownames(Human_DEGs_Plot_cl))]
+rownames(Human_DEGs_Plot)[grep("__DKK3",rownames(Human_DEGs_Plot))]
 
 png('Human_DEGs4.png',height=7000,width=4500,res=72*12)
-Heatmap(Human_DEGs_Plot_cl, name = "XX",right_annotation = row_anno,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-4,-2,0,2,4)),row_split=row_sp) +
+Heatmap(Human_DEGs_Plot, name = "XX",right_annotation = row_anno,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-4,-2,0,2,4)),row_split=row_sp) +
 rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
 dev.off()
 
 #####
 #####
 #####
-
-
+             
+Human_DEGs_Plot_cl = Human_DEGs_Plot
 setwd("/zp1/data/share/Human_aging_new")
 save(Human_DEGs_Plot_Kmeans_order,file="Human_DEGs_Plot_Kmeans_order")
 save(Human_DEGs_Plot_cl,file="Human_DEGs_Plot_cl")
+save(Human_DEGs_Plot,file="Human_DEGs_Plot")
 
 
 
@@ -847,7 +848,7 @@ setwd("/zp1/data/share/Human_aging_new")
 load(file="Human_DEGs_Plot_Kmeans_order")
 load(file="Human_DEGs_Plot_cl")
 
-new_order2 = c(1,2,3,4,10,11,12,5,6,7,8,9)
+new_order2 = c(1:12)
 Human_DEGs_Plot_Kmeans_order2 = Human_DEGs_Plot_Kmeans_order
 Human_DEGs_Plot_Kmeans_order2$cluster = match(Human_DEGs_Plot_Kmeans_order$cluster,new_order2)
 
@@ -874,7 +875,7 @@ row_sp = as.factor(Human_DEGs_Plot_Kmeans_order2$cluster)
 colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
 col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
 
-labels = c("RPE_M__APOE","Cone_F__STAT1","RPE_M__BTN3A3","MG_M__BTN3A3","AC_F__BTN3A3","RPE_M__DKK3")
+labels = c("AC_F__EBF1","RGC_F__ELOVL6","MG_M_FOXO3","RGC_M__CLOCK","MG_M_BTN3A3","RPE_M__APOE","Cone_F__STAT1","RPE_M__BTN3A3","RGC_F__CLOCK","Cone_F_COL4A3","RPE_M_APOE","MG_M__BTN3A3","AC_F__BTN3A3","RPE_M__DKK3")
 at = match(labels,rownames(Human_DEGs_Plot_cl))
 
 rownames(Human_DEGs_Plot_cl)[grep("__DKK3",rownames(Human_DEGs_Plot_cl))]
