@@ -70,10 +70,11 @@ Zebrafish_DOWN_list = split(Zebrafish_DOWN,Zebrafish_DOWN$CT)
 setwd("/zp1/data/share/Human_aging_new")
 load("Human_DEGs_Plot_Kmeans_order")
 
-#######-----for M ######
+
+#######-----for Male------- ######
 
 kc = Human_DEGs_Plot_Kmeans_order
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
 
 #######
@@ -345,10 +346,10 @@ write_xlsx(overlap_DEGs_total_toExcel, path = "TableS2:Overlap_DEGs_between_HMZ.
 ######----- for Human ###
 
 setwd("/zp1/data/share/Human_aging_new")
-load("Human_DEGs_Plot_cl")
+load("Human_DEGs_Plot")
 
 library(reshape2)
-H_all_Matrix_cl_s_Plot = melt(Human_DEGs_Plot_cl)
+H_all_Matrix_cl_s_Plot = melt(Human_DEGs_Plot)
 
 ######
 Gene_index = "REST"
@@ -368,7 +369,7 @@ H_all_Matrix_cl_s_Plot_sub = H_all_Matrix_cl_s_Plot_sub[which(H_all_Matrix_cl_s_
 
 library(ggplot2)
 ggplot(H_all_Matrix_cl_s_Plot_sub,aes(x=time,y=value)) + geom_point(size=3,color="blue") + theme_classic() + theme(panel.border = element_rect(color = "black", fill = NA, size = 1)) + geom_smooth(method = "lm", se = FALSE, color = "red") + scale_x_continuous(breaks=c(10,50,100))
-ggsave("MG_F__SASH1.png",height=2.5,width=2.5)
+ggsave("RGC_F__REST.png",height=2.5,width=2.5)
 
 
 ######
