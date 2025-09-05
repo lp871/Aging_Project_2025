@@ -495,10 +495,10 @@ ggsave("Mouse_stat1.png", height = 3.5, width = 6)
 setwd("/zp1/data/share/Human_aging_new")
 load("Human_DEGs_Plot_Kmeans_order")
 
-#######-----for M ######
+#######-----for Male------- ######
 
 kc = Human_DEGs_Plot_Kmeans_order
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
 
 ######
@@ -542,12 +542,14 @@ ggplot(Old_H, aes(x = Var1, y = Freq)) +
   theme_classic() +
   ylab("") +
   xlab("") +
-  scale_y_continuous(limits = c(0, 2500), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 3300), expand = c(0, 0)) +
   theme(
     axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
   )
 
 ggsave("Human_old_overlap.png", height = 2.5, width = 4)
+
+####
 library(ggplot2)
       
 ggplot(Young_H, aes(x = Var1, y = Freq)) +
@@ -556,7 +558,7 @@ ggplot(Young_H, aes(x = Var1, y = Freq)) +
   theme_classic() +
   ylab("") +
   xlab("") +
-  scale_y_continuous(limits = c(0, 2500), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, 2600), expand = c(0, 0)) +
   theme(
     axis.text.x = element_text(size = 14)  # 增大 X 轴刻度标签字体大小
   )
@@ -572,9 +574,9 @@ head(H_up_Res[[1]],n=20)
 head(H_down_Res[[1]],n=20)
 
 
-load("Human_DEGs_Plot_cl")
+load("Human_DEGs_Plot")
 
-H_all_Matrix_cl_s_Plot = melt(Human_DEGs_Plot_cl)
+H_all_Matrix_cl_s_Plot = melt(Human_DEGs_Plot)
 
 ######
 Gene_index = "MT1F"
