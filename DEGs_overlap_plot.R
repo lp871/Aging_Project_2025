@@ -136,9 +136,11 @@ Compare_HMZ_pairs <- function(H,M,Z,HMZ_ortholog_combined,color="pink"){
     k2 = which(HZ_overlap$HZ_index %in% HMZ_overlap_index_HZ == T)
     k3 = which(MZ_overlap$MZ_index %in% HMZ_overlap_index_MZ == T)
     ######
-    HM_overlap = HM_overlap[-k1,]
-    HZ_overlap = HZ_overlap[-k2,]
-    MZ_overlap = MZ_overlap[-k3,]
+    if(dim(HMZ_overlap)[1] > 0){
+        HM_overlap = HM_overlap[-k1,]
+        HZ_overlap = HZ_overlap[-k2,]
+        MZ_overlap = MZ_overlap[-k3,]
+    }
     ######
     ######
     ######
@@ -319,9 +321,13 @@ for(i in 1:length(overlap_DEGs_total)){
     tmp_1 = data.frame(class="HM",gene=tmp_1$"HM_index")
     tmp_2 = data.frame(class="HZ",gene=tmp_2$"HZ_index")
     tmp_3 = data.frame(class="MZ",gene=tmp_3$"MZ_index")
-    tmp_4 = data.frame(class="HMZ",gene=tmp_4$"HMZ_index")
+    if(dim(tmp_4)[1] > 0){
+        tmp_4 = data.frame(class="HMZ",gene=tmp_4$"HMZ_index")
+        overlap_DEGs_total_toExcel <- c(overlap_DEGs_total_toExcel,list(rbind(tmp_1,tmp_2,tmp_3,tmp_4)))
+    }else{
+        overlap_DEGs_total_toExcel <- c(overlap_DEGs_total_toExcel,list(rbind(tmp_1,tmp_2,tmp_3)))
+    }
     ####
-    overlap_DEGs_total_toExcel <- c(overlap_DEGs_total_toExcel,list(rbind(tmp_1,tmp_2,tmp_3,tmp_4)))
 }
 names(overlap_DEGs_total_toExcel) = names(overlap_DEGs_total)
 #####
