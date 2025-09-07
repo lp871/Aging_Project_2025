@@ -197,7 +197,7 @@ load("Human_DEGs_Plot_Kmeans_order")
 #######-----for M ######
 
 kc = Human_DEGs_Plot_Kmeans_order
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
 
 #######
@@ -377,7 +377,7 @@ for (ct in celltypes) {
   print(length(intersect(gene_list,M_custom_term2gene$GENE)))
   print(length(intersect(M_universe,M_custom_term2gene$GENE)))
   # 2. 调 . . 用 enricher() 做富集分析
-  enrich_res <- HyperGeoEnrichment(
+  enrich_res <- enricher(
     gene          = gene_list,
     background      = M_universe,
     term2gene_df     = M_custom_term2gene[, c("TERM", "GENE")],
@@ -408,7 +408,10 @@ save(M_combined_df,file="M_combined_df")
 setwd("/zp1/data/plyu3/Aging_add_figures/Senescence")
 load("Human_UP_list")
 
+load("Reactome_senescence_list")
+load("SenMayo_senescence_list")
 
+                 
 H_custom_term2gene <- data.frame(
   TERM = c(
     rep("Reactome_senescence", length(Reactome_senescence_list$H)),
@@ -434,6 +437,8 @@ H_universe = rownames(Human_AC_clcl2_F_Avg[[1]])
 celltypes <- c("AC", "BC", "Cone", "HC", "MG", "Microglia", "RGC", "Rod", "RPE")
 enrich_results <- vector("list", length(celltypes))
 names(enrich_results) <- celltypes
+
+library("clusterProfiler")
 
 # 循环跑每个细胞类型
 for (ct in celltypes) {
@@ -480,7 +485,7 @@ load("H_combined_df")
 
 #####
 #####
-combined_df = Z_combined_df
+combined_df = H_combined_df
 
 Process_combined <- function(combined_df){
     ########
@@ -492,13 +497,17 @@ Process_combined <- function(combined_df){
 ########
 library(ggplot2)
 
-Z_combined_df = Process_combined(Z_combined_df)
+H_combined_df = Process_combined(H_combined_df)
 
 library(ggplot2)
-ggplot(Z_combined_df,aes(x=celltype,y=ID)) + geom_point(aes(size= Count,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='red', guide = guide_colorbar(reverse = FALSE, order = 1)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggplot(H_combined_df,aes(x=celltype,y=ID)) + geom_point(aes(size= Count,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='red', guide = guide_colorbar(reverse = FALSE, order = 1)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
 ggsave("HMZ_MG_overlap.png",height=4,width=8)
 
 
+
+library(ggplot2)
+ggplot(H_combined_df,aes(x=celltype,y=ID)) + geom_point(aes(size= Count,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='red', guide = guide_colorbar(reverse = FALSE, order = 1),limits = c(0, 4)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(legend.position = "bottom",panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggsave("HMZ_MG_overlap.png",height=4,width=8)
 
 
 
