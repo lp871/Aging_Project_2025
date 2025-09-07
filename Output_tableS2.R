@@ -307,8 +307,67 @@ saveWorkbook(wb, "HMZ_DEGs_within_Species.xlsx", overwrite = TRUE)
 
 
 ######
+###### ##### between species ####### DEGs_overlap_plot.R #####
+######
+"TableS2:Overlap_DEGs_between_HMZ.xlsx"
+
+###### merge the 3tables to S2 #####
 ######
 
+
+setwd("/zp1/data/share/Human_aging_new")
+library(openxlsx)
+wb <- loadWorkbook("HMZ_DEGs_results.xlsx")
+sheets <- names(wb)
+
+tables <- lapply(sheets, function(sheet) {
+  read.xlsx(wb, sheet = sheet)
+})
+names(tables) <- sheets
+table1 = tables
+names(table1) = paste0(names(table1),"_Aging_DEGs")
+
+#####
+
+
+wb <- loadWorkbook("HMZ_DEGs_within_Species.xlsx")
+sheets <- names(wb)
+tables <- lapply(sheets, function(sheet) {
+  read.xlsx(wb, sheet = sheet)
+})
+names(tables) <- sheets
+              
+table2 = tables
+names(table2) = paste0(names(table2),"_within_species")
+
+#####
+
+
+wb <- loadWorkbook("TableS2:Overlap_DEGs_between_HMZ.xlsx")
+sheets <- names(wb)
+tables <- lapply(sheets, function(sheet) {
+  read.xlsx(wb, sheet = sheet)
+})
+names(tables) <- sheets
+              
+table3 = tables
+
+####
+
+all_table = c(table1,table2,table3)
+
+
+              
+wb <- createWorkbook()
+
+# 把 list 的每个元素写入不同的 sheet
+for (nm in names(all_table)) {
+  addWorksheet(wb, nm)                # 新建一个 sheet
+  writeData(wb, nm, all_table[[nm]])     # 写入数据
+}
+
+# 保存 Excel 文件
+saveWorkbook(wb, "S2output.xlsx", overwrite = TRUE)
 
 
 
