@@ -192,7 +192,7 @@ load("Human_DEGs_Plot_Kmeans_order")
 #######-----for M ######
 
 kc = Human_DEGs_Plot_Kmeans_order
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
 
 #######
