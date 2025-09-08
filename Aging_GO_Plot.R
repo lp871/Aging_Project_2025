@@ -62,7 +62,7 @@ names(Zebrafish_GO) <- sheets
 ##### for Human ######--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 library(openxlsx)
 
-file   <- "TableS3_Human_Aging_DEGs_GOKEGG_May5_2025_Plot.xlsx"
+file   <- "TableS3_Human_Aging_DEGs_GOKEGG_May5_2025.xlsx"
 sheets <- getSheetNames(file)
 
 # 2. 用 lapply 按 sheet 读入
@@ -233,9 +233,9 @@ Human_GO_Y = Human_GO[grep("Young",names(Human_GO))]
 Human_GO_Y = do.call('rbind',Human_GO_Y)
 Human_GO_Y$celltype = sapply(strsplit(rownames(Human_GO_Y),split="_"), function(x) x[[1]])
 
-Need_GO_terms = c("GO:0006302","GO:0042254","GO:0061640","GO:0001774","GO:0050808")
+Need_GO_terms = c("GO:0006302","GO:0042254","GO:0061640","GO:0001774","GO:0050808","GO:0000723","GO:0007416")
 
-head(Human_GO_Y[grep("repair",Human_GO_Y$Description),c(1,2,3,4)])
+head(Human_GO_Y[grep("telomere",Human_GO_Y$Description),c(1,2,3,4)])
 head(Human_GO_Y[grep("TCA ",Human_GO_Y$Description),c(1,2,3,4)])
 head(Human_GO_Y[grep("synapse",Human_GO_Y$Description),c(1,2,3,4)],n=50)
 head(Human_GO_Y[grep("GO:0050808",Human_GO_Y$ID),c(1,2,3,4)],n=50)
@@ -270,11 +270,11 @@ Human_GO_O = Human_GO[grep("Old",names(Human_GO))]
 Human_GO_O = do.call('rbind',Human_GO_O)
 Human_GO_O$celltype = sapply(strsplit(rownames(Human_GO_O),split="_"), function(x) x[[1]])
 
-Need_GO_terms = c("GO:0090382","GO:0099003","GO:0060271","GO:0016236")
+Need_GO_terms = c("GO:0099003","GO:0090382","GO:0016236","GO:0007040","GO:0060271")
 
-head(Human_GO_O[grep("phagosome ",Human_GO_O$Description),c(1,2,3,4)])
-head(Human_GO_O[grep("cilium",Human_GO_O$Description),c(1,2,3,4)])
-head(Human_GO_O[grep("Adherens",Human_GO_O$Description),c(1,2,3,4)],n=50)
+head(Human_GO_O[grep("vesicle-mediated ",Human_GO_O$Description),c(1,2,3,4)])
+head(Human_GO_O[grep("lysosome",Human_GO_O$Description),c(1,2,3,4)])
+head(Human_GO_O[grep("cilium",Human_GO_O$Description),c(1,2,3,4)],n=50)
 head(Human_GO_O[grep("GO:0150146",Human_GO_O$ID),c(1,2,3,4)],n=50)
 
 ######
@@ -292,7 +292,7 @@ Human_GO_O_Cl$logP[which(Human_GO_O_Cl$logP > 5)] = 5
 Human_GO_O_Cl$Description <- str_wrap(Human_GO_O_Cl$Description, width = 30)
 
 library(ggplot2)
-ggplot(Human_GO_O_Cl,aes(x=celltype,y=Description)) + geom_point(aes(size= Count,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='blue', guide = guide_colorbar(reverse = FALSE, order = 1),limits=c(0,5)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+ggplot(Human_GO_O_Cl,aes(x=celltype,y=Description)) + geom_point(aes(size= Count,color=logP)) + theme_classic() + scale_color_continuous(low='grey',high='red', guide = guide_colorbar(reverse = FALSE, order = 1),limits=c(0,5)) + scale_size_continuous(guide = guide_legend(reverse = FALSE, order = 2)) + xlab("") + ylab("") + theme(panel.border = element_rect(color = "black", fill = NA, size = 1),axis.line = element_line(color = "black")) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
 ggsave("Human_GO_O.png",height=4,width=6)
 
 
