@@ -186,6 +186,8 @@ write_xlsx(Zebrafish_combined_GOKEGG, path = "Zebrafish_Aging_DEGs_GOKEGG_May5_2
 ######### for Human: ########
 ##
 
+
+				 
 setwd("/zp1/data/share/Human_aging_new")
 load("Human_DEGs_Plot_Kmeans_order")
 
@@ -236,7 +238,7 @@ names(Human_combined)
 ######
 ###### Output to excel files ######
 ######
-library(writexl)
+library(openxlsx)
 # Write to "output.xlsx" — each list element becomes a sheet named after its list name
 
 Human_combined_GOKEGG <- list()
@@ -270,9 +272,22 @@ for(i in 1:length(Human_combined_GOKEGG)){
     tmp = tmp[tmp$pvalue < 0.05,]
     Human_combined_GOKEGG[[i]] = tmp
 }
-write_xlsx(Human_combined_GOKEGG, path = "Human_Aging_DEGs_GOKEGG_May5_2025.xlsx")
 
+library(openxlsx)
+wb <- createWorkbook()
+# 遍历 list，把每个元素写到单独的 sheet
+for (i in seq_along(Human_combined_GOKEGG)) {
+  sheet_name <- names(Human_combined_GOKEGG)[i]  # 如果 list 有名字就用名字做 sheet 名
+  if (is.null(sheet_name) || sheet_name == "") {
+    sheet_name <- paste0("Sheet", i)  # 如果没有名字，用 Sheet1, Sheet2...
+  }
+  
+  addWorksheet(wb, sheet_name)
+  writeData(wb, sheet_name, Human_combined_GOKEGG[[i]])
+}
 
+# 保存 Excel 文件
+saveWorkbook(wb, "Human_Aging_DEGs_GOKEGG_May5_2025.xlsx", overwrite = TRUE)
 
 
 ######
@@ -481,6 +496,19 @@ Enrich_GO_function_Human <- function(tmp_genes){
         #####
 }	
 
+
+#### tmp_genes = Human_combined[[1]]$Gene
+
+links <- KEGGREST::keggLink("pathway", "hsa")  # "hsa:gene" -> "path:hsaXXXXX"
+  term2gene <- data.frame(
+    pathway = sub("^path:", "", names(links)),
+    gene    = sub("^hsa:",  "", links),
+    stringsAsFactors = FALSE
+  )
+
+###
+###
+	
 Enrich_KEGG_function_Human <- function(tmp_genes){
 		library(clusterProfiler)
 		library(org.Hs.eg.db)
@@ -488,7 +516,8 @@ Enrich_KEGG_function_Human <- function(tmp_genes){
 		Set1 <- bitr(tmp_genes, fromType="SYMBOL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
 		result <- enrichKEGG(gene  = Set1$ENTREZID,
                  organism  = 'hsa',
-                 pvalueCutoff = 0.05
+                 pvalueCutoff = 0.05,
+				 use_internal_data = FALSE
 	    )
 		#####
 		GOtable = result@result
