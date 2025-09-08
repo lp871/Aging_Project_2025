@@ -8,7 +8,7 @@
 ssh plyu3@omb2.onc.jhmi.edu
 U[9C20&&
 
-conda activate seurat4
+conda activate clusterProfiler
 R
 
 
@@ -46,9 +46,6 @@ names(Mouse_combined)
 ######
 ###### Output to excel files ######
 ######
-library(writexl)
-# Write to "output.xlsx" — each list element becomes a sheet named after its list name
-write_xlsx(Mouse_combined, path = "Mouse_Aging_DEGs_May5_2025.xlsx")
 
 
 ######
@@ -84,7 +81,22 @@ for(i in 1:length(Mouse_combined_GOKEGG)){
 }
 
 
-write_xlsx(Mouse_combined_GOKEGG, path = "Mouse_Aging_DEGs_GOKEGG_May5_2025.xlsx")
+
+library(openxlsx)
+wb <- createWorkbook()
+# 遍历 list，把每个元素写到单独的 sheet
+for (i in seq_along(Mouse_combined_GOKEGG)) {
+  sheet_name <- names(Mouse_combined_GOKEGG)[i]  # 如果 list 有名字就用名字做 sheet 名
+  if (is.null(sheet_name) || sheet_name == "") {
+    sheet_name <- paste0("Sheet", i)  # 如果没有名字，用 Sheet1, Sheet2...
+  }
+  
+  addWorksheet(wb, sheet_name)
+  writeData(wb, sheet_name, Mouse_combined_GOKEGG[[i]])
+}
+
+# 保存 Excel 文件
+saveWorkbook(wb, "Mouse_Aging_DEGs_GOKEGG_May5_2025.xlsx", overwrite = TRUE)
 
 
 #######
@@ -139,9 +151,6 @@ names(Zebrafish_combined)
 ######
 ###### Output to excel files ######
 ######
-library(writexl)
-# Write to "output.xlsx" — each list element becomes a sheet named after its list name
-write_xlsx(Zebrafish_combined, path = "Zebrafish_Aging_DEGs_May5_2025.xlsx")
 
 
 #######
@@ -176,7 +185,22 @@ for(i in 1:length(Zebrafish_combined_GOKEGG)){
 }
 
 
-write_xlsx(Zebrafish_combined_GOKEGG, path = "Zebrafish_Aging_DEGs_GOKEGG_May5_2025.xlsx")
+
+library(openxlsx)
+wb <- createWorkbook()
+# 遍历 list，把每个元素写到单独的 sheet
+for (i in seq_along(Zebrafish_combined_GOKEGG)) {
+  sheet_name <- names(Zebrafish_combined_GOKEGG)[i]  # 如果 list 有名字就用名字做 sheet 名
+  if (is.null(sheet_name) || sheet_name == "") {
+    sheet_name <- paste0("Sheet", i)  # 如果没有名字，用 Sheet1, Sheet2...
+  }
+  
+  addWorksheet(wb, sheet_name)
+  writeData(wb, sheet_name, Zebrafish_combined_GOKEGG[[i]])
+}
+
+# 保存 Excel 文件
+saveWorkbook(wb, "Zebrafish_Aging_DEGs_GOKEGG_May5_2025.xlsx", overwrite = TRUE)
 
 
 
@@ -499,12 +523,6 @@ Enrich_GO_function_Human <- function(tmp_genes){
 
 #### tmp_genes = Human_combined[[1]]$Gene
 
-links <- KEGGREST::keggLink("pathway", "hsa")  # "hsa:gene" -> "path:hsaXXXXX"
-  term2gene <- data.frame(
-    pathway = sub("^path:", "", names(links)),
-    gene    = sub("^hsa:",  "", links),
-    stringsAsFactors = FALSE
-  )
 
 ###
 ###
@@ -535,6 +553,172 @@ Enrich_KEGG_function_Human <- function(tmp_genes){
         return(GOtable)
         #####
 }	
+
+
+
+
+###########
+###########
+###########
+
+
+ssh plyu3@omb2.onc.jhmi.edu
+U[9C20&&
+
+conda activate clusterProfiler
+R
+
+
+names(Zebrafish_combined_GOKEGG)
+names(Human_combined_GOKEGG)
+names(Mouse_combined_GOKEGG)
+
+
+#########
+#########
+#########
+kc_index = Zebrafish_combined_GOKEGG[grep("_Young",names(Zebrafish_combined_GOKEGG))]
+  
+Get_overlap_withinGOtables <- function(kc_index){
+    ######
+    all_ID = c()
+	all_Terms = c()
+    for(i in 1:length(kc_index)){
+		all_ID = c(all_ID,kc_index[[i]]$ID)
+		all_Terms = c(all_Terms,kc_index[[i]]$Description)
+	}
+	k = !duplicated(all_ID)
+	all_ID = all_ID[k]
+	all_Terms = all_Terms[k]
+    ######
+    tmp_mat = matrix(NA,nrow=length(all_ID),ncol=length(kc_index))
+    rownames(tmp_mat) <- all_ID
+    colnames(tmp_mat) <- names(kc_index)
+    ######
+    for(i in 1:dim(tmp_mat)[1]){
+        for(j in 1:dim(tmp_mat)[2]){
+            tmp_ct = colnames(tmp_mat)[j]
+            tmp_g = rownames(tmp_mat)[i]
+            ####
+			tmp_tab = kc_index[[tmp_ct]]
+            k = which(tmp_tab$ID == tmp_g)
+            if(length(k) > 0){
+                tmp_mat[i,j] = tmp_tab$pvalue[k]
+            }
+        }
+    }
+    ######
+    tmp_mat = data.frame(tmp_mat)
+	#######
+    tmp_mat$overlap = apply(tmp_mat,1,function(x) length(which(is.na(x) == F)))
+	tmp_mat$Description = all_Terms
+    tmp_mat = tmp_mat[order(tmp_mat$overlap,decreasing=T),]
+    #######
+    #######
+    #######
+    #######
+    tmp_mat = tmp_mat[which(tmp_mat$overlap > 1),]
+    #######
+    return(tmp_mat)
+}
+
+
+Zebrafish_Old_overlap = Get_overlap_withinGOtables(Zebrafish_combined_GOKEGG[grep("_Old",names(Zebrafish_combined_GOKEGG))])
+Zebrafish_Young_overlap = Get_overlap_withinGOtables(Zebrafish_combined_GOKEGG[grep("_Young",names(Zebrafish_combined_GOKEGG))])
+
+Human_Old_overlap = Get_overlap_withinGOtables(Human_combined_GOKEGG[grep("_Old",names(Human_combined_GOKEGG))])
+Human_Young_overlap = Get_overlap_withinGOtables(Human_combined_GOKEGG[grep("_Young",names(Human_combined_GOKEGG))])
+
+Mouse_Old_overlap = Get_overlap_withinGOtables(Mouse_combined_GOKEGG[grep("_Old",names(Mouse_combined_GOKEGG))])
+Mouse_Young_overlap = Get_overlap_withinGOtables(Mouse_combined_GOKEGG[grep("_Young",names(Mouse_combined_GOKEGG))])
+
+#########
+Total_List = c(list(Zebrafish_Old_overlap),list(Zebrafish_Young_overlap),list(Human_Old_overlap),list(Human_Young_overlap),list(Mouse_Old_overlap),list(Mouse_Young_overlap))
+names(Total_List) = c("Zebrafish_Old_overlap","Zebrafish_Young_overlap","Human_Old_overlap","Human_Young_overlap","Mouse_Old_overlap","Mouse_Young_overlap")
+#########
+
+
+library(openxlsx)
+wb <- createWorkbook()
+# 遍历 list，把每个元素写到单独的 sheet
+for (i in seq_along(Total_List)) {
+  sheet_name <- names(Total_List)[i]  # 如果 list 有名字就用名字做 sheet 名
+  if (is.null(sheet_name) || sheet_name == "") {
+    sheet_name <- paste0("Sheet", i)  # 如果没有名字，用 Sheet1, Sheet2...
+  }
+  
+  addWorksheet(wb, sheet_name)
+  writeData(wb, sheet_name, Total_List[[i]])
+}
+
+# 保存 Excel 文件
+setwd("/zp1/data/share/Human_aging_new")
+saveWorkbook(wb, "HMZ_overlaps_within_species_GO_May5_2025.xlsx", overwrite = TRUE)
+
+
+####### Next see the 3species overlaps #######
+#######
+
+index = names(Zebrafish_combined_GOKEGG)
+
+total_res_list = list()
+for(i in index){
+	print(i)
+	H = Human_combined_GOKEGG[[i]]
+	M = Mouse_combined_GOKEGG[[i]]
+	Z = Zebrafish_combined_GOKEGG[[i]]
+	##
+	inputlist = list(H=H,M=M,Z=Z)
+	names(inputlist) = paste0(names(inputlist),"_",i)
+	##
+	res = Get_overlap_withinGOtables(inputlist)
+	##
+	total_res_list <- c(total_res_list,list(res))
+}
+
+names(total_res_list) = index
+names(total_res_list) = paste0(names(total_res_list),"_overlap")
+
+####
+merge_overlap = c(Total_List,total_res_list)
+####
+							
+
+names(Zebrafish_combined_GOKEGG) <- paste0("Zebrafish_",names(Zebrafish_combined_GOKEGG))
+names(Human_combined_GOKEGG) <- paste0("Human_",names(Human_combined_GOKEGG))
+names(Mouse_combined_GOKEGG) <- paste0("Mouse_",names(Mouse_combined_GOKEGG))
+
+#####
+
+							
+merge_overlap = c(Zebrafish_combined_GOKEGG,Mouse_combined_GOKEGG,Human_combined_GOKEGG,merge_overlap)
+
+#####
+
+
+library(openxlsx)
+wb <- createWorkbook()
+# 遍历 list，把每个元素写到单独的 sheet
+for (i in seq_along(merge_overlap)) {
+  sheet_name <- names(merge_overlap)[i]  # 如果 list 有名字就用名字做 sheet 名
+  if (is.null(sheet_name) || sheet_name == "") {
+    sheet_name <- paste0("Sheet", i)  # 如果没有名字，用 Sheet1, Sheet2...
+  }
+  
+  addWorksheet(wb, sheet_name)
+  writeData(wb, sheet_name, merge_overlap[[i]])
+}
+
+# 保存 Excel 文件
+setwd("/zp1/data/share/Human_aging_new")
+saveWorkbook(wb, "total_merge_GOterms.xlsx", overwrite = TRUE)
+
+
+
+
+
+
+  
 
 
 
