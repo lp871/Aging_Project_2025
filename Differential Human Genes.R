@@ -22,10 +22,10 @@ R
 setwd("/zp1/data/share/Human_aging_new")
 load("Human_DEGs_Plot_Kmeans_order")
 
-#######-----for M ######
+#######-----for  ######
 
 kc = Human_DEGs_Plot_Kmeans_order
-Upclusters = c(5,6,7,8,9)
+Upclusters = c(8,9,10,11,12)
 Downclusters = c(1,2,3,4)
 
 
@@ -177,6 +177,7 @@ Human_DEGs_Common_overlap_tab_out$Male[k1] = "Old"
 Human_DEGs_Common_overlap_tab_out$Female[k2] = "Young"
 Human_DEGs_Common_overlap_tab_out$Male[k2] = "Young"
 
+library("writexl")
 Human_DEGs_Common_overlap_tab_out$Change = NULL
 write_xlsx(Human_DEGs_Common_overlap_tab_out, path = "Human_SEX_common_by_celltype.xlsx")
 
@@ -220,10 +221,12 @@ Merge_DEGs_genes_and_Avg_expression_Common <- function(DEGs_tab,Avgs_List,col_in
         tmp = Avgs_List[[i]][[1]]
         rownames(tmp) = paste(names(Avgs_List)[i],rownames(tmp),sep="__")
         print(dim(tmp))
+		tmp = tmp[,col_index]
         Avgs_List2[[i]] = tmp
+		
     }
     #########
-    #########
+    ######### 
     all_Matrix = do.call("rbind",Avgs_List2)
     ######### all_Avg[grep("Clu",all_Avg$Gene),] #########
     ######### all_Avg[grep("Xkr4",all_Avg$Gene),] ########
@@ -233,8 +236,6 @@ Merge_DEGs_genes_and_Avg_expression_Common <- function(DEGs_tab,Avgs_List,col_in
     ######### merge and order ########
     ######### to Z-score #############
     #########
-    all_Matrix_cl_F = all_Matrix_cl_F[,col_index]
-    all_Matrix_cl_M = all_Matrix_cl_M[,col_index]
     #########
     #########
     all_Matrix_cl_s_F = t(apply(all_Matrix_cl_F,1,scale))
@@ -347,10 +348,12 @@ Merge_DEGs_genes_and_Avg_expression_Divergent <- function(DEGs_tab,Avgs_List,col
     #########
     Avgs_List2  = list()
     for(i in 1:length(Avgs_List)){
+		print(i)
         ####
         tmp = Avgs_List[[i]][[1]]
         rownames(tmp) = paste(names(Avgs_List)[i],rownames(tmp),sep="__")
         print(dim(tmp))
+		tmp = tmp[,col_index]
         Avgs_List2[[i]] = tmp
     }
     #########
@@ -358,8 +361,8 @@ Merge_DEGs_genes_and_Avg_expression_Divergent <- function(DEGs_tab,Avgs_List,col
     all_Matrix = do.call("rbind",Avgs_List2)
     ######### all_Avg[grep("Clu",all_Avg$Gene),] #########
     ######### all_Avg[grep("Xkr4",all_Avg$Gene),] ########
-    DEGs_tab$CT = sapply(strsplit(DEGs_tab$Female,split="_"),function(x) x[[2]])
-    DEGs_tab$Gene = sapply(strsplit(DEGs_tab$Female,split="_"),function(x) x[[1]])
+    #DEGs_tab$CT = sapply(strsplit(DEGs_tab$Female,split="_"),function(x) x[[2]])
+    #DEGs_tab$Gene = sapply(strsplit(DEGs_tab$Female,split="_"),function(x) x[[1]])
     DEGs_tab$Female_Index = paste0(DEGs_tab$CT,"_F__",DEGs_tab$Gene)
     DEGs_tab$Male_Index = paste0(DEGs_tab$CT,"_M__",DEGs_tab$Gene)
     #########
@@ -395,7 +398,7 @@ Merge_DEGs_genes_and_Avg_expression_Divergent <- function(DEGs_tab,Avgs_List,col
     colsp = factor(colsp)
     #########
     DEGs_tab$Index2 = paste0(DEGs_tab$CT,"_",DEGs_tab$Gene)
-    DEGs_tab$Change = sapply(strsplit(DEGs_tab$Female,split="_"),function(x) x[[3]])
+    DEGs_tab$Change = DEGs_tab$Female
     rowsp = DEGs_tab$Change[match(DEGs_tab$Index2,rownames(all_Matrix_cl_s_FM))]
     rowsp = factor(rowsp)
     #########
@@ -546,12 +549,14 @@ load("Human_DEGs_common_List")
 load("Human_DEGs_div_List")
 
 
+				 
+
 #####
 Common_Down <- data.frame(Genes = Human_DEGs_common_List$DOWN,Female="Young",MALE="Young")
 Common_Up <- data.frame(Genes = Human_DEGs_common_List$UP,Female="Old",MALE="Old")
 
-Div_Down = data.frame(Genes = Human_DEGs_common_List$DOWN,Female="Young",MALE="Old")
-Div_Up = data.frame(Genes = Human_DEGs_div_List$UP,Female="Old",MALE="Young")
+Div_Down = data.frame(Genes = Human_DEGs_div_List$Young,Female="Young",MALE="Old")
+Div_Up = data.frame(Genes = Human_DEGs_div_List$Old,Female="Old",MALE="Young")
 
 
 #####
@@ -605,8 +610,11 @@ for(i in 1:length(Human_common_GOKEGG)){
 ######
 
 Human_SEX_GO <- c(Human_common_GOKEGG,Human_div_GOKEGG)
-names(Human_SEX_GO) <- c("Common_Young","Common_Old","Divergent_F_Young_M_Old","Divergent_F_Old_M_Young")
-write_xlsx(Human_SEX_GO, path = "Human_SEX_diff_GOterms_2025.xlsx")
+names(Human_SEX_GO) <- c("Common_Young","Common_Old","Divergent_F_Old_M_Young","Divergent_F_Young_M_Old")
+
+
+library(openxlsx)
+write.xlsx(Human_SEX_GO, file = "Human_SEX_diff_GOterms_2025.xlsx", asTable = TRUE, overwrite = TRUE)
 
 
 ######
@@ -645,7 +653,7 @@ library(stringr)
 ######
 ######
 # 1. 准备数据
-df <- as.data.frame(Human_common_GOKEGG[[2]])
+df <- as.data.frame(Human_div_GOKEGG[[2]])
 top10 <- df %>%
   arrange(pvalue) %>%
   slice(1:10) %>%
@@ -666,7 +674,7 @@ p <- ggplot(top10, aes(x = log10p, y = reorder(Description_wrap, log10p))) +
     panel.border = element_rect(color = "black", fill = NA, size = 1),
     axis.text.y = element_text(size = 10),
     plot.margin = margin(5, 20, 5, 5)
-  )
+  ) + scale_x_continuous(expand=c(0,0)) + scale_x_continuous(limits=c(0,6))
 
 # 3. 保存成 PNG
 ggsave(
@@ -692,8 +700,15 @@ U[9C20&&
 conda activate seurat4
 R
 
+#####
+##### output tables #####
+#####
 
+names(Human_common_GOKEGG)
+names(Human_div_GOKEGG)
 
+#####
+  
 
 
 
