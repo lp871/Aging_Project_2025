@@ -28,8 +28,22 @@ library(parallel)
 #'   - train_matrix: 归一化后训练集表达矩阵 (genes x samples)
 #'   - test_matrix: 归一化后测试集表达矩阵 (genes x samples)
 #'
-seu = Mouse_seurat_knn_pseudobulk$MG
+seu = Zebrafish_seurat_knn_pseudobulk$Rod
 Need_genes = Mouse_features$MG
+
+### raw_layers <- seu[["RNA"]]@layers 
+### mat <- do.call(cbind, raw_layers)
+
+### seu2 = JoinLayers(seu)
+### mat2 = seu2[["RNA"]]$counts
+### ###
+### all.equal(rownames(mat2),rownames(seu))
+### rownames(mat) = rownames(seu)
+### colnames(mat) = colnames(seu)
+### all.equal(mat,mat2)
+### all.equal(seu2$age,seu$age)
+### all.equal(colnames(mat),colnames(mat2))
+### all.equal(rownames(mat),rownames(mat2))
 
 Elastic_net_one_round <- function(
   seu,
