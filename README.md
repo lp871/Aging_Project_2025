@@ -9,3 +9,27 @@ R1_4_seurat_Merged_dim_2024.rds spatial dims for cells
 R1_4_seurat_Merfed_obj_2024.rds spatial counts
 
 
+
+##############
+Mouse samples：
+| sample name | seurat name | Other |
+|:-------------|:--------------:|--------------:|
+| CellAnn | 0.95 | 100 |
+| Seurat | 0.89 | 85 |
+
+
+
+
+
+##############
+Zebrafish samples：
+
+
+
+
+
+
+
+
+
+
