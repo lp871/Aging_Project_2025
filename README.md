@@ -15,22 +15,23 @@ Mouse samples：
 
 | sample name | seurat name | Other |
 |:-------------|:--------------:|--------------:|
-| IP5wk3_multiome_RNA | 0.95 | 100 |
-| IP12wk3_multiome_RNA | 0.89 | 85 |
-| IP12wk4_multiome_RNA | 0.89 | 85 |
-| IP17wk2_multiome_RNA | 0.89 | 85 |
-| IP17wk3_multiome_RNA | 0.89 | 85 |
-| IP32wk1_multiome_RNA | 0.89 | 85 |
-| IP32wk2_multiome_RNA | 0.89 | 85 |
-| IP49wk2_multiome_RNA | 0.89 | 85 |
-| IP49wk3_multiome_RNA | 0.89 | 85 |
-| IP68wk1_multiome_RNA | 0.89 | 85 |
-| IP68wk2_multiome_RNA | 0.89 | 85 |
-| IP91wk2_multiome_RNA | 0.89 | 85 |
-| IP106wk1_multiome_RNA | 0.89 | 85 |
-| IP108wk_multiome_RNA | 0.89 | 85 |
-| IP120wk1_multiome_RNA | 0.89 | 85 |
-| IP120wk2_multiome_RNA | 0.89 | 85 |
+| IP5wk3_multiome_RNA | Wk5_rep1 | 100 |
+| IP12wk3_multiome_RNA | Wk12_rep1 | 85 |
+| IP12wk4_multiome_RNA | Wk12_rep2 | 85 |
+| IP17wk2_multiome_RNA | Wk17_rep1 | 85 |
+| IP17wk3_multiome_RNA | Wk17_rep2 | 85 |
+| IP32wk1_multiome_RNA | Wk32_rep1 | 85 |
+| IP32wk2_multiome_RNA | Wk32_rep2 | 85 |
+| IP49wk2_multiome_RNA | Wk49_rep1 | 85 |
+| IP49wk3_multiome_RNA | Wk49_rep2 | 85 |
+| IP68wk1_multiome_RNA | Wk68_rep1 | 85 |
+| IP68wk2_multiome_RNA | Wk68_rep2 | 85 |
+| IP91wk2_multiome_RNA | Wk91_rep1 | 85 |
+| IP91wk3_multiome | Wk91_rep2 | 85 |
+| IP106wk1_multiome_RNA | Wk106 | 85 |
+| IP108wk_multiome_RNA | Wk108 | 85 |
+| IP120wk1_multiome_RNA | Wk120_rep1 | 85 |
+| IP120wk2_multiome_RNA | Wk120_rep2 | 85 |
 
 
 
