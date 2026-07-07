@@ -15,10 +15,22 @@ Mouse samples：
 
 | sample name | seurat name | Other |
 |:-------------|:--------------:|--------------:|
-| CellAnn | 0.95 | 100 |
-| Seurat | 0.89 | 85 |
-
-
+| IP5wk3_multiome_RNA | 0.95 | 100 |
+| IP12wk3_multiome_RNA | 0.89 | 85 |
+| IP12wk4_multiome_RNA | 0.89 | 85 |
+| IP17wk2_multiome_RNA | 0.89 | 85 |
+| IP17wk3_multiome_RNA | 0.89 | 85 |
+| IP32wk1_multiome_RNA | 0.89 | 85 |
+| IP32wk2_multiome_RNA | 0.89 | 85 |
+| IP49wk2_multiome_RNA | 0.89 | 85 |
+| IP49wk3_multiome_RNA | 0.89 | 85 |
+| IP68wk1_multiome_RNA | 0.89 | 85 |
+| IP68wk2_multiome_RNA | 0.89 | 85 |
+| IP91wk2_multiome_RNA | 0.89 | 85 |
+| IP106wk1_multiome_RNA | 0.89 | 85 |
+| IP108wk_multiome_RNA | 0.89 | 85 |
+| IP120wk1_multiome_RNA | 0.89 | 85 |
+| IP120wk2_multiome_RNA | 0.89 | 85 |
 
 
 
