@@ -15,7 +15,8 @@ Mouse samples：
 
 | sample name | seurat name | Other |
 |:-------------|:--------------:|--------------:|
-| IP5wk3_multiome_RNA | Wk5_rep1 | 100 |
+| IP5wk2_multiome_RNA | Wk5_rep1 | 100 |
+| IP5wk3_multiome_RNA | Wk5_rep2 | 100 |
 | IP12wk3_multiome_RNA | Wk12_rep1 | 85 |
 | IP12wk4_multiome_RNA | Wk12_rep2 | 85 |
 | IP17wk2_multiome_RNA | Wk17_rep1 | 85 |
