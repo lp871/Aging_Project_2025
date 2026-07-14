@@ -1,0 +1,1908 @@
+
+conda activate seurat_env
+R
+
+#########
+#########
+
+
+#########
+library(Seurat)
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+Zebrafish_seurat_clcl <- readRDS("Zebrafish_seurat_clcl_2025")
+
+#########
+table(Zebrafish_seurat_clcl$sample)
+table(Zebrafish_seurat_clcl$celltype)
+
+######### 开始用以前的方法计算 DEGs #########
+#########
+######### 
+######### we use sample-level pseudobulk  #####
+######### in the downstream analysis，we further use DEGs analysis between young and old ######
+#########
+
+rm_samples <- c("6_Rep3", "3_Rep2", "24_Rep1")
+
+Zebrafish_seurat_clcl <- subset(
+    Zebrafish_seurat_clcl,
+    subset = !(sample %in% rm_samples)
+)
+message(sprintf("已删除 %d 个 sample: %s", length(rm_samples), paste(rm_samples, collapse = ", ")))
+print(table(Zebrafish_seurat_clcl$sample))
+
+
+#########
+#########
+######### plyu3@cpu163 ####
+#########
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+saveRDS(Zebrafish_seurat_clcl, "Zebrafish_seurat_clcl_2026.rds")
+
+Zebrafish_seurat_clcl = readRDS("Zebrafish_seurat_clcl_2026.rds")
+####
+#######
+####
+
+#### test the aging clocks #####
+#### load the saved the clocks plot the violinplot and plot the samples in the aging clocks ####
+####
+
+conda activate ArchR
+
+R
+
+#########
+library(ggplot2)
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+
+#### 读入之前保存的 MG 细胞 zebrafish aging clock 的 LOOCV 结果 ####
+MG_results <- readRDS("MG/MG_aging_clock_results.rds")
+
+#### 打印里面有哪些 sample ####
+##### sample 级别的预测（含 actual / predicted / predicted_calibrated） #####
+print(MG_results$sample_predictions)
+
+##### 所有 sample 名字 #####
+MG_samples <- unique(MG_results$cell_predictions$sample)
+cat("MG 一共有", length(MG_samples), "个 sample:\n")
+print(MG_samples)
+
+##### 每个 sample 的细胞数以及对应的 actual age #####
+sample_summary <- aggregate(actual ~ sample, data = MG_results$cell_predictions, FUN = function(x) x[1])
+sample_summary$n_cells <- as.integer(table(MG_results$cell_predictions$sample)[sample_summary$sample])
+print(sample_summary[order(sample_summary$actual), ])
+
+#### 重新绘制 violin plot ####
+source("Plot_AgingClock_Violin.R")
+
+p_MG <- Plot_AgingClock_Violin(
+    results = MG_results,
+    celltype_name = "MG",
+    output_file = "MG_AgingClock_Violin_2026.png",
+    use_calibrated = TRUE,
+    merge_ages = list("28" = c(28, 30)),   # 绘图时将 28mo 和 30mo 合并显示为 28mo
+    width = 8,
+    height = 6,
+    dpi = 300
+)
+
+print(p_MG)
+
+
+
+
+
+#########
+######### for Mouse ########
+#########
+
+library(Seurat)
+
+setwd("/projects/hmz-aging/Mouse_New_Datasets")
+Mouse_seurat_clcl <- readRDS("Mouse_seurat_clcl_2025")
+
+#########
+table(Mouse_seurat_clcl$sample)
+table(Mouse_seurat_clcl$celltype)
+
+######### 去掉 sample 末尾的 _T1 / _T2 (同一个 sample 的技术重复合并) #########
+Mouse_seurat_clcl$sample <- sub("_T[0-9]+$", "", as.character(Mouse_seurat_clcl$sample))
+table(Mouse_seurat_clcl$sample)
+
+
+setwd("/projects/hmz-aging/Mouse_New_Datasets")
+saveRDS(Mouse_seurat_clcl, "Mouse_seurat_clcl_2026.rds")
+
+
+#########
+#########
+#########
+
+
+
+#### test the aging clocks #####
+#### load the saved the clocks plot the violinplot and plot the samples in the aging clocks ####
+####
+
+conda activate ArchR
+
+R
+
+#########
+library(ggplot2)
+library(viridis)
+
+setwd("/projects/hmz-aging/Mouse_New_Datasets")
+
+#### 读入之前保存的 Rod 细胞 Mouse aging clock 的 LOOCV 结果 ####
+Rod_results <- readRDS("Rod/Rod_aging_clock_results.rds")
+
+#### 打印里面有哪些 sample ####
+##### sample 级别的预测（含 actual / predicted / predicted_calibrated） #####
+print(Rod_results$sample_predictions)
+
+##### 所有 sample 名字 #####
+Rod_samples <- unique(Rod_results$cell_predictions$sample)
+cat("Rod 一共有", length(Rod_samples), "个 sample:\n")
+print(sort(Rod_samples))
+
+##### 每个 sample 的细胞数以及对应的 actual age（周） #####
+sample_summary <- aggregate(actual ~ sample, data = Rod_results$cell_predictions, FUN = function(x) x[1])
+sample_summary$n_cells <- as.integer(table(Rod_results$cell_predictions$sample)[sample_summary$sample])
+print(sample_summary[order(sample_summary$actual), ])
+
+#### 重新绘制 violin plot（Mouse: 年龄单位为周 weeks，使用全部 sample） ####
+cell_pred <- Rod_results$cell_predictions
+
+##### 使用校准后的预测值 #####
+if ("predicted_calibrated" %in% colnames(cell_pred)) {
+    cell_pred$predicted <- cell_pred$predicted_calibrated
+    y_label <- "Predicted Age (Calibrated)"
+} else {
+    y_label <- "Predicted Age"
+}
+
+##### actual 转 factor，保证 X 轴按年龄顺序 #####
+cell_pred$actual_factor <- factor(cell_pred$actual,
+                                  levels = sort(unique(cell_pred$actual)))
+
+p_Rod <- ggplot(cell_pred, aes(x = actual_factor, y = predicted,
+                              fill = actual_factor, color = actual_factor)) +
+    geom_violin(alpha = 0.8, scale = "width", trim = FALSE) +
+    geom_boxplot(width = 0.2, alpha = 0.5, outlier.shape = NA,
+                 color = "black", fill = "white") +
+    viridis::scale_fill_viridis(discrete = TRUE, option = "D") +
+    viridis::scale_color_viridis(discrete = TRUE, option = "D") +
+    labs(title = "Rod (Mouse)", x = "Actual Age (weeks)", y = y_label) +
+    theme_classic() +
+    theme(
+        plot.title   = element_text(hjust = 0.5, size = 20, face = "bold"),
+        axis.title   = element_text(size = 14),
+        axis.text    = element_text(size = 12),
+        legend.position = "none",
+        panel.border = element_rect(color = "black", fill = NA, size = 1.5)
+    ) +
+    expand_limits(y = 0)
+
+ggsave("Rod_Mouse_AgingClock_Violin_2026.png", plot = p_Rod, width = 8, height = 6, dpi = 300)
+print(p_Rod)
+
+
+#######
+####### ####### #######
+#######
+
+
+
+
+####### No need to check the Human samples ######
+#######
+
+####### 读入 all clean4 Human samples，plot genes number and names #######
+####### in python 
+####### 
+
+conda activate scprint
+python
+
+import os
+import scanpy as sc
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+
+#### 逐个读入 clean4（backed 模式，只读 var/obs，不加载矩阵），统计基因数与基因名 ####
+gene_counts = {}
+gene_names = {}
+for ct in celltypes_all:
+    clean4_file = os.path.join(h5ad_dir, f"{ct}_clean4.h5ad")
+    if not os.path.exists(clean4_file):
+        print(f"{ct}: clean4 not found, skipping -> {clean4_file}")
+        continue
+    adata = sc.read_h5ad(clean4_file, backed='r')
+    genes = adata.var.index.tolist()
+    gene_counts[ct] = len(genes)
+    gene_names[ct] = genes
+    n_cells = adata.shape[0]
+    adata.file.close()
+    print(f"{ct}: {len(genes)} genes, {n_cells} cells")
+
+#### 校验各 celltype 的基因集是否完全一致 ####
+ref_ct = next(iter(gene_names))
+ref_genes = set(gene_names[ref_ct])
+all_identical = True
+for ct, genes in gene_names.items():
+    if set(genes) != ref_genes:
+        all_identical = False
+        only_here = set(genes) - ref_genes
+        missing   = ref_genes - set(genes)
+        print(f"{ct}: 与 {ref_ct} 基因集不一致 (多 {len(only_here)}, 缺 {len(missing)})")
+
+print(f"\n所有 celltype 基因集是否完全一致: {all_identical}")
+print(f"统一基因数: {len(ref_genes)}")
+
+#### 导出统一的基因名列表（各 celltype 一致时导出一份） ####
+gene_list_out = "Human_clean4_gene_names.txt"
+with open(gene_list_out, "w") as f:
+    for g in gene_names[ref_ct]:
+        f.write(g + "\n")
+        
+print(f"已保存基因名列表: {gene_list_out} (共 {len(gene_names[ref_ct])} 个基因)")
+
+#### 打印前 20 个基因名预览 ####
+print("\n前 20 个基因名预览:")
+print(gene_names[ref_ct][:20])
+
+#####
+##### 这些 adata.X is raw counts ? ###
+##### 
+
+import os
+import numpy as np
+import scipy.sparse as sp
+import scanpy as sc
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+
+#### 判断一个矩阵是否像 raw counts：非负 + 全整数 ####
+def check_is_raw_counts(X, n_sample=200000):
+    if sp.issparse(X):
+        data = X.data
+    else:
+        data = np.asarray(X).ravel()
+    if data.size == 0:
+        return {"n_nonzero": 0, "min": 0.0, "max": 0.0, "all_integer": True, "any_negative": False}
+    # 只抽样一部分非零值判断（大矩阵省时）
+    if data.size > n_sample:
+        idx = np.random.choice(data.size, n_sample, replace=False)
+        sample = data[idx]
+    else:
+        sample = data
+    all_integer = bool(np.all(np.mod(sample, 1) == 0))
+    any_negative = bool(np.min(data) < 0)
+    return {
+        "n_nonzero": int(data.size),
+        "min": float(np.min(data)),
+        "max": float(np.max(data)),
+        "all_integer": all_integer,
+        "any_negative": any_negative,
+    }
+
+for ct in celltypes_all:
+    clean4_file = os.path.join(h5ad_dir, f"{ct}_clean4.h5ad")
+    if not os.path.exists(clean4_file):
+        print(f"{ct}: clean4 not found, skipping")
+        continue
+    adata = sc.read_h5ad(clean4_file)
+    info = check_is_raw_counts(adata.X)
+    is_raw = info["all_integer"] and not info["any_negative"]
+    print(f"\n=== {ct}_clean4 ===")
+    print(f"  X dtype: {adata.X.dtype}, shape: {adata.shape}")
+    print(f"  layers: {list(adata.layers.keys())}, raw is None: {adata.raw is None}")
+    print(f"  X min={info['min']:.4f}, max={info['max']:.4f}, "
+          f"all_integer={info['all_integer']}, any_negative={info['any_negative']}")
+    print(f"  => 看起来是 raw counts: {is_raw}")
+    del adata
+
+
+#### 同样检查 clean3 的 X 是不是 raw counts ####
+for ct in celltypes_all:
+    clean3_file = os.path.join(h5ad_dir, f"{ct}_clean3.h5ad")
+    if not os.path.exists(clean3_file):
+        print(f"{ct}: clean3 not found, skipping")
+        continue
+    adata = sc.read_h5ad(clean3_file)
+    info = check_is_raw_counts(adata.X)
+    is_raw = info["all_integer"] and not info["any_negative"]
+    print(f"\n=== {ct}_clean3 ===")
+    print(f"  X dtype: {adata.X.dtype}, shape: {adata.shape}")
+    print(f"  layers: {list(adata.layers.keys())}, raw is None: {adata.raw is None}")
+    print(f"  X min={info['min']:.4f}, max={info['max']:.4f}, "
+          f"all_integer={info['all_integer']}, any_negative={info['any_negative']}")
+    print(f"  => 看起来是 raw counts: {is_raw}")
+    del adata
+
+
+######
+######
+
+
+
+
+
+
+
+
+
+
+######## 从原始 {celltype}.h5ad 重建 raw-count 版 clean4，另存为 clean5 ########
+######## 流程：读入原始 h5ad -> X 换成 raw counts -> 按 clean3 精确过滤细胞 ########
+########       -> 用与 clean4 相同的 overlap+合并逻辑建基因矩阵 -> 存 clean5 ########
+
+import os
+import gc
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import anndata as ad
+import scipy.sparse as sp
+from collections import defaultdict
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+
+#### Ensembl ID -> Gene Symbol 映射（与 Aging_Clocks_Human 中一致） ####
+mcols_pkl = "/projects/hmz-aging/Human_New_Datasets/mcols_df_2025.pkl"
+print("="*70)
+print(f"加载基因映射表: {mcols_pkl}")
+result_df = pd.read_pickle(mcols_pkl)
+gene_map_dict = dict(zip(result_df['gene_id'].astype(str), result_df['gene_name'].astype(str)))
+print(f"  gene_map_dict: {len(gene_map_dict)} 个 Ensembl->Symbol 映射")
+
+
+#### 从 adata 里取出 raw counts：优先 layers['counts']/['raw_counts']，再 .raw，最后 .X ####
+#### 注意：本数据集的 .raw 元数据存在但 raw.X 数据集损坏，访问会报错，这里用 try 兜住 ####
+def get_raw_counts(adata):
+    if 'counts' in adata.layers:
+        return adata.layers['counts'], "layers['counts']"
+    if 'raw_counts' in adata.layers:
+        return adata.layers['raw_counts'], "layers['raw_counts']"
+    if adata.raw is not None:
+        try:
+            rx = adata.raw.X
+            _ = rx[:1]  # 真正读一小块，坏掉会在这里抛错
+            return rx, ".raw.X"
+        except Exception as e:
+            print(f"    [.raw.X 不可用，跳过] {e}")
+    return adata.X, ".X (fallback)"
+
+
+#### 判断矩阵是否像 raw counts：非负 + 全整数（抽样） ####
+def looks_like_counts(X, n_sample=200000):
+    data = X.data if sp.issparse(X) else np.asarray(X).ravel()
+    if data.size == 0:
+        return True, 0.0, 0.0
+    sample = data if data.size <= n_sample else data[np.random.choice(data.size, n_sample, replace=False)]
+    all_integer = bool(np.all(np.mod(sample, 1) == 0))
+    any_negative = bool(np.min(data) < 0)
+    return (all_integer and not any_negative), float(np.min(data)), float(np.max(data))
+
+
+#### 诊断：逐个 {ct}.h5ad，把 .X / 每个 layer / .raw 的数值情况都打出来，确认 raw counts 在哪 ####
+def _describe_mat(name, M):
+    is_cnt, mn, mx = looks_like_counts(M)
+    dtype = M.dtype if hasattr(M, "dtype") else type(M)
+    print(f"    [{name}] shape={M.shape}, dtype={dtype}, min={mn:.4f}, max={mx:.4f}, 是raw counts: {is_cnt}")
+
+print("="*70)
+print("诊断各 {ct}.h5ad 里 raw counts 到底在哪 (.X / layers / .raw); 只取前 2000 细胞判断")
+
+for ct in celltypes_all:
+    base_file = os.path.join(h5ad_dir, f"{ct}.h5ad")
+    if not os.path.exists(base_file):
+        print(f"\n=== {ct}: 原始文件不存在 {base_file} ===")
+        continue
+    print(f"\n=== {ct} ({base_file}) ===")
+    a = sc.read_h5ad(base_file, backed='r')
+    print(f"  shape={a.shape}, layers={list(a.layers.keys())}, raw is None: {a.raw is None}")
+    n = min(2000, a.shape[0])
+    # 不用 to_memory（会去拉可能损坏的 raw.X），逐块切片取值
+    try:
+        _describe_mat(".X", a.X[:n])
+    except Exception as e:
+        print(f"    [.X 读取失败] {e}")
+    for lname in list(a.layers.keys()):
+        try:
+            _describe_mat(f"layers['{lname}']", a.layers[lname][:n])
+        except Exception as e:
+            print(f"    [layers['{lname}'] 读取失败] {e}")
+    if a.raw is not None:
+        try:
+            _describe_mat(".raw.X", a.raw.X[:n])
+        except Exception as e:
+            print(f"    [.raw.X 读取失败(元数据有raw但数据缺失)] {e}")
+    a.file.close()
+    del a
+
+#####
+#####
+#####
+
+
+
+for ct in celltypes_all:
+    print("\n" + "="*70)
+    print(f"=== 处理 {ct} ===")
+    base_file   = os.path.join(h5ad_dir, f"{ct}.h5ad")
+    clean3_file = os.path.join(h5ad_dir, f"{ct}_clean3.h5ad")
+    clean4_file = os.path.join(h5ad_dir, f"{ct}_clean4.h5ad")
+    if not os.path.exists(base_file):
+        print(f"  [跳过] 原始文件不存在: {base_file}")
+        continue
+    if not os.path.exists(clean3_file):
+        print(f"  [跳过] clean3 不存在: {clean3_file}")
+        continue
+    if not os.path.exists(clean4_file):
+        print(f"  [跳过] clean4 不存在: {clean4_file}")
+        continue
+    #### 1) 从 clean4 拿目标基因集（=已合并的 overlap symbol 集，含最终顺序） ####
+    c4 = sc.read_h5ad(clean4_file, backed='r')
+    target_symbols = c4.var.index.tolist()
+    overlap_genes_set = set(target_symbols)
+    c4_ncells = c4.shape[0]
+    c4.file.close()
+    print(f"  clean4 目标基因数: {len(target_symbols)}, clean4 细胞数: {c4_ncells}")
+    #### 2) 从 clean3 拿细胞 barcodes 和 obs（clean5 的 obs 与 clean3 完全一致） ####
+    c3 = sc.read_h5ad(clean3_file, backed='r')
+    clean3_barcodes = c3.obs_names.tolist()
+    clean3_obs = c3.obs.copy()
+    c3.file.close()
+    print(f"  clean3 细胞数: {len(clean3_barcodes)}, obs 列: {clean3_obs.columns.tolist()}")
+    #### 3) 读原始文件，取 raw counts 放进 X ####
+    #### backed 读取：本数据集 raw.X 损坏，完整读取会崩，这里只物化 X/layer/obs/var，绕开 raw ####
+    a_bk = sc.read_h5ad(base_file, backed='r')
+    print(f"  原始 {ct}.h5ad: {a_bk.shape[0]} 细胞, {a_bk.shape[1]} 基因")
+    print(f"    layers: {list(a_bk.layers.keys())}, raw is None: {a_bk.raw is None}")
+    counts, src = get_raw_counts(a_bk)
+    counts = counts[:]  # backed -> 物化为内存矩阵
+    if not sp.issparse(counts):
+        counts = sp.csr_matrix(counts)
+    else:
+        counts = counts.tocsr()
+    is_cnt, cmin, cmax = looks_like_counts(counts)
+    print(f"    raw counts 来源: {src}; min={cmin:.4f}, max={cmax:.4f}, 看起来是counts: {is_cnt}")
+    if not is_cnt:
+        print(f"    [警告] {src} 取到的矩阵不像 raw counts，请人工核对！")
+    src_obs = a_bk.obs.copy()
+    src_var = a_bk.var.copy()
+    a_bk.file.close()
+    del a_bk
+    #### 用 counts 重建 adata（丢掉原 X/layers/raw，避免混淆），保留 var ####
+    adata = ad.AnnData(X=counts, obs=src_obs, var=src_var)
+    #### 4) 按 clean3 的 barcodes 精确过滤细胞，且顺序与 clean3 完全一致 ####
+    src_bc_set = set(adata.obs_names)
+    missing = [bc for bc in clean3_barcodes if bc not in src_bc_set]
+    if len(missing) > 0:
+        print(f"    [警告] clean3 有 {len(missing)} 个 barcode 不在原始文件中，示例: {missing[:5]}")
+    keep = [bc for bc in clean3_barcodes if bc in src_bc_set]
+    adata = adata[keep, :].copy()
+    cells_match = (adata.obs_names.tolist() == clean3_barcodes)
+    print(f"    过滤后细胞数: {adata.shape[0]}; 与 clean3 完全一致(数量+顺序): {cells_match}")
+    #### 用 clean3 的 obs（统一列名版）覆盖，保证 clean5 的 obs 与 clean3 一致 ####
+    adata.obs = clean3_obs.loc[adata.obs_names].copy()
+    #### 5) 与 clean4 相同的基因逻辑：overlap 基因 + 合并重复 gene symbol ####
+    if ct == "RPE":
+        # RPE 的 var 索引已是 Gene Symbol，直接筛 overlap
+        genes_to_keep = [g for g in adata.var.index if g in overlap_genes_set]
+        adata_c5 = adata[:, genes_to_keep].copy()
+        print(f"    [RPE] 直接筛 overlap 基因: {adata_c5.shape[1]}")
+    else:
+        # 非 RPE：Ensembl -> Symbol，合并相同 symbol 的 counts（求和）
+        ensembl_ids = adata.var.index.tolist()
+        gene_symbols = [gene_map_dict.get(eid, eid) for eid in ensembl_ids]
+        mask = [gs in overlap_genes_set for gs in gene_symbols]
+        filtered_ensembl = [eid for eid, m in zip(ensembl_ids, mask) if m]
+        filtered_symbols = [gs for gs, m in zip(gene_symbols, mask) if m]
+        print(f"    过滤到 overlap: {len(filtered_ensembl)} 个 Ensembl ID")
+        symbol_to_indices = defaultdict(list)
+        for i, sym in enumerate(filtered_symbols):
+            symbol_to_indices[sym].append(i)
+        unique_symbols = sorted(symbol_to_indices.keys())
+        n_dup = sum(1 for s in unique_symbols if len(symbol_to_indices[s]) > 1)
+        print(f"    需合并的重复 symbol 数: {n_dup}; 合并后 unique symbol: {len(unique_symbols)}")
+        adata_filtered = adata[:, filtered_ensembl].copy()
+        X = adata_filtered.X
+        X = X.tocsc() if sp.issparse(X) else sp.csc_matrix(X)
+        row_idx, col_idx = [], []
+        for j, sym in enumerate(unique_symbols):
+            for i in symbol_to_indices[sym]:
+                row_idx.append(i)
+                col_idx.append(j)
+        agg_mat = sp.csr_matrix(
+            (np.ones(len(row_idx)), (row_idx, col_idx)),
+            shape=(len(filtered_symbols), len(unique_symbols))
+        )
+        new_X = sp.csr_matrix(X @ agg_mat)
+        adata_c5 = ad.AnnData(X=new_X, obs=adata_filtered.obs.copy())
+        adata_c5.var_names = pd.Index(unique_symbols)
+        print(f"    [非RPE] 合并后基因数: {adata_c5.shape[1]}")
+        del adata_filtered, X, agg_mat, new_X
+    #### 6) 基因顺序对齐到 clean4，保证 clean5 与 clean4 的 var 完全一致 ####
+    have = set(adata_c5.var_names)
+    missing_genes = [g for g in target_symbols if g not in have]
+    if len(missing_genes) > 0:
+        print(f"    [警告] 有 {len(missing_genes)} 个 clean4 基因在重建结果中缺失，示例: {missing_genes[:5]}")
+        target_use = [g for g in target_symbols if g in have]
+    else:
+        target_use = target_symbols
+    adata_c5 = adata_c5[:, target_use].copy()
+    #### 校验重建后的 X 是否为 raw counts ####
+    is_cnt5, cmin5, cmax5 = looks_like_counts(adata_c5.X)
+    print(f"    clean5 最终: {adata_c5.shape[0]} 细胞 x {adata_c5.shape[1]} 基因")
+    print(f"    clean5 X min={cmin5:.4f}, max={cmax5:.4f}, 是raw counts: {is_cnt5}")
+    print(f"    与 clean4 基因数一致: {adata_c5.shape[1] == len(target_symbols)}; 与 clean3 细胞数一致: {adata_c5.shape[0] == len(clean3_barcodes)}")
+    #### 7) 保存为 clean5 ####
+    clean5_file = os.path.join(h5ad_dir, f"{ct}_clean5.h5ad")
+    adata_c5.write_h5ad(clean5_file)
+    print(f"    已保存: {clean5_file}")
+    del adata, adata_c5
+    gc.collect()
+
+print("\n" + "="*70)
+print("=== 全部 clean5 生成完成! ===")
+
+
+######## 重新生成 AC.h5ad：原文件 .raw.X 数据集损坏，从 Human_Total.h5ad 重新抽取 AC 细胞 ########
+######## 复现当初的抽取逻辑：sex!=unknown、去 pooled、>89->90，再按 majorclass==AC 取子集 ########
+######## 自包含：可单独粘贴运行（不依赖上面的准备段） ########
+import os
+import gc
+import numpy as np
+import scipy.sparse as sp
+import scanpy as sc
+import anndata as ad
+
+file_path = "/projects/hmz-aging/Human_New_Datasets/Human_Total.h5ad"
+h5ad_dir  = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+ct = "AC"
+out_file = os.path.join(h5ad_dir, f"{ct}.h5ad")
+print("="*70)
+print(f"从 Human_Total.h5ad 重新生成 {ct}.h5ad")
+
+#### 1) backed 读 Human_Total，复现原始 obs 过滤 ####
+adata = sc.read_h5ad(file_path, backed='r')
+print(f"  Human_Total: shape={adata.shape}, raw is None: {adata.raw is None}")
+obs = adata.obs
+keep = obs['sex'] != 'unknown'
+obs_clean = obs.loc[keep].copy()
+pooled = obs_clean['donor_age'].astype(str).str.contains('pooled', case=False, na=False)
+obs_clean = obs_clean[~pooled].copy()
+obs_clean['donor_age'] = obs_clean['donor_age'].replace('>89 years', '90 years')
+print(f"  过滤后细胞: {len(obs_clean)} (原 {len(obs)})")
+
+#### 2) 取 AC 细胞索引 ####
+ct_cells = obs_clean[obs_clean['majorclass'] == ct].index.tolist()
+print(f"  {ct} 细胞数: {len(ct_cells)}")
+assert len(ct_cells) > 0, "没找到 AC 细胞，检查 majorclass 取值"
+
+#### 3) 子集并载入内存（含 X/layers/raw；Human_Total 的 raw 完好） ####
+adata_ct = adata[ct_cells, :].to_memory()
+adata.file.close()
+del adata
+#### 同步 donor_age 修改 ####
+adata_ct.obs['donor_age'] = obs_clean.loc[ct_cells, 'donor_age'].values
+print(f"  抽取完成: {adata_ct.shape}, layers={list(adata_ct.layers.keys())}, raw is None: {adata_ct.raw is None}")
+
+#### 4) 校验 raw（应为整数 raw counts）与 .X（norm 后） ####
+def _peek(M, name):
+    d = M[:200]
+    d = d.data if sp.issparse(d) else np.asarray(d).ravel()
+    if d.size == 0:
+        print(f"    [{name}] 空"); return
+    print(f"    [{name}] min={float(d.min()):.4f}, max={float(d.max()):.4f}, 全整数: {bool(np.all(np.mod(d,1)==0))}")
+
+_peek(adata_ct.X, ".X")
+
+if adata_ct.raw is not None:
+    _peek(adata_ct.raw.X, ".raw.X")
+
+#### 5) 保存（覆盖旧的损坏文件） ####
+adata_ct.write_h5ad(out_file)
+print(f"  已保存(覆盖): {out_file}")
+del adata_ct
+gc.collect()
+
+#### 6) 回读校验 raw.X 不再损坏 ####
+chk = sc.read_h5ad(out_file, backed='r')
+
+try:
+    _ = chk.raw.X[:1]
+    print(f"  回读校验: raw.X 可正常读取 OK (raw shape={chk.raw.shape})")
+except Exception as e:
+    print(f"  回读校验: raw.X 仍异常: {e}")
+
+chk.file.close()
+
+print("=== AC.h5ad 重新生成完成 ===")
+
+
+######## 验证所有 clean5：X 是否 raw counts、各 celltype 基因是否完全一致 ########
+import os
+import numpy as np
+import scipy.sparse as sp
+import scanpy as sc
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+
+def _is_counts(X, n_sample=200000):
+    data = X.data if sp.issparse(X) else np.asarray(X).ravel()
+    if data.size == 0:
+        return True, 0.0, 0.0
+    s = data if data.size <= n_sample else data[np.random.choice(data.size, n_sample, replace=False)]
+    all_int = bool(np.all(np.mod(s, 1) == 0))
+    any_neg = bool(np.min(data) < 0)
+    return (all_int and not any_neg), float(np.min(data)), float(np.max(data))
+
+print("\n" + "="*70)
+print("验证所有 clean5：X 是否 raw counts + 基因是否一致")
+gene_lists = {}
+shapes = {}
+for ct in celltypes_all:
+    clean5_file = os.path.join(h5ad_dir, f"{ct}_clean5.h5ad")
+    if not os.path.exists(clean5_file):
+        print(f"  {ct}: clean5 不存在，跳过 -> {clean5_file}")
+        continue
+    a = sc.read_h5ad(clean5_file)
+    is_cnt, mn, mx = _is_counts(a.X)
+    gene_lists[ct] = a.var.index.tolist()
+    shapes[ct] = a.shape
+    print(f"  {ct}: {a.shape[0]} 细胞 x {a.shape[1]} 基因; X min={mn:.4f}, max={mx:.4f}, 是raw counts: {is_cnt}")
+    del a
+
+#### 各 celltype 基因是否完全一致（集合 + 顺序） ####
+print("\n--- 基因一致性检查 ---")
+if len(gene_lists) == 0:
+    print("  没有可用的 clean5 文件")
+else:
+    ref_ct = next(iter(gene_lists))
+    ref_genes = gene_lists[ref_ct]
+    ref_set = set(ref_genes)
+    all_same_set = True
+    all_same_order = True
+    for ct, genes in gene_lists.items():
+        same_set = (set(genes) == ref_set)
+        same_order = (genes == ref_genes)
+        if not same_set:
+            all_same_set = False
+            print(f"  {ct}: 基因集合与 {ref_ct} 不一致 (多 {len(set(genes)-ref_set)}, 缺 {len(ref_set-set(genes))})")
+        elif not same_order:
+            all_same_order = False
+            print(f"  {ct}: 基因集合相同但顺序与 {ref_ct} 不同")
+    print(f"\n  参考 {ref_ct}: {len(ref_genes)} 个基因")
+    print(f"  所有 celltype 基因集合一致: {all_same_set}")
+    print(f"  所有 celltype 基因顺序一致: {all_same_set and all_same_order}")
+
+print("=== clean5 验证完成 ===")
+
+
+#######
+####### #######
+#######
+
+
+
+
+#######
+####### Next the UMAPs of all these datasets #########
+#######
+
+####### for Human, we use 10% of each celltypes to calculate the UMAPs #######
+#######
+conda activate scvi-env
+python
+######## 每个 celltype 从 clean5 随机抽 10% 细胞 -> 合并 -> UMAP -> Harmony(按 donor) 整合 -> UMAP ########
+######## clean5 的 X = raw counts；obs 列: sex, donor_id, sampleid, age, celltype ########
+import os
+import gc
+import numpy as np
+import scanpy as sc
+import anndata as ad
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+out_dir = os.path.join(h5ad_dir, "umap_human_clean5")
+os.makedirs(out_dir, exist_ok=True)
+sc.settings.figdir = out_dir
+sc.settings.verbosity = 1
+FRAC = 0.10
+SEED = 0
+BATCH_KEY = "donor_id"
+
+#### 1) 逐个 celltype 读 clean5，随机抽 10% 细胞 ####
+print("="*70)
+print(f"每个 celltype 随机抽 {int(FRAC*100)}% 细胞（seed={SEED}）")
+
+adatas = []
+
+for ct in celltypes_all:
+    clean5_file = os.path.join(h5ad_dir, f"{ct}_clean5.h5ad")
+    if not os.path.exists(clean5_file):
+        print(f"  {ct}: clean5 不存在，跳过")
+        continue
+    a = sc.read_h5ad(clean5_file)
+    a.obs["celltype"] = ct  # 用文件名作为 celltype，避免 obs 里 celltype 为空
+    sub = sc.pp.subsample(a, fraction=FRAC, random_state=SEED, copy=True)
+    print(f"  {ct}: {a.shape[0]} -> 抽样 {sub.shape[0]} 细胞")
+    adatas.append(sub)
+    del a
+    gc.collect()
+
+#### 2) 合并前：先把所有 celltype 显式重排到同一套基因顺序（RPE 顺序与别的不同，这里强制对齐） ####
+
+common = adatas[0].var_names
+for a in adatas[1:]:
+    common = common.intersection(a.var_names)
+
+common_genes = sorted(common.tolist())   # 固定顺序（字母序），保证确定性
+
+print(f"\n各 celltype 交集基因数: {len(common_genes)} (重排到统一顺序后再合并)")
+
+for i in range(len(adatas)):
+    adatas[i] = adatas[i][:, common_genes].copy()
+
+#### ad.concat 本身按基因名对齐；这里已统一顺序，双保险 ####
+adata = ad.concat(adatas, join="inner", label="ct_batch", index_unique="-")
+del adatas
+gc.collect()
+adata.obs_names_make_unique()
+assert adata.var_names.tolist() == common_genes, "合并后基因顺序异常"
+print(f"\n合并后: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因")
+print(f"  celltype 分布:\n{adata.obs['celltype'].value_counts()}")
+print(f"  {BATCH_KEY} 个数: {adata.obs[BATCH_KEY].astype(str).nunique()}")
+
+#### 3) 标准预处理：保存 raw counts -> normalize -> log1p -> HVG -> scale -> PCA ####
+adata.layers["counts"] = adata.X.copy()
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
+adata.raw = adata
+adata = adata[:, adata.var.highly_variable].copy()
+sc.pp.scale(adata, max_value=10)
+sc.tl.pca(adata, n_comps=50, svd_solver="arpack")
+print("  PCA 完成")
+
+#### 4) 未整合 UMAP ####
+####
+
+sc.pp.neighbors(adata, n_neighbors=15, n_pcs=50)
+sc.tl.umap(adata)
+sc.pl.umap(adata, color=["celltype", BATCH_KEY, "age"], ncols=3, wspace=0.4,
+           save="_human_clean5_uncorrected.png", show=False)
+print(f"  未整合 UMAP 已存: {out_dir}/umap_human_clean5_uncorrected.png")
+
+#### 4.5) 先把"未整合"的 adata 存下来（含 counts 层 / raw(lognorm) / PCA / 未整合UMAP），以防 Harmony 失败 ####
+uncorrected_file = os.path.join(h5ad_dir, "Human_clean5_10pct_uncorrected.h5ad")
+adata.write_h5ad(uncorrected_file)
+print(f"  未整合 adata 已存: {uncorrected_file}")
+
+#### 5) Harmony 按 donor 整合 -> 整合后 UMAP ####
+#### 换到 saturn_env（新 python 会话）：重新 import + 读入之前保存的未整合 adata ####
+conda activate saturn_env
+python
+
+import os
+import numpy as np
+import scanpy as sc
+import anndata as ad
+import harmonypy as hm
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+out_dir = os.path.join(h5ad_dir, "umap_human_clean5")
+os.makedirs(out_dir, exist_ok=True)
+sc.settings.figdir = out_dir
+sc.settings.verbosity = 1
+BATCH_KEY = "donor_id"
+
+#### 读入第 4.5 步保存的未整合 adata（含 PCA/未整合UMAP/counts/raw） ####
+adata = sc.read_h5ad(os.path.join(h5ad_dir, "Human_clean5_10pct_uncorrected.h5ad"))
+print(f"读入未整合 adata: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因")
+color_keys = [k for k in ["celltype", BATCH_KEY, "age"] if k in adata.obs.columns]
+
+#### 直接调 harmonypy：scanpy 封装在 harmonypy>=0.1.0 会多做一次 .T，导致 X_pca_harmony 形状报错 ####
+_ho = hm.run_harmony(adata.obsm["X_pca"], adata.obs, [BATCH_KEY])
+_Z = np.asarray(_ho.Z_corr)
+
+if _Z.shape[0] != adata.n_obs:   # 老版 harmonypy 返回 (n_pcs, n_cells)，需转置
+    _Z = _Z.T
+
+assert _Z.shape == (adata.n_obs, adata.obsm["X_pca"].shape[1]), f"harmony 输出形状异常: {_Z.shape}"
+
+adata.obsm["X_pca_harmony"] = _Z
+
+
+print(f"  Harmony 完成: X_pca_harmony 形状 {_Z.shape}")
+
+sc.pp.neighbors(adata, use_rep="X_pca_harmony", n_neighbors=15)
+sc.tl.umap(adata)
+sc.pl.umap(adata, color=color_keys, ncols=3, wspace=0.4,
+           save="_human_clean5_harmony.png", show=False)
+
+print(f"  Harmony 整合后 UMAP 已存: {out_dir}/umap_human_clean5_harmony.png")
+
+########################################################
+#### 6) 保存合并后的 adata（含 PCA/Harmony/UMAP 坐标） #####
+########################################################
+
+merged_file = os.path.join(h5ad_dir, "Human_clean5_10pct_merged_umap.h5ad")
+adata.write_h5ad(merged_file)
+print(f"  合并 adata 已存: {merged_file}")
+print("=== Human clean5 10% UMAP 完成 ===")
+
+
+
+
+
+
+######
+###### 读入之前保存的 mouse seurat 2026 的 文件 ####
+###### mtx meta data gene 保存 #####
+###### 然后 python 读入 生成 adata #####
+######
+
+######## Step 1 (R): 读 Mouse_seurat_clcl_2026.rds，导出 mtx + features + barcodes + metadata ########
+conda activate seurat_env
+R
+
+library(Seurat)
+library(Matrix)
+
+mouse_dir <- "/projects/hmz-aging/Mouse_New_Datasets"
+setwd(mouse_dir)
+seu <- readRDS("Mouse_seurat_clcl_2026.rds")
+cat("cells =", ncol(seu), " genes =", nrow(seu), "\n")
+cat("meta columns:", paste(colnames(seu@meta.data), collapse = ", "), "\n")
+
+out_dir <- file.path(mouse_dir, "Mouse_clcl_2026_mtx")
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+#### 取 raw counts（兼容 Seurat v5 的 layer 与 v4 的 slot） ####
+counts <- tryCatch(
+  GetAssayData(seu, assay = "RNA", layer = "counts"),
+  error = function(e) GetAssayData(seu, assay = "RNA", slot = "counts")
+)
+counts <- as(counts, "CsparseMatrix")   # genes x cells
+
+writeMM(counts, file.path(out_dir, "matrix.mtx"))
+write.table(data.frame(gene = rownames(counts)), file.path(out_dir, "features.tsv"),
+            sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(data.frame(barcode = colnames(counts)), file.path(out_dir, "barcodes.tsv"),
+            sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+#### metadata：col.names=NA 让第一列为空表头、行名(细胞 barcode)写入第一列 ####
+write.table(seu@meta.data, file.path(out_dir, "metadata.tsv"),
+            sep = "\t", col.names = NA, quote = FALSE)
+cat("Exported to:", out_dir, "\n")
+
+
+######## Step 2 (Python): 读 mtx + features + barcodes + metadata 生成 adata ########
+conda activate scprint
+python
+
+import os
+import numpy as np
+import pandas as pd
+import anndata as ad
+from scipy.io import mmread
+from scipy import sparse
+
+mtx_dir = "/projects/hmz-aging/Mouse_New_Datasets/Mouse_clcl_2026_mtx"
+
+#### 读矩阵：mtx 是 genes x cells，转置成 cells x genes ####
+M = mmread(os.path.join(mtx_dir, "matrix.mtx"))
+X = sparse.csr_matrix(M.T)
+genes = pd.read_csv(os.path.join(mtx_dir, "features.tsv"), sep="\t", header=None)[0].astype(str).tolist()
+barcodes = pd.read_csv(os.path.join(mtx_dir, "barcodes.tsv"), sep="\t", header=None)[0].astype(str).tolist()
+meta = pd.read_csv(os.path.join(mtx_dir, "metadata.tsv"), sep="\t", index_col=0)
+meta.index = meta.index.astype(str)
+print(f"矩阵: {X.shape[0]} 细胞 x {X.shape[1]} 基因; metadata: {meta.shape}")
+
+#### 组装 adata，obs 按 barcode 对齐 ####
+adata = ad.AnnData(X=X)
+adata.obs_names = barcodes
+adata.var_names = genes
+adata.obs = meta.loc[adata.obs_names].copy()
+print(f"adata: {adata}")
+print(f"obs 列: {adata.obs.columns.tolist()}")
+
+#### 校验 X 是否 raw counts ####
+d = adata.X.data
+print(f"X min={float(d.min()):.4f}, max={float(d.max()):.4f}, 全整数: {bool(np.all(np.mod(d,1)==0))}")
+
+#### 保存 h5ad ####
+out_h5ad = "/projects/hmz-aging/Mouse_New_Datasets/Mouse_seurat_clcl_2026.h5ad"
+adata.write_h5ad(out_h5ad)
+print(f"已保存: {out_h5ad}")
+
+
+####### 接下来 mouse 的计算 umap 按照 sample integrate ####
+
+######## Mouse: 读 Mouse_seurat_clcl_2026.h5ad -> UMAP -> Harmony(按 sample) 整合 -> UMAP ########
+######## X = raw counts；batch = sample ########
+conda activate scprint
+python
+
+import os
+import gc
+import numpy as np
+import scanpy as sc
+import anndata as ad
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+mouse_dir = "/projects/hmz-aging/Mouse_New_Datasets"
+in_h5ad = os.path.join(mouse_dir, "Mouse_seurat_clcl_2026.h5ad")
+out_dir = os.path.join(mouse_dir, "umap_mouse_clcl_2026")
+os.makedirs(out_dir, exist_ok=True)
+sc.settings.figdir = out_dir
+sc.settings.verbosity = 1
+BATCH_KEY = "sample"
+FRAC = 1.0        # 全部细胞；数据太大可改成 0.1 抽样
+SEED = 0
+
+#### 1) 读入 ####
+adata = sc.read_h5ad(in_h5ad)
+print(f"读入: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因")
+print(f"  obs 列: {adata.obs.columns.tolist()}")
+assert BATCH_KEY in adata.obs.columns, f"obs 里没有 {BATCH_KEY} 列"
+print(f"  {BATCH_KEY} 个数: {adata.obs[BATCH_KEY].astype(str).nunique()}")
+
+
+#### 2) 标准预处理：保存 raw counts -> normalize -> log1p -> HVG -> scale -> PCA ####
+adata.layers["counts"] = adata.X.copy()
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
+adata.raw = adata
+adata = adata[:, adata.var.highly_variable].copy()
+sc.pp.scale(adata, max_value=10)
+sc.tl.pca(adata, n_comps=50, svd_solver="arpack")
+print("  PCA 完成")
+
+#### 3) 未整合 UMAP ####
+color_keys = [k for k in ["celltype", BATCH_KEY, "age"] if k in adata.obs.columns]
+sc.pp.neighbors(adata, n_neighbors=15, n_pcs=50)
+sc.tl.umap(adata)
+sc.pl.umap(adata, color=color_keys, ncols=3, wspace=0.4,
+           save="_mouse_clcl_2026_uncorrected.png", show=False)
+print(f"  未整合 UMAP 已存: {out_dir}/umap_mouse_clcl_2026_uncorrected.png")
+
+#### 3.5) 先把"未整合"的 adata 存下来（含 counts 层 / raw(lognorm) / PCA / 未整合UMAP），以防 Harmony 失败 ####
+uncorrected_file = os.path.join(mouse_dir, "Mouse_clcl_2026_uncorrected.h5ad")
+adata.write_h5ad(uncorrected_file)
+print(f"  未整合 adata 已存: {uncorrected_file}")
+
+#### 4) Harmony 按 sample 整合 -> 整合后 UMAP ####
+#### 换到 saturn_env（新 python 会话）：重新 import + 读入之前保存的未整合 adata ####
+conda activate saturn_env
+python
+
+import os
+import numpy as np
+import scanpy as sc
+import anndata as ad
+import scanpy.external as sce
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+mouse_dir = "/projects/hmz-aging/Mouse_New_Datasets"
+out_dir = os.path.join(mouse_dir, "umap_mouse_clcl_2026")
+os.makedirs(out_dir, exist_ok=True)
+sc.settings.figdir = out_dir
+sc.settings.verbosity = 1
+BATCH_KEY = "sample"
+
+#### 读入第 3.5 步保存的未整合 adata（含 PCA/未整合UMAP/counts/raw） ####
+adata = sc.read_h5ad(os.path.join(mouse_dir, "Mouse_clcl_2026_uncorrected.h5ad"))
+print(f"读入未整合 adata: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因")
+color_keys = [k for k in ["celltype", BATCH_KEY, "age"] if k in adata.obs.columns]
+
+#### Harmony 整合 -> 整合后 UMAP ####
+
+#### 直接调 harmonypy：scanpy 封装在 harmonypy>=0.1.0 会多做一次 .T，导致 X_pca_harmony 形状报错 ####
+import harmonypy as hm
+_ho = hm.run_harmony(adata.obsm["X_pca"], adata.obs, [BATCH_KEY])
+
+_Z = np.asarray(_ho.Z_corr)
+
+if _Z.shape[0] != adata.n_obs:   # 老版 harmonypy 返回 (n_pcs, n_cells)，需转置
+    _Z = _Z.T
+
+assert _Z.shape == (adata.n_obs, adata.obsm["X_pca"].shape[1]), f"harmony 输出形状异常: {_Z.shape}"
+
+adata.obsm["X_pca_harmony"] = _Z
+
+print(f"  Harmony 完成: X_pca_harmony 形状 {_Z.shape}")
+
+sc.pp.neighbors(adata, use_rep="X_pca_harmony", n_neighbors=15)
+sc.tl.umap(adata)
+sc.pl.umap(adata, color=color_keys, ncols=3, wspace=0.4,
+           save="_mouse_clcl_2026_harmony.png", show=False)
+print(f"  Harmony 整合后 UMAP 已存: {out_dir}/umap_mouse_clcl_2026_harmony.png")
+
+#### 5) 保存合并后的 adata（含 PCA/Harmony/UMAP 坐标） ####
+merged_file = os.path.join(mouse_dir, "Mouse_clcl_2026_umap.h5ad")
+adata.write_h5ad(merged_file)
+print(f"  adata 已存: {merged_file}")
+print("=== Mouse clcl 2026 UMAP 完成 ===")
+
+
+
+
+######
+###### 读入之前保存的 zebrafish seurat 2026 的 文件 ####
+###### mtx meta data gene 保存 #####
+###### 然后 python 读入 生成 adata #####
+######
+
+######## Step 1 (R): 读 Zebrafish_seurat_clcl_2026.rds，导出 mtx + features + barcodes + metadata ########
+conda activate seurat_env
+R
+
+library(Seurat)
+library(Matrix)
+
+fish_dir <- "/projects/hmz-aging/Zebrafish_New_Datasets"
+setwd(fish_dir)
+seu <- readRDS("Zebrafish_seurat_clcl_2026.rds")
+cat("cells =", ncol(seu), " genes =", nrow(seu), "\n")
+cat("meta columns:", paste(colnames(seu@meta.data), collapse = ", "), "\n")
+
+out_dir <- file.path(fish_dir, "Zebrafish_clcl_2026_mtx")
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+#### 取 raw counts（兼容 Seurat v5 的 layer 与 v4 的 slot） ####
+counts <- tryCatch(
+  GetAssayData(seu, assay = "RNA", layer = "counts"),
+  error = function(e) GetAssayData(seu, assay = "RNA", slot = "counts")
+)
+counts <- as(counts, "CsparseMatrix")   # genes x cells
+
+writeMM(counts, file.path(out_dir, "matrix.mtx"))
+write.table(data.frame(gene = rownames(counts)), file.path(out_dir, "features.tsv"),
+            sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(data.frame(barcode = colnames(counts)), file.path(out_dir, "barcodes.tsv"),
+            sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+#### metadata：col.names=NA 让第一列为空表头、行名(细胞 barcode)写入第一列 ####
+write.table(seu@meta.data, file.path(out_dir, "metadata.tsv"),
+            sep = "\t", col.names = NA, quote = FALSE)
+cat("Exported to:", out_dir, "\n")
+
+
+######## Step 2 (Python): 读 mtx + features + barcodes + metadata 生成 adata ########
+conda activate scprint
+python
+
+import os
+import numpy as np
+import pandas as pd
+import anndata as ad
+from scipy.io import mmread
+from scipy import sparse
+
+mtx_dir = "/projects/hmz-aging/Zebrafish_New_Datasets/Zebrafish_clcl_2026_mtx"
+
+#### 读矩阵：mtx 是 genes x cells，转置成 cells x genes ####
+M = mmread(os.path.join(mtx_dir, "matrix.mtx"))
+X = sparse.csr_matrix(M.T)
+genes = pd.read_csv(os.path.join(mtx_dir, "features.tsv"), sep="\t", header=None)[0].astype(str).tolist()
+barcodes = pd.read_csv(os.path.join(mtx_dir, "barcodes.tsv"), sep="\t", header=None)[0].astype(str).tolist()
+meta = pd.read_csv(os.path.join(mtx_dir, "metadata.tsv"), sep="\t", index_col=0)
+meta.index = meta.index.astype(str)
+print(f"矩阵: {X.shape[0]} 细胞 x {X.shape[1]} 基因; metadata: {meta.shape}")
+
+#### 组装 adata，obs 按 barcode 对齐 ####
+adata = ad.AnnData(X=X)
+adata.obs_names = barcodes
+adata.var_names = genes
+adata.obs = meta.loc[adata.obs_names].copy()
+print(f"adata: {adata}")
+print(f"obs 列: {adata.obs.columns.tolist()}")
+
+#### 校验 X 是否 raw counts ####
+d = adata.X.data
+print(f"X min={float(d.min()):.4f}, max={float(d.max()):.4f}, 全整数: {bool(np.all(np.mod(d,1)==0))}")
+
+#### 保存 h5ad ####
+out_h5ad = "/projects/hmz-aging/Zebrafish_New_Datasets/Zebrafish_seurat_clcl_2026.h5ad"
+adata.write_h5ad(out_h5ad)
+print(f"已保存: {out_h5ad}")
+
+
+####### zebrafish 这里能不能也 UMAP integrate ？？？ ######
+#######
+
+######## Zebrafish: 读 Zebrafish_seurat_clcl_2026.h5ad -> UMAP -> Harmony(按 sample) 整合 -> UMAP ########
+######## X = raw counts；batch = sample ########
+conda activate scprint
+python
+
+import os
+import gc
+import numpy as np
+import scanpy as sc
+import anndata as ad
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+fish_dir = "/projects/hmz-aging/Zebrafish_New_Datasets"
+in_h5ad = os.path.join(fish_dir, "Zebrafish_seurat_clcl_2026.h5ad")
+out_dir = os.path.join(fish_dir, "umap_zebrafish_clcl_2026")
+os.makedirs(out_dir, exist_ok=True)
+sc.settings.figdir = out_dir
+sc.settings.verbosity = 1
+BATCH_KEY = "sample"
+FRAC = 1.0        # 全部细胞；数据太大可改成 0.1 抽样
+SEED = 0
+
+#### 1) 读入 ####
+adata = sc.read_h5ad(in_h5ad)
+print(f"读入: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因")
+print(f"  obs 列: {adata.obs.columns.tolist()}")
+assert BATCH_KEY in adata.obs.columns, f"obs 里没有 {BATCH_KEY} 列"
+print(f"  {BATCH_KEY} 个数: {adata.obs[BATCH_KEY].astype(str).nunique()}")
+if FRAC < 1.0:
+    adata = sc.pp.subsample(adata, fraction=FRAC, random_state=SEED, copy=True)
+    print(f"  抽样后: {adata.shape[0]} 细胞")
+
+#### 2) 标准预处理：保存 raw counts -> normalize -> log1p -> HVG -> scale -> PCA ####
+adata.layers["counts"] = adata.X.copy()
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
+adata.raw = adata
+adata = adata[:, adata.var.highly_variable].copy()
+sc.pp.scale(adata, max_value=10)
+sc.tl.pca(adata, n_comps=50, svd_solver="arpack")
+print("  PCA 完成")
+
+#### 3) 未整合 UMAP ####
+color_keys = [k for k in ["celltype", BATCH_KEY, "age"] if k in adata.obs.columns]
+sc.pp.neighbors(adata, n_neighbors=15, n_pcs=50)
+sc.tl.umap(adata)
+sc.pl.umap(adata, color=color_keys, ncols=3, wspace=0.4,
+           save="_zebrafish_clcl_2026_uncorrected.png", show=False)
+print(f"  未整合 UMAP 已存: {out_dir}/umap_zebrafish_clcl_2026_uncorrected.png")
+
+#### 3.5) 先把"未整合"的 adata 存下来（含 counts 层 / raw(lognorm) / PCA / 未整合UMAP），以防 Harmony 失败 ####
+uncorrected_file = os.path.join(fish_dir, "Zebrafish_clcl_2026_uncorrected.h5ad")
+adata.write_h5ad(uncorrected_file)
+print(f"  未整合 adata 已存: {uncorrected_file}")
+
+#### 4) Harmony 按 sample 整合 -> 整合后 UMAP ####
+#### 换到 saturn_env（新 python 会话）：重新 import + 读入之前保存的未整合 adata ####
+conda activate saturn_env
+python
+
+import os
+import numpy as np
+import scanpy as sc
+import anndata as ad
+import harmonypy as hm
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+fish_dir = "/projects/hmz-aging/Zebrafish_New_Datasets"
+out_dir = os.path.join(fish_dir, "umap_zebrafish_clcl_2026")
+os.makedirs(out_dir, exist_ok=True)
+sc.settings.figdir = out_dir
+sc.settings.verbosity = 1
+BATCH_KEY = "sample"
+
+#### 读入第 3.5 步保存的未整合 adata（含 PCA/未整合UMAP/counts/raw） ####
+adata = sc.read_h5ad(os.path.join(fish_dir, "Zebrafish_clcl_2026_uncorrected.h5ad"))
+print(f"读入未整合 adata: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因")
+color_keys = [k for k in ["celltype", BATCH_KEY, "age"] if k in adata.obs.columns]
+
+#### 直接调 harmonypy：scanpy 封装在 harmonypy>=0.1.0 会多做一次 .T，导致 X_pca_harmony 形状报错 ####
+_ho = hm.run_harmony(adata.obsm["X_pca"], adata.obs, [BATCH_KEY])
+_Z = np.asarray(_ho.Z_corr)
+
+if _Z.shape[0] != adata.n_obs:   # 老版 harmonypy 返回 (n_pcs, n_cells)，需转置
+    _Z = _Z.T
+
+assert _Z.shape == (adata.n_obs, adata.obsm["X_pca"].shape[1]), f"harmony 输出形状异常: {_Z.shape}"
+
+adata.obsm["X_pca_harmony"] = _Z
+
+print(f"  Harmony 完成: X_pca_harmony 形状 {_Z.shape}")
+
+sc.pp.neighbors(adata, use_rep="X_pca_harmony", n_neighbors=15)
+
+sc.tl.umap(adata)
+sc.pl.umap(adata, color=color_keys, ncols=3, wspace=0.4,
+           save="_zebrafish_clcl_2026_harmony.png", show=False)
+
+print(f"  Harmony 整合后 UMAP 已存: {out_dir}/umap_zebrafish_clcl_2026_harmony.png")
+
+#### 5) 保存合并后的 adata（含 PCA/Harmony/UMAP 坐标） ####
+merged_file = os.path.join(fish_dir, "Zebrafish_clcl_2026_umap.h5ad")
+adata.write_h5ad(merged_file)
+print(f"  adata 已存: {merged_file}")
+print("=== Zebrafish clcl 2026 UMAP 完成 ===")
+
+
+######
+###### OK !!!! ######
+######
+
+
+
+
+#######
+####### #############
+#######
+
+
+####### UMAPs #######
+####### Human Mouse and Zebrafish ###
+
+######## Human: 按 celltype 上色重画 UMAP（黑框、正方形、高分辨率，配色见参考图） ########
+conda activate scvi-env
+python
+
+import os
+import scanpy as sc
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+out_dir = os.path.join(h5ad_dir, "umap_human_clean5")
+os.makedirs(out_dir, exist_ok=True)
+
+#### celltype 配色（对照参考图） ####
+celltype_palette = {
+    "MG":        "#E4322B",   # 红
+    "AC":        "#F4C217",   # 黄/金
+    "Cone":      "#8DA83F",   # 橄榄绿
+    "RGC":       "#A6A6A6",   # 灰
+    "HC":        "#F2953B",   # 橙
+    "Rod":       "#2C6FB5",   # 蓝
+    "BC":        "#7B4A38",   # 棕
+    "RPE":       "#B49BD8",   # 浅紫
+    "Microglia": "#3BB6AE",   # 青
+}
+
+#### 读入整合后的 adata（含 harmony UMAP 坐标） ####
+adata = sc.read_h5ad(os.path.join(h5ad_dir, "Human_clean5_10pct_merged_umap.h5ad"))
+print(f"读入: {adata.shape[0]} 细胞 x {adata.shape[1]} 基因; celltype: {adata.obs['celltype'].unique().tolist()}")
+#### 固定 celltype 顺序，保证图例顺序稳定 ####
+order = [c for c in celltype_palette if c in set(adata.obs["celltype"])]
+adata.obs["celltype"] = adata.obs["celltype"].astype("category").cat.reorder_categories(order)
+
+#### 正方形画布 + 黑色边框 + 高分辨率 ####
+fig, ax = plt.subplots(figsize=(7, 7))
+sc.pl.umap(
+    adata, color="celltype", palette=celltype_palette,
+    ax=ax, show=False, frameon=True, size=6, legend_loc="right margin",
+    title="",
+)
+ax.set_box_aspect(1)              # 正方形绘图区
+ax.set_xticks([]); ax.set_yticks([])
+ax.set_xlabel(""); ax.set_ylabel("")
+for sp in ax.spines.values():     # 四周黑色边框
+    sp.set_visible(True)
+    sp.set_color("black")
+    sp.set_linewidth(1.8)
+
+out_png = os.path.join(out_dir, "UMAP_human_celltype.png")
+out_pdf = os.path.join(out_dir, "UMAP_human_celltype.pdf")
+fig.savefig(out_png, dpi=600, bbox_inches="tight")
+fig.savefig(out_pdf, bbox_inches="tight")
+plt.close(fig)
+print(f"已保存: {out_png}\n         {out_pdf}")
+
+
+######## Mouse & Zebrafish: 同风格 celltype UMAP（配色沿用 human，缺的 celltype 用备用色补齐） ########
+conda activate saturn_env
+python
+
+import os
+import itertools
+import scanpy as sc
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+#### 与 human 一致的 celltype 配色 ####
+celltype_palette = {
+    "MG":        "#E4322B",   # 红
+    "AC":        "#F4C217",   # 黄/金
+    "Cone":      "#8DA83F",   # 橄榄绿
+    "RGC":       "#A6A6A6",   # 灰
+    "HC":        "#F2953B",   # 橙
+    "Rod":       "#2C6FB5",   # 蓝
+    "BC":        "#7B4A38",   # 棕
+    "RPE":       "#B49BD8",   # 浅紫
+    "Microglia": "#3BB6AE",   # 青
+}
+#### 备用色：给不在上表里的 celltype 依次分配（避免报错） ####
+_fallback = ["#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E",
+             "#E6AB02", "#A6761D", "#666666", "#1F78B4", "#B2DF8A",
+             "#FB9A99", "#FDBF6F", "#CAB2D6", "#FFFF99"]
+
+def plot_celltype_umap(in_h5ad, out_png, out_pdf, celltype_col="celltype"):
+    adata = sc.read_h5ad(in_h5ad)
+    cats = adata.obs[celltype_col].astype("category").cat.categories.tolist()
+    print(f"{in_h5ad}\n  {adata.shape[0]} 细胞; celltype: {cats}")
+    #### 组装覆盖所有 celltype 的完整调色板 ####
+    fb = itertools.cycle(_fallback)
+    pal = {}
+    for c in cats:
+        pal[c] = celltype_palette.get(c, next(fb))
+    #### human 配色里出现过的 celltype 排前面，其余按原顺序 ####
+    known = [c for c in celltype_palette if c in cats]
+    others = [c for c in cats if c not in celltype_palette]
+    order = known + others
+    adata.obs[celltype_col] = adata.obs[celltype_col].astype("category").cat.reorder_categories(order)
+    fig, ax = plt.subplots(figsize=(7, 7))
+    sc.pl.umap(adata, color=celltype_col, palette=pal, ax=ax, show=False,
+               frameon=True, size=6, legend_loc="right margin", title="")
+    ax.set_box_aspect(1)
+    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xlabel(""); ax.set_ylabel("")
+    for sp in ax.spines.values():
+        sp.set_visible(True); sp.set_color("black"); sp.set_linewidth(1.8)
+    fig.savefig(out_png, dpi=600, bbox_inches="tight")
+    fig.savefig(out_pdf, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  已保存: {out_png}\n           {out_pdf}")
+
+#### Mouse ####
+mouse_dir = "/projects/hmz-aging/Mouse_New_Datasets"
+mouse_out = os.path.join(mouse_dir, "umap_mouse_clcl_2026")
+os.makedirs(mouse_out, exist_ok=True)
+plot_celltype_umap(
+    os.path.join(mouse_dir, "Mouse_clcl_2026_umap.h5ad"),
+    os.path.join(mouse_out, "UMAP_mouse_celltype.png"),
+    os.path.join(mouse_out, "UMAP_mouse_celltype.pdf"),
+)
+
+#### Zebrafish ####
+fish_dir = "/projects/hmz-aging/Zebrafish_New_Datasets"
+fish_out = os.path.join(fish_dir, "umap_zebrafish_clcl_2026")
+os.makedirs(fish_out, exist_ok=True)
+plot_celltype_umap(
+    os.path.join(fish_dir, "Zebrafish_clcl_2026_umap.h5ad"),
+    os.path.join(fish_out, "UMAP_zebrafish_celltype.png"),
+    os.path.join(fish_out, "UMAP_zebrafish_celltype.pdf"),
+)
+print("=== Mouse & Zebrafish celltype UMAP 完成 ===")
+
+
+
+
+
+
+####### bar plot for total cells #######
+#######
+
+######## 每个时间点的堆叠柱状图：cell numbers by celltype（配色同 UMAP，alpha=0.5，x 轴字大） ########
+######## Human 按图2 age interval 分箱（范围标签）；Mouse/Zebrafish 按 sample 解析时间点 ########
+conda activate scprint
+python
+
+import os
+import itertools
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+#### celltype 配色（与 UMAP 一致）+ 堆叠顺序（底->顶）####
+celltype_palette = {
+    "MG":        "#E4322B",
+    "AC":        "#F4C217",
+    "Cone":      "#8DA83F",
+    "RGC":       "#A6A6A6",
+    "HC":        "#F2953B",
+    "Rod":       "#2C6FB5",
+    "BC":        "#7B4A38",
+    "RPE":       "#B49BD8",
+    "Microglia": "#3BB6AE",
+}
+STACK_ORDER = ["Rod", "BC", "AC", "Cone", "HC", "RGC", "MG", "Microglia", "RPE"]
+_fallback = ["#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02", "#A6761D", "#666666"]
+
+def stacked_bar(counts, order_tp, out_png, out_pdf, xlabel="", figsize=(9, 4)):
+    #### counts: DataFrame，index=timepoint(str)，columns=celltype，值=细胞数 ####
+    present_ct = [c for c in STACK_ORDER if c in counts.columns] + \
+                 [c for c in counts.columns if c not in STACK_ORDER]
+    fb = itertools.cycle(_fallback)
+    pal = {c: celltype_palette.get(c, next(fb)) for c in present_ct}
+    counts = counts.reindex(index=order_tp, columns=present_ct).fillna(0)
+    x = np.arange(len(order_tp))
+    fig, ax = plt.subplots(figsize=figsize)
+    bottom = np.zeros(len(order_tp))
+    for ct in present_ct:
+        vals = counts[ct].values.astype(float)
+        ax.bar(x, vals, bottom=bottom, width=0.8, color=pal[ct], alpha=0.5, label=ct, edgecolor="none")
+        bottom += vals
+    ax.set_xticks(x)
+    ax.set_xticklabels(order_tp, fontsize=20)          # x 轴字大
+    ax.tick_params(axis="y", labelsize=18)             # y 轴字大
+    ax.set_xlabel(xlabel, fontsize=14)
+    ax.set_xlim(-0.6, len(order_tp) - 0.4)
+    ax.margins(y=0)
+    #### y 轴科学计数法，并把指数标记(如 ×10⁴)直接并入 y 轴标题 ####
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+    fig.canvas.draw()                                  # 触发计算 offset 文本
+    _off = ax.yaxis.get_offset_text().get_text()       # 形如 '1e4'
+    ax.yaxis.get_offset_text().set_visible(False)      # 隐藏右上角的指数
+    _ylab = "cell numbers"
+    if _off:
+        try:
+            _exp = int(_off.split("e")[1])
+            _sup = str(_exp).translate(str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻"))
+            _ylab = f"cell numbers (×10{_sup})"
+        except Exception:
+            _ylab = f"cell numbers ({_off})"
+    ax.set_ylabel(_ylab, fontsize=20)
+    for sp in ax.spines.values():
+        sp.set_visible(True); sp.set_color("black"); sp.set_linewidth(1.2)
+    ax.legend(bbox_to_anchor=(1.01, 1), loc="upper left", frameon=False, fontsize=11)
+    fig.savefig(out_png, dpi=600, bbox_inches="tight")
+    fig.savefig(out_pdf, bbox_inches="tight")
+    plt.close(fig)
+    print(f"已保存: {out_png}")
+
+#### ---------------- Human：按 clean5 统计，age 按图2 interval 分箱（范围标签） ---------------- ####
+human_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+human_out = os.path.join(human_dir, "barplot_cellnumbers")
+os.makedirs(human_out, exist_ok=True)
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+age_breaks = [0, 20, 30, 45, 55, 65, 75, 85, 95]
+age_labels = ["0-20", "20-30", "30-45", "45-55", "55-65", "65-75", "75-85", "85-95"]
+rows = []
+
+for ct in celltypes_all:
+    f = os.path.join(human_dir, f"{ct}_clean5.h5ad")
+    if not os.path.exists(f):
+        print(f"  Human {ct}: clean5 不存在，跳过")
+        continue
+    a = sc.read_h5ad(f, backed='r')
+    age_num = a.obs["age"].astype(str).str.extract(r"(\d+\.?\d*)")[0].astype(float)
+    a.file.close()
+    binned = pd.cut(age_num, bins=age_breaks, right=False, include_lowest=True, labels=age_labels)
+    vc = binned.value_counts()
+    for lab in age_labels:
+        rows.append({"tp": lab, "celltype": ct, "n": int(vc.get(lab, 0))})
+
+        
+hdf = pd.DataFrame(rows)
+hcounts = hdf.pivot_table(index="tp", columns="celltype", values="n", aggfunc="sum", fill_value=0)
+stacked_bar(hcounts, age_labels,
+            os.path.join(human_out, "barplot_human_cellnumbers.png"),
+            os.path.join(human_out, "barplot_human_cellnumbers.pdf"),
+            xlabel="age interval (years)")
+
+#### ---------------- Mouse：sample 格式 Wk<age>_Rep<n> -> 周龄 ---------------- ####
+mouse_dir = "/projects/hmz-aging/Mouse_New_Datasets"
+mouse_out = os.path.join(mouse_dir, "barplot_cellnumbers")
+os.makedirs(mouse_out, exist_ok=True)
+am = sc.read_h5ad(os.path.join(mouse_dir, "Mouse_seurat_clcl_2026.h5ad"), backed='r')
+mobs = am.obs.copy()
+am.file.close()
+
+mweeks = (mobs["sample"].astype(str)
+          .str.replace(r"^Wk", "", regex=True)
+          .str.replace(r"_Rep.*$", "", regex=True))
+
+mobs["tp_num"] = pd.to_numeric(mweeks, errors="coerce")
+mobs["tp_num"] = mobs["tp_num"].replace(106, 108)   # 单独把 106 周改成 108 周
+
+mobs = mobs.dropna(subset=["tp_num"])
+mcounts = pd.crosstab(mobs["tp_num"], mobs["celltype"].astype(str))
+
+m_order_num = sorted(mcounts.index.tolist())
+
+m_labels = [str(int(v)) if float(v).is_integer() else str(v) for v in m_order_num]
+
+mcounts.index = [str(int(v)) if float(v).is_integer() else str(v) for v in mcounts.index]
+
+stacked_bar(mcounts, m_labels,
+            os.path.join(mouse_out, "barplot_mouse_cellnumbers.png"),
+            os.path.join(mouse_out, "barplot_mouse_cellnumbers.pdf"),
+            xlabel="age (weeks)")
+
+#### ---------------- Zebrafish：sample 格式 <age>_Rep<n> -> age ---------------- ####
+fish_dir = "/projects/hmz-aging/Zebrafish_New_Datasets"
+fish_out = os.path.join(fish_dir, "barplot_cellnumbers")
+os.makedirs(fish_out, exist_ok=True)
+az = sc.read_h5ad(os.path.join(fish_dir, "Zebrafish_seurat_clcl_2026.h5ad"), backed='r')
+zobs = az.obs.copy()
+az.file.close()
+zage = zobs["sample"].astype(str).str.replace(r"_Rep.*$", "", regex=True)
+zobs["tp_num"] = pd.to_numeric(zage, errors="coerce")
+zobs = zobs.dropna(subset=["tp_num"])
+zcounts = pd.crosstab(zobs["tp_num"], zobs["celltype"].astype(str))
+z_order_num = sorted(zcounts.index.tolist())
+z_labels = [str(int(v)) if float(v).is_integer() else str(v) for v in z_order_num]
+zcounts.index = [str(int(v)) if float(v).is_integer() else str(v) for v in zcounts.index]
+
+stacked_bar(zcounts, z_labels,
+            os.path.join(fish_out, "barplot_zebrafish_cellnumbers.png"),
+            os.path.join(fish_out, "barplot_zebrafish_cellnumbers.pdf"),
+            xlabel="age (months)")
+print("=== 三个物种 cell numbers 堆叠柱状图完成 ===")
+
+
+
+
+
+
+#####
+#########---------#################### 
+#####
+
+#######
+####### Next we will Check Subtypes files ######
+#######
+
+####### for Human #######
+h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+Human_BC_obs.tsv
+Human_AC_obs.tsv
+
+#######
+####### subcelltypes ######## UMAPs #######
+####### ############ ########
+#######
+
+
+
+
+####### for Fish Huamn and Mouse #######
+#######
+
+
+
+
+
+
+
+
+
+
+####### for Mouse #######
+
+
+
+
+
+
+
+
+####### for Zebrafish #####
+
+
+
+
+
+
+
+
+
+
+
+####### transfer celltypes #######
+#######
+
+
+
+
+
+
+
+####### integrate ######
+#######
+
+
+
+
+#######
+####### Figure1E  #############
+#######
+##### 各物种做 celltype pseudobulk：每个物种、每个 celltype，把该类细胞的 raw counts 求和/求均 → 一条 pseudobulk（human 用 9 个 *_clean5.h5ad；mouse/zebrafish 用各自 h5ad 或 rds，按 celltype 聚合）。含 RPE。
+
+######## Python: 三物种 celltype pseudobulk（raw counts 求和）-> 各存一个 TSV，供 R 读取做 ortholog+环形树 ########
+conda activate scprint
+python
+
+import os
+import numpy as np
+import pandas as pd
+import scanpy as sc
+from scipy import sparse
+
+out_dir = "/projects/hmz-aging/Figure1E_pseudobulk"
+os.makedirs(out_dir, exist_ok=True)
+
+def pseudobulk_sum(adata, celltype_col="celltype"):
+    #### 返回 DataFrame: gene(index) x celltype，值=该 celltype 所有细胞 raw counts 之和 ####
+    X = adata.X.tocsr() if sparse.issparse(adata.X) else sparse.csr_matrix(adata.X)
+    cats = adata.obs[celltype_col].astype(str)
+    out = {}
+    for ct in sorted(cats.unique()):
+        idx = np.where((cats == ct).values)[0]
+        if idx.size == 0:
+            continue
+        out[ct] = np.asarray(X[idx].sum(axis=0)).ravel()
+        print(f"    {ct}: {idx.size} 细胞")
+    df = pd.DataFrame(out, index=adata.var_names)
+    df.index.name = "gene"
+    return df
+
+#### ---------------- Human：9 个 clean5，每个文件本身就是一个 celltype ---------------- ####
+human_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
+celltypes_all = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
+hb = {}
+for ct in celltypes_all:
+    f = os.path.join(human_dir, f"{ct}_clean5.h5ad")
+    if not os.path.exists(f):
+        print(f"  Human {ct}: clean5 缺失, 跳过")
+        continue
+    a = sc.read_h5ad(f)
+    X = a.X.tocsr() if sparse.issparse(a.X) else sparse.csr_matrix(a.X)
+    hb[ct] = pd.Series(np.asarray(X.sum(axis=0)).ravel(), index=a.var_names)
+    print(f"  Human {ct}: {a.shape[0]} 细胞 x {a.shape[1]} 基因")
+    del a
+
+hdf = pd.DataFrame(hb)
+hdf.index.name = "gene"
+hdf.to_csv(os.path.join(out_dir, "Human_pseudobulk_celltype.tsv"), sep="\t")
+print(f"  saved Human: {hdf.shape} -> Human_pseudobulk_celltype.tsv")
+
+#### ---------------- Mouse ---------------- ####
+am = sc.read_h5ad("/projects/hmz-aging/Mouse_New_Datasets/Mouse_seurat_clcl_2026.h5ad")
+print(f"  Mouse: {am.shape}")
+mdf = pseudobulk_sum(am, "celltype")
+mdf.to_csv(os.path.join(out_dir, "Mouse_pseudobulk_celltype.tsv"), sep="\t")
+print(f"  saved Mouse: {mdf.shape} -> Mouse_pseudobulk_celltype.tsv")
+del am
+
+#### ---------------- Zebrafish ---------------- ####
+az = sc.read_h5ad("/projects/hmz-aging/Zebrafish_New_Datasets/Zebrafish_seurat_clcl_2026.h5ad")
+print(f"  Zebrafish: {az.shape}")
+zdf = pseudobulk_sum(az, "celltype")
+zdf.to_csv(os.path.join(out_dir, "Zebrafish_pseudobulk_celltype.tsv"), sep="\t")
+print(f"  saved Zebrafish: {zdf.shape} -> Zebrafish_pseudobulk_celltype.tsv")
+del az
+print("=== 三物种 pseudobulk TSV 已保存（R 用 read.table(header=T, row.names=1, sep='\\t') 读取）===")
+
+
+#######
+####### 在 R 中读入之前的 3个物种的对应的 gene covert 的 文件 ####
+#######
+
+######## R: 读入 3 物种 pseudobulk TSV -> 用 HMZ_ortholog 把 mouse/zebrafish 基因转成 human -> 合并 ########
+conda activate seurat_env
+R
+
+pb_dir <- "/projects/hmz-aging/Figure1E_pseudobulk"
+h <- read.table(file.path(pb_dir, "Human_pseudobulk_celltype.tsv"),     header = TRUE, row.names = 1, sep = "\t", check.names = FALSE)
+m <- read.table(file.path(pb_dir, "Mouse_pseudobulk_celltype.tsv"),     header = TRUE, row.names = 1, sep = "\t", check.names = FALSE)
+z <- read.table(file.path(pb_dir, "Zebrafish_pseudobulk_celltype.tsv"), header = TRUE, row.names = 1, sep = "\t", check.names = FALSE)
+cat("Human:", dim(h), " Mouse:", dim(m), " Zebrafish:", dim(z), "\n")
+
+#### ortholog 表（list: HM, HZ, MZ, HMZ）####
+load("/projects/hmz-aging/Zebrafish_New_Datasets/HMZ_ortholog_combined")   # -> HMZ_ortholog_combined
+HM <- unique(HMZ_ortholog_combined$HM[, c("human", "mouse")])
+HZ <- unique(HMZ_ortholog_combined$HZ[, c("human", "zebrafish")])
+HM <- HM[HM$human != "" & HM$mouse != "", ]
+HZ <- HZ[HZ$human != "" & HZ$zebrafish != "", ]
+
+#### 把某物种 pseudobulk (gene x celltype) 转到 human 基因空间 ####
+#### 一对多：同一物种基因复制到每个 human 基因；多对一：同一 human 基因相加（与 DEG rank 惯例一致）####
+
+convert_to_human <- function(mat, map, sp_col) {
+  map <- map[map[[sp_col]] %in% rownames(mat), ]
+  expr <- as.matrix(mat[map[[sp_col]], , drop = FALSE])   # 按 map 复制物种基因行
+  agg  <- rowsum(expr, group = map$human)                 # 同一 human 多行相加
+  agg
+}
+
+m_h <- convert_to_human(m, HM, "mouse")
+z_h <- convert_to_human(z, HZ, "zebrafish")
+h_h <- as.matrix(h)                                       # human 本身即 human 基因
+cat("转 human 后: Mouse", dim(m_h), " Zebrafish", dim(z_h), "\n")
+
+#### 三物种共有 human 基因 ####
+common <- Reduce(intersect, list(rownames(h_h), rownames(m_h), rownames(z_h)))
+cat("三物种共有 human 基因:", length(common), "\n")
+h_h <- h_h[common, , drop = FALSE]
+m_h <- m_h[common, , drop = FALSE]
+z_h <- z_h[common, , drop = FALSE]
+
+#### 列名加物种前缀（H_/M_/Z_）后合并 ####
+colnames(h_h) <- paste0("H_", colnames(h_h))
+colnames(m_h) <- paste0("M_", colnames(m_h))
+colnames(z_h) <- paste0("Z_", colnames(z_h))
+combined <- cbind(h_h, m_h, z_h)
+cat("合并矩阵 (gene x [celltype*species]):", dim(combined), "\n")
+print(colnames(combined))
+
+#### 保存合并矩阵，供后续聚类+环形树 ####
+saveRDS(combined, file.path(pb_dir, "HMZ_celltype_pseudobulk_humanGene.rds"))
+write.table(combined, file.path(pb_dir, "HMZ_celltype_pseudobulk_humanGene.tsv"),
+            sep = "\t", quote = FALSE, col.names = NA)
+cat("已保存: HMZ_celltype_pseudobulk_humanGene.rds / .tsv\n")
+
+
+
+####### R: logCPM 归一化 -> 1-Pearson 距离 -> 层次聚类(average) -> ggtree 环形树 ####
+#######
+## 若上面 combined 还在内存里可跳过下一行；否则重新读入
+combined <- readRDS(file.path(pb_dir, "HMZ_celltype_pseudobulk_humanGene.rds"))
+
+#### 1) logCPM 归一化（列=样本 celltype*species）####
+libsize <- colSums(combined)
+cpm     <- sweep(combined, 2, libsize, "/") * 1e6
+logcpm  <- log2(cpm + 1)
+
+#### 2) cell type specific genes：每个物种内、每个 celltype 取 top 25 特异基因 ####
+sp_of_col  <- sub("_.*$", "", colnames(logcpm))  # 每列所属物种: H / M / Z
+n_ct_genes <- 10                                # 每个 celltype 取的特异基因数
+
+marker_list <- list()
+for (s in unique(sp_of_col)) {
+  sub <- logcpm[, sp_of_col == s, drop = FALSE]  # 该物种 gene x celltype
+  mu  <- rowMeans(sub)
+  sdv <- apply(sub, 1, sd); sdv[sdv == 0 | is.na(sdv)] <- NA
+  zsc <- (sub - mu) / sdv                        # 每个 celltype 相对该物种其他 celltype 的特异性
+  for (j in seq_len(ncol(sub))) {
+    v   <- zsc[, j]; v <- v[!is.na(v)]
+    top <- names(sort(v, decreasing = TRUE))[seq_len(min(n_ct_genes, length(v)))]
+    marker_list[[colnames(sub)[j]]] <- top
+  }
+}
+for (nm in names(marker_list)) cat(nm, ":", length(marker_list[[nm]]), "\n")
+
+hvg_sel <- unique(unlist(marker_list))           # 所有物种所有 celltype 特异基因并集
+logcpm  <- logcpm[hvg_sel, , drop = FALSE]
+cat("cell type specific 基因并集:", nrow(logcpm), "\n")
+
+#### 2-1) 每个物种内，对每个基因做 z-score（跨该物种 celltype 列）####
+## 放在 HVG 之后：z-score 后物种内每个基因方差都=1，会破坏基于方差的 HVG 选择
+## 作用：消除物种间基因表达量级差异，让三物种可比
+zmat <- logcpm
+for (s in unique(sp_of_col)) {
+  idx <- which(sp_of_col == s)
+  sub <- logcpm[, idx, drop = FALSE]
+  mu  <- rowMeans(sub)
+  sdv <- apply(sub, 1, sd)
+  sdv[sdv == 0 | is.na(sdv)] <- 1        # 该物种内无变化的基因 -> z=0
+  zmat[, idx] <- (sub - mu) / sdv
+}
+cat("已按物种做基因 z-score, 维度:", dim(zmat), "\n")
+
+#### 3) 1 - Pearson 相关作为距离（基于 z-score 矩阵）####
+pcor <- cor(zmat, method = "pearson")
+d    <- as.dist(1 - pcor)
+
+#### 4) 层次聚类 ####
+hc <- hclust(d, method = "average")
+
+#### 5) ggtree 环形树（黑色树枝 + tip 彩点 + 外圈 celltype/物种色环）####
+# install.packages("BiocManager"); BiocManager::install(c("ggtree","ggtreeExtra","treeio"))
+library(ggtree)
+library(ggtreeExtra)
+library(ggplot2)
+library(ape)
+
+phylo <- as.phylo(hc)
+
+## 每个 tip 的物种 & celltype 注释（tip 名形如 H_RPE / M_MG / Z_RGC ...）
+tip      <- phylo$tip.label
+species  <- c(H = "Human", M = "Mouse", Z = "Zebrafish")[sub("_.*$", "", tip)]
+celltype <- sub("^[HMZ]_", "", tip)
+meta <- data.frame(label = tip, species = species, celltype = celltype)
+
+## celltype 配色（与 UMAP 完全一致）
+ct_palette <- c(
+  MG        = "#E4322B",   # 红
+  AC        = "#F4C217",   # 黄/金
+  Cone      = "#8DA83F",   # 橄榄绿
+  RGC       = "#A6A6A6",   # 灰
+  HC        = "#F2953B",   # 橙
+  Rod       = "#2C6FB5",   # 蓝
+  BC        = "#7B4A38",   # 棕
+  RPE       = "#B49BD8",   # 浅紫
+  Microglia = "#3BB6AE"    # 青
+)
+## 物种配色（外圈色带，按图：H 蓝 / M 红 / Z 橄榄绿）
+sp_palette <- c(Human = "#2C6FB5", Mouse = "#D2695E", Zebrafish = "#8DA83F")
+## 基础树：黑色树枝（更粗）
+p <- ggtree(phylo, layout = "circular", branch.length = "none",
+            size = 2.0, color = "black") %<+% meta
+
+## 外圈 1：celltype 环（灰色，紧贴末端，更宽，无黑框）
+p <- p +
+  geom_fruit(geom = geom_tile, mapping = aes(fill = celltype),
+             fill = "grey75", width = 0.55, offset = 0, color = NA)
+
+## 外圈 2：物种色环（更宽，无黑框）
+p <- p +
+  ggnewscale::new_scale_fill() +
+  geom_fruit(geom = geom_tile, mapping = aes(fill = species),
+             width = 0.55, offset = 0.06, color = NA) +
+  scale_fill_manual(values = sp_palette)
+
+## celltype 标签放到最外圈外面（彩色，字大，无 legend）
+p <- p +
+  geom_tiplab(aes(label = celltype, color = celltype),
+              offset = 0.6, size = 7, align = TRUE, fontface = "bold",
+              linetype = NA, show.legend = FALSE) +
+  scale_color_manual(values = ct_palette, na.value = "grey50") +
+  theme(legend.position = "none",
+        plot.margin = margin(40, 40, 40, 40))
+
+## 关键：用 ggtree 自带的 xlim 扩展半径，给外圈标签留空间（不会破坏环形布局）
+p <- p + ggtree::hexpand(0.30)
+
+ggsave(file.path(pb_dir, "HMZ_celltype_circular_tree.pdf"), p, width = 10, height = 10)
+ggsave(file.path(pb_dir, "HMZ_celltype_circular_tree.png"), p, width = 10, height = 10, dpi = 300)
+cat("已保存环形树: HMZ_celltype_circular_tree.pdf / .png\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
