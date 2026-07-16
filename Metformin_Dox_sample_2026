@@ -1,0 +1,390 @@
+#########
+######### Metformin Dox Sample ##########
+#########
+
+## 读一下 Metformin_treatment ####
+## 
+## 我要这些 sample：
+
+## "D8"  = "Control-CD1-Female",
+## "D9"  = "Control-B6-Male",
+## "D10" = "Control-B6-Female",
+## "D11" = "TamDox-CD1-Female",
+## "D12" = "TamDox-B6-Female"
+
+#####
+##### 读入已注释对象（来自 Metformin_treatment 的 20260416_combined 数据集），提取这 5 个 sample #####
+#####
+
+conda activate seurat_env
+R
+
+setwd("/projects/hmz-aging/Metformin/20260416_combined/")
+library(Seurat)
+library(ggplot2)
+
+seu <- readRDS("seu_metformin_annotated.rds")
+cat("All samples in object:\n"); print(table(seu$sample_info))
+
+# 目标 5 个 sample（TamDox 实验：TamDox vs 对应 Control）
+dox_samples <- c(
+  "Control-CD1-Female",
+  "Control-B6-Male",
+  "Control-B6-Female",
+  "TamDox-CD1-Female",
+  "TamDox-B6-Female"
+)
+
+seu_dox <- subset(seu, cells = colnames(seu)[seu$sample_info %in% dox_samples])
+cat("\nSelected Dox samples:\n"); print(table(seu_dox$sample_info))
+
+# 整理 metadata：treatment / strain / sex
+seu_dox$treatment <- ifelse(grepl("TamDox", seu_dox$sample_info), "TamDox", "Control")
+seu_dox$strain    <- ifelse(grepl("CD1", seu_dox$sample_info), "CD1", "B6")
+seu_dox$sex       <- ifelse(grepl("Female", seu_dox$sample_info), "Female", "Male")
+seu_dox$treatment <- factor(seu_dox$treatment, levels = c("Control", "TamDox"))
+
+cat("\ntreatment x sample:\n"); print(table(seu_dox$sample_info, seu_dox$treatment))
+cat("\ncelltype counts:\n");    print(table(seu_dox$celltype))
+cat("\ncelltype x sample:\n");  print(table(seu_dox$celltype, seu_dox$sample_info))
+
+#####
+##### 只用这 5 个 sample 重新算 UMAP（Normalize -> HVG -> Scale -> PCA -> UMAP） #####
+#####
+
+DefaultAssay(seu_dox) <- "RNA"
+if ("layers" %in% slotNames(seu_dox[["RNA"]])) seu_dox[["RNA"]] <- JoinLayers(seu_dox[["RNA"]])
+
+seu_dox <- NormalizeData(seu_dox, verbose = FALSE)
+seu_dox <- FindVariableFeatures(seu_dox, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+seu_dox <- ScaleData(seu_dox, verbose = FALSE)
+seu_dox <- RunPCA(seu_dox, npcs = 30, verbose = FALSE)
+seu_dox <- RunUMAP(seu_dox, dims = 1:20, verbose = FALSE)
+
+saveRDS(seu_dox, "seu_metformin_dox_5samples.rds")
+message("Saved: seu_metformin_dox_5samples.rds (", ncol(seu_dox), " cells)")
+
+
+#####
+##### UMAP（重新算的坐标），ggplot2 按 sample 分面，color by celltype #####
+#####
+
+umap_emb <- Embeddings(seu_dox, reduction = "umap")
+umap_df <- data.frame(
+  UMAP_1 = umap_emb[, 1],
+  UMAP_2 = umap_emb[, 2],
+  celltype = seu_dox$celltype,
+  sample_info = factor(seu_dox$sample_info, levels = dox_samples)
+)
+
+# NPG(nature) 配色，按 celltype 数量取色
+celltypes <- sort(unique(as.character(umap_df$celltype)))
+npg_cols <- c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F",
+              "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85")
+ct_cols <- setNames(rep(npg_cols, length.out = length(celltypes)), celltypes)
+
+p_umap <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2, color = celltype)) +
+  geom_point(size = 0.4, alpha = 0.8) +
+  scale_color_manual(values = ct_cols) +
+  facet_wrap(~ sample_info, ncol = 3) +
+  labs(x = "UMAP 1", y = "UMAP 2", color = "Cell type",
+       title = "Dox samples UMAP (color by cell type)") +
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    strip.text = element_text(size = 11, face = "bold"),
+    axis.title = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 9, color = "black"),
+    legend.position = "right"
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
+
+ggsave("Dox_samples_umap_celltype_facet.png", p_umap, width = 13, height = 9, dpi = 300)
+message("Saved: Dox_samples_umap_celltype_facet.png")
+
+
+######
+######
+######
+
+table(seu_dox$sample_info)
+
+ Control-B6-Female    Control-B6-Male Control-CD1-Female   TamDox-B6-Female 
+               510                679                702                533 
+ TamDox-CD1-Female 
+               766 
+
+######
+###### 下面 use aging clocks to see the control and Dox aging score ######
+######
+
+###### 重新读入保存过的 seu_dox ####
+###### 然后读取 mouse final 的 aging clocks ########
+###### 直接预测 每个 cell type 的 ages ######
+######
+
+library(Seurat)
+library(Matrix)
+library(glmnet)   # 必须加载，否则 predict 找不到 predict.glmnet 方法
+
+setwd("/projects/hmz-aging/Metformin/20260416_combined/")
+seu_dox <- readRDS("seu_metformin_dox_5samples.rds")
+DefaultAssay(seu_dox) <- "RNA"
+if ("layers" %in% slotNames(seu_dox[["RNA"]])) seu_dox[["RNA"]] <- JoinLayers(seu_dox[["RNA"]])
+
+cat("seu_dox celltype 取值:\n"); print(table(as.character(seu_dox$celltype)))
+
+######### mouse final 模型路径 & ambient 基因（预测需与训练同款归一化）#########
+clock_dir <- "/projects/hmz-aging/Mouse_New_Datasets"
+
+# 训练时在“去掉 ambient 基因后”才算 depth，所以预测要载入同一份 ambient 基因
+M_ambient_genes <- readRDS(file.path(clock_dir, "Mouse_ambient_RNA_Jul22"))
+M_ambient_genes <- M_ambient_genes[order(M_ambient_genes$Avg, decreasing = TRUE), ]
+M_ambient_genes_Top50 <- M_ambient_genes$Gene[which(M_ambient_genes$Avg > 0.0025)]
+M_ambient_genes_Top50 <- sapply(strsplit(M_ambient_genes_Top50, split = "~~"), function(x) x[[2]])
+
+######### celltype 映射：seu_dox 的 celltype 名 -> mouse clock 的 celltype 名 #########
+# 若 seu_dox 的 celltype 命名和 clock 一致，用 identity 即可；否则在这里改映射
+clock_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # major，无 RPE/Microglia
+# 例如: celltype_map <- c("Bipolar"="BC", "Amacrine"="AC", ...)
+celltype_map <- setNames(clock_celltypes, clock_celltypes)   # 默认原样对应
+
+
+######################################################################
+######## KNN smoothing 辅助函数（与 mouse 训练预处理完全一致）########
+######################################################################
+library(FNN)
+
+NormalizeAndPCA <- function(seu, norm.method = "LogNormalize", scale.factor = 1e4,
+                            nfeatures = 2000, npcs = 30) {
+    seu <- NormalizeData(seu, normalization.method = norm.method, scale.factor = scale.factor, verbose = FALSE)
+    seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = nfeatures, verbose = FALSE)
+    seu <- ScaleData(seu, features = rownames(seu), verbose = FALSE)
+    n_cells <- ncol(seu); n_genes <- nrow(seu)
+    max_npcs <- min(n_genes, n_cells) - 1
+    if (npcs > max_npcs) npcs <- max(1, max_npcs)
+    if (npcs < 1) stop(sprintf("细胞数太少 (n_cells=%d)，无法进行 PCA", n_cells))
+    seu <- RunPCA(seu, features = VariableFeatures(seu), npcs = npcs, verbose = FALSE)
+    seu
+}
+
+PseudoBulkByKNN_fast <- function(seu, k = 15, dims = 1:30, assay = "RNA", reduction = "pca") {
+    emb <- Embeddings(seu, reduction)[, dims, drop = FALSE]
+    knn <- get.knn(emb, k = k)
+    nn_idx <- knn$nn.index
+    ncells <- nrow(nn_idx)
+    rows <- as.integer(c(t(nn_idx), seq_len(ncells)))
+    cols <- rep(seq_len(ncells), each = k + 1)
+    A <- sparseMatrix(i = rows, j = cols, x = 1, dims = c(ncells, ncells))
+    counts_mat <- GetAssayData(seu, assay = assay, layer = "counts")
+    pseudo_counts <- counts_mat %*% A
+    CreateSeuratObject(counts = pseudo_counts, meta.data = seu@meta.data, assay = assay)
+}
+
+# 每个 celltype 的 smoothing 参数（与训练一致）
+smooth_params <- function(ct) {
+    if (ct %in% c("Rod", "AC", "HC", "BC", "Cone", "RGC")) return(list(k = 15, npcs = 25))
+    if (ct == "MG") return(list(k = 5, npcs = 5))
+    list(k = 15, npcs = 25)   # 默认
+}
+
+# 对单个 celltype 的对象：按 sample 拆分 -> KNN smoothing -> merge（复刻训练动态调整逻辑）
+smooth_celltype_by_sample <- function(seu_ct, k, npcs, sample_col = "sample_info") {
+    DefaultAssay(seu_ct) <- "RNA"
+    if ("layers" %in% slotNames(seu_ct[["RNA"]])) seu_ct[["RNA"]] <- JoinLayers(seu_ct[["RNA"]])
+    tmp_sp <- SplitObject(seu_ct, split.by = sample_col)
+    nc <- sapply(tmp_sp, ncol)
+    tmp_sp <- tmp_sp[nc >= 2]                        # 去掉 <2 细胞的样本
+    if (length(tmp_sp) == 0) return(NULL)
+    min_ncells <- min(sapply(tmp_sp, ncol))
+    # 细胞太少（<5）：跳过 smooth，直接 merge
+    if (min_ncells < 5) {
+        message(sprintf("    最小样本细胞数 %d < 5，跳过 smooth 直接 merge", min_ncells))
+        if (length(tmp_sp) == 1) return(tmp_sp[[1]])
+        return(merge(tmp_sp[[1]], tmp_sp[-1], add.cell.ids = names(tmp_sp)))
+    }
+    if (npcs >= min_ncells) npcs <- max(1, min_ncells - 1)
+    if (k >= min_ncells)   k    <- max(1, min_ncells - 1)
+    message(sprintf("    smoothing: k=%d, npcs=%d (min cells/sample=%d)", k, npcs, min_ncells))
+    tmp_sp_res    <- sapply(tmp_sp, NormalizeAndPCA, npcs = npcs)
+    tmp_sp_pseudo <- sapply(tmp_sp_res, PseudoBulkByKNN_fast, k = k, dims = 1:npcs)
+    if (length(tmp_sp_pseudo) == 1) {
+        out <- tmp_sp_pseudo[[1]]
+    } else {
+        out <- merge(tmp_sp_pseudo[[1]], tmp_sp_pseudo[-1], add.cell.ids = names(tmp_sp_pseudo))
+    }
+    if ("layers" %in% slotNames(out[["RNA"]])) out[["RNA"]] <- JoinLayers(out[["RNA"]])
+    out
+}
+
+
+######################################################################
+######## 预测函数：与 Train_Final_AgingClock 训练流程完全一致（无校准）########
+######################################################################
+predict_final_clock <- function(final_model_obj, seu_ct, ambient_genes = NULL) {
+    counts <- GetAssayData(seu_ct, assay = "RNA", layer = "counts")
+    # 去 ambient（与训练一致，depth 在去 ambient 后计算）
+    if (!is.null(ambient_genes)) {
+        ag <- intersect(ambient_genes, rownames(counts))
+        if (length(ag) > 0) counts <- counts[!rownames(counts) %in% ag, , drop = FALSE]
+    }
+    # depth normalization 1e4 + log2(1+x)
+    depth <- Matrix::colSums(counts); depth[depth == 0] <- 1
+    counts_norm <- sweep(counts, 2, depth / 1e4, FUN = "/")
+    counts_log2 <- log2(1 + counts_norm)
+    # 按训练基因（genes_used）对齐，缺失基因补 0
+    genes <- final_model_obj$genes_used
+    present <- intersect(genes, rownames(counts_log2))
+    missing <- setdiff(genes, rownames(counts_log2))
+    mat <- counts_log2[present, , drop = FALSE]
+    if (length(missing) > 0) {
+        zero_mat <- Matrix::Matrix(0, nrow = length(missing), ncol = ncol(counts_log2), sparse = TRUE)
+        rownames(zero_mat) <- missing
+        mat <- rbind(mat, zero_mat)
+    }
+    mat <- mat[genes, , drop = FALSE]     # 严格按训练顺序
+    X <- t(as.matrix(mat))
+    # Z-score（用训练时保存的 means/sds）
+    if (isTRUE(final_model_obj$standardization$enabled)) {
+        X <- scale(X, center = final_model_obj$standardization$means,
+                   scale = final_model_obj$standardization$sds)
+    }
+    pred <- as.numeric(predict(final_model_obj$model, newx = X, s = final_model_obj$lambda))
+    names(pred) <- colnames(mat)
+    list(pred = pred, n_missing_genes = length(missing), n_genes = length(genes))
+}
+
+
+######################################################################
+######## 逐 cell type 预测每个细胞的年龄 ########
+######################################################################
+seu_celltypes <- unique(as.character(seu_dox$celltype))
+pred_list <- list()
+
+for (ct_clock in clock_celltypes) {
+    # 找到 seu_dox 中对应此 clock celltype 的名字
+    ct_data <- names(celltype_map)[celltype_map == ct_clock]
+    ct_data <- intersect(ct_data, seu_celltypes)
+    if (length(ct_data) == 0) { message(ct_clock, ": seu_dox 中无对应 celltype，跳过"); next }
+
+    model_file <- file.path(clock_dir, ct_clock, sprintf("%s_final_aging_clock_model_2026.rds", ct_clock))
+    if (!file.exists(model_file)) { message(ct_clock, ": final 模型不存在，跳过 -> ", model_file); next }
+
+    cells <- colnames(seu_dox)[as.character(seu_dox$celltype) %in% ct_data]
+    if (length(cells) == 0) next
+    seu_ct <- subset(seu_dox, cells = cells)
+
+    # === 关键：先按 sample 做 KNN smoothing（与训练同款），再预测 ===
+    sp <- smooth_params(ct_clock)
+    message(sprintf("\n%s: 原始 %d 细胞，开始 KNN smoothing ...", ct_clock, ncol(seu_ct)))
+    seu_ct_sm <- smooth_celltype_by_sample(seu_ct, k = sp$k, npcs = sp$npcs, sample_col = "sample_info")
+    if (is.null(seu_ct_sm)) { message(ct_clock, ": smoothing 后无有效细胞，跳过"); next }
+
+    final_model_obj <- readRDS(model_file)
+    res <- predict_final_clock(final_model_obj, seu_ct_sm, ambient_genes = M_ambient_genes_Top50)
+
+    df <- data.frame(
+        cell        = names(res$pred),
+        celltype    = ct_clock,
+        sample_info = as.character(seu_ct_sm$sample_info),
+        treatment   = as.character(seu_ct_sm$treatment),
+        strain      = as.character(seu_ct_sm$strain),
+        sex         = as.character(seu_ct_sm$sex),
+        predicted_age = res$pred,
+        stringsAsFactors = FALSE
+    )
+    pred_list[[ct_clock]] <- df
+    message(sprintf("%s: smoothed %d 个 pseudo-cell 预测完成 (缺失基因 %d/%d)", ct_clock, nrow(df), res$n_missing_genes, res$n_genes))
+}
+
+cell_pred <- do.call(rbind, pred_list)
+cat("\n预测完成，总细胞数:", nrow(cell_pred), "\n")
+
+######### 汇总：每个 (celltype, sample, treatment) 的平均预测年龄 #########
+sample_pred <- aggregate(predicted_age ~ celltype + sample_info + treatment + strain + sex,
+                         data = cell_pred, FUN = mean)
+sample_pred <- sample_pred[order(sample_pred$celltype, sample_pred$sample_info), ]
+cat("\n=== 每个 celltype x sample 的平均预测年龄 ===\n")
+print(sample_pred, row.names = FALSE)
+
+######### Control vs TamDox：每个 celltype 的平均预测年龄对比 #########
+ct_treat <- aggregate(predicted_age ~ celltype + treatment, data = cell_pred, FUN = mean)
+cat("\n=== 每个 celltype: Control vs TamDox 平均预测年龄 ===\n")
+print(ct_treat, row.names = FALSE)
+
+######### 保存 #########
+write.csv(cell_pred,   "Dox_aging_clock_cell_predictions_2026.csv",   row.names = FALSE)
+write.csv(sample_pred, "Dox_aging_clock_sample_predictions_2026.csv", row.names = FALSE)
+message("Saved: Dox_aging_clock_cell_predictions_2026.csv / Dox_aging_clock_sample_predictions_2026.csv")
+
+
+######## Plot BC and Rod 的 predicted ages #####
+######## Control-B6-Female TamDox-B6-Female  ########
+######## Control-CD1-Female TamDox-CD1-Female #####
+######## Control vs TamDox（B6/CD1 各比一次）加 Wilcoxon p 值 ########
+
+library(ggplot2)   # 不依赖 ggpubr：手动算 Wilcoxon p 值并标注
+
+# x 轴顺序（只这 4 个 Female 样本）
+x_levels <- c("Control-B6-Female", "TamDox-B6-Female",
+              "Control-CD1-Female", "TamDox-CD1-Female")
+# 配色：Control 蓝、TamDox 红
+box_cols <- c("Control-B6-Female"  = "#4DBBD5", "TamDox-B6-Female"  = "#E64B35",
+              "Control-CD1-Female" = "#4DBBD5", "TamDox-CD1-Female" = "#E64B35")
+
+fmt_p <- function(p) if (is.na(p)) "NA" else if (p < 2.2e-16) "p < 2.2e-16" else sprintf("p = %.2g", p)
+
+# 两张图共用同一 y 轴范围（BC + Rod 合并计算）
+plot_celltypes <- c("BC", "Rod")
+d_all <- cell_pred[cell_pred$celltype %in% plot_celltypes & cell_pred$sample_info %in% x_levels, ]
+yr <- range(d_all$predicted_age, na.rm = TRUE); span <- diff(yr); if (span == 0) span <- 1
+y_br  <- yr[2] + span * 0.06     # 括号高度（两图一致）
+y_tx  <- yr[2] + span * 0.10     # 文字高度
+y_top <- yr[2] + span * 0.20
+y_lim <- c(yr[1], y_top)         # 两图统一 ylim
+
+plot_ct_box <- function(ct) {
+    d <- cell_pred[cell_pred$celltype == ct & cell_pred$sample_info %in% x_levels, ]
+    d$sample_info <- factor(d$sample_info, levels = x_levels)
+
+    # Control vs TamDox（同 strain 内）Wilcoxon
+    p_b6  <- tryCatch(wilcox.test(predicted_age ~ sample_info,
+                     data = droplevels(d[d$sample_info %in% x_levels[1:2], ]))$p.value, error = function(e) NA)
+    p_cd1 <- tryCatch(wilcox.test(predicted_age ~ sample_info,
+                     data = droplevels(d[d$sample_info %in% x_levels[3:4], ]))$p.value, error = function(e) NA)
+
+    ggplot(d, aes(x = sample_info, y = predicted_age, fill = sample_info)) +
+        geom_boxplot(width = 0.6, outlier.size = 0.3, alpha = 0.85) +
+        scale_fill_manual(values = box_cols, guide = "none") +
+        # B6 比较（x 1-2）
+        annotate("segment", x = 1, xend = 2, y = y_br, yend = y_br) +
+        annotate("text", x = 1.5, y = y_tx, label = fmt_p(p_b6), size = 4) +
+        # CD1 比较（x 3-4）
+        annotate("segment", x = 3, xend = 4, y = y_br, yend = y_br) +
+        annotate("text", x = 3.5, y = y_tx, label = fmt_p(p_cd1), size = 4) +
+        coord_cartesian(ylim = y_lim) +           # 两图统一 y 轴范围
+        labs(title = ct, x = NULL, y = "Predicted age (weeks)") +
+        theme_classic(base_size = 13) +
+        theme(axis.text.x = element_text(angle = 30, hjust = 1, color = "black"),
+              axis.text.y = element_text(color = "black"),
+              plot.title  = element_text(hjust = 0.5, face = "bold", size = 15))
+}
+
+p_bc  <- plot_ct_box("BC")
+p_rod <- plot_ct_box("Rod")
+
+# 组合保存：gridExtra 优先，没有就分开存两张
+if (requireNamespace("gridExtra", quietly = TRUE)) {
+    g <- gridExtra::arrangeGrob(p_bc, p_rod, ncol = 2)
+    ggsave("Dox_aging_clock_BC_Rod_boxplot.png", g, width = 10, height = 5.5, dpi = 300)
+    message("Saved: Dox_aging_clock_BC_Rod_boxplot.png")
+} else {
+    ggsave("Dox_aging_clock_BC_boxplot.png",  p_bc,  width = 5, height = 5.5, dpi = 300)
+    ggsave("Dox_aging_clock_Rod_boxplot.png", p_rod, width = 5, height = 5.5, dpi = 300)
+    message("Saved: Dox_aging_clock_BC_boxplot.png / Dox_aging_clock_Rod_boxplot.png")
+}
+
+
+
+
+
