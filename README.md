@@ -7,7 +7,6 @@
 
 The data are available in GEO under accession numbers [GSE325479](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE325479) and [GSE307031](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307031).
 
-##############
 Mouse samples：
 
 | sample name | seurat name | Other |
@@ -33,7 +32,6 @@ Mouse samples：
 
 
 
-##############
 Zebrafish samples：
 
 | sample name | seurat name | Other |
@@ -47,8 +45,8 @@ Zebrafish samples：
 | 18mo_ReSeq_RNA | 18mo_rep1 | 85 |
 | IPZF29_18mo_biorep_multiome | 18mo_rep2 | 85 |
 | IPZF17_blind_A2_multiome | 22mo_rep1 | 85 |
-| IPZF16_28mo1_multiome_RNA | 22mo_rep2 | 85 |
-| IPZF31_28mo_biorep_multiome | 28mo | 85 |
+| IPZF16_28mo1_multiome_RNA | 28mo_rep1 | 85 |
+| IPZF31_28mo_biorep_multiome | 28mo_rep2 | 85 |
 | zf_30mo_Re_RNA | 30mo | 85 |
 | zf_36mo_Re_RNA | 36mo | 85 |
 | IPZF4yr1_multiome_RNA | 48mo_rep1 | 85 |
