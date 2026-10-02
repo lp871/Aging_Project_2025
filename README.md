@@ -24,7 +24,7 @@ Mouse samples：
 | IP68wk1_multiome_RNA | Wk68_rep1 | 85 |
 | IP68wk2_multiome_RNA | Wk68_rep2 | 85 |
 | IP91wk2_multiome_RNA | Wk91_rep1 | 85 |
-| IP91wk3_multiome | Wk91_rep2 | 85 |
+| IP91wk3_multiome_RNA | Wk91_rep2 | 85 |
 | IP106wk1_multiome_RNA | Wk106 | 85 |
 | IP108wk_multiome_RNA | Wk108 | 85 |
 | IP120wk1_multiome_RNA | Wk120_rep1 | 85 |
