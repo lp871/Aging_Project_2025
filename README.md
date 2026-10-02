@@ -1,14 +1,11 @@
 # Comparative single-cell multiomic analysis reveals evolutionarily conserved and species-specific cellular mechanisms mediating natural retinal aging.
 
-- [Human Raw counts rds file](https://drive.google.com/drive/folders/1TgicBR7ZCWLxKoAv7lq_BVqWSk3dheW3?usp=drive_link)
+- [Human Raw counts h5ad file](https://drive.google.com/drive/folders/1TgicBR7ZCWLxKoAv7lq_BVqWSk3dheW3?usp=drive_link)
 - [Mouse Raw counts rds file](https://drive.google.com/drive/folders/1MkusffP62l9ZxXexHlYbWDWxEfR_X4tJ?usp=drive_link)
 - [Zebrafish Raw counts rds file](https://drive.google.com/drive/folders/1ix_pWaqtjkOkUXWdfETlv9gyOx-ryYsf?usp=drive_link)
 - [Mouse spatial counts rds file](https://drive.google.com/drive/folders/1ab9MkdQbcHMV332XaQ9N33m8p0nWt6PB?usp=drive_link)
 
-R1_4_seurat_Merged_dim_2024.rds spatial dims for cells
-R1_4_seurat_Merfed_obj_2024.rds spatial counts
-
-
+The data are available in GEO under accession numbers [GSE325479](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE325479) and [GSE307031](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307031).
 
 ##############
 Mouse samples：
