@@ -1,0 +1,1088 @@
+#########
+######### 我们首先重新计算一下 Zebrafish 的 DEGs ####### 
+######### rm samples #####
+#########
+
+conda activate seurat_env
+R
+
+#########
+#########
+
+
+#########
+library(Seurat)
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+Zebrafish_seurat_clcl <- readRDS("Zebrafish_seurat_clcl_2025")
+
+#########
+table(Zebrafish_seurat_clcl$sample)
+table(Zebrafish_seurat_clcl$celltype)
+
+######### 开始用以前的方法计算 DEGs #########
+#########
+######### 
+######### we use sample-level pseudobulk  #####
+######### in the downstream analysis，we further use DEGs analysis between young and old ######
+#########
+
+rm_samples <- c("6_Rep3", "3_Rep2", "24_Rep1")
+
+Zebrafish_seurat_clcl <- subset(
+    Zebrafish_seurat_clcl,
+    subset = !(sample %in% rm_samples)
+)
+message(sprintf("已删除 %d 个 sample: %s", length(rm_samples), paste(rm_samples, collapse = ", ")))
+print(table(Zebrafish_seurat_clcl$sample))
+
+
+######### 我们首先生成 pseudobulk 数据 #######
+#########
+
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+Z_ambient_genes = readRDS("Zebrafish_ambient_RNA_Jul29")
+Z_ambient_genes <- Z_ambient_genes[order(Z_ambient_genes$Avg,decreasing=T),]
+Z_ambient_genes_Top50 = Z_ambient_genes$Gene[which(Z_ambient_genes$Avg > 0.0025)]
+Z_ambient_genes_Top50 = sapply(strsplit(Z_ambient_genes_Top50,split="~~"),function(x) x[[2]])
+
+
+#########
+######### 12rep2 应该是在里面的 #####
+#########
+
+celltype_need = c("MG","RGC","AC","HC","Cone","Rod","BC","Microglia","RPE")
+
+
+###### 在 Zebrafish_seurat_clcl 上去掉 mt- 基因和 ambient 基因 ######
+k = grep("^mt-", rownames(Zebrafish_seurat_clcl))
+if (length(k) > 0) Zebrafish_seurat_clcl = Zebrafish_seurat_clcl[-k, ]
+
+k = which(rownames(Zebrafish_seurat_clcl) %in% Z_ambient_genes_Top50)
+if (length(k) > 0) Zebrafish_seurat_clcl = Zebrafish_seurat_clcl[-k, ]
+
+getPseudoBulkByCellSample <- function(
+  seurat_obj,
+  assay_name   = "RNA",
+  layer_name   = "counts",
+  celltype_col = "celltype",
+  sample_col   = "sample",
+  normalize    = TRUE
+) {
+  library(Matrix)
+  # 1. 提取数据 (Seurat 5: 用 layer 替代 slot)
+  counts <- Seurat::GetAssayData(seurat_obj, assay = assay_name, layer = layer_name)
+  meta   <- seurat_obj@meta.data
+  # 2. 校验
+  if (!all(c(celltype_col, sample_col) %in% colnames(meta))) {
+    stop("在 meta.data 中未找到列：",
+         paste(setdiff(c(celltype_col, sample_col), colnames(meta)), collapse = ", "))
+  }
+  if (!inherits(counts, "dgCMatrix")) {
+    counts <- as(counts, "dgCMatrix")
+  }
+  # 3. 获取所有 celltype
+  ct_levels <- c("MG","RGC","AC","HC","Cone","Rod","BC","Microglia","RPE")
+  # 4. 对每个 celltype，按 sample 汇总
+  pb_list <- lapply(ct_levels, function(ct) {
+    # 4.1 过滤出当前 celltype 的细胞
+    cells_ct <- rownames(meta)[meta[[celltype_col]] == ct]
+    if (length(cells_ct) == 0) {
+      # 如果没有细胞，返回 NULL
+      return(NULL)
+    }
+    sub_counts <- counts[, cells_ct, drop = FALSE]
+    sub_meta   <- meta[cells_ct, , drop = FALSE]
+    
+    # 4.2 构造 sample 分组因子
+    grp_sample <- factor(sub_meta[[sample_col]], 
+                         levels = sort(unique(sub_meta[[sample_col]])))
+    
+    # 4.3 设计矩阵（细胞 × sample）
+    design <- model.matrix(~0 + grp_sample)
+    colnames(design) <- levels(grp_sample)
+    
+    # 4.4 稀疏矩阵乘法汇总
+    Matrix(sub_counts %*% Matrix(design, sparse = TRUE), sparse = TRUE)
+  })
+  
+  # 5. 设置 list 名称，并剔除可能的 NULL
+  names(pb_list) <- ct_levels
+  ####
+  #### normalize=TRUE: 返回 log2-CPM (用于 GAM/heatmap); FALSE: 返回原始 counts (用于 edgeR)
+  ####
+  if (isTRUE(normalize)) {
+    return(normalizePBList(pb_list))
+  } else {
+    return(pb_list)
+  }
+}
+
+#######
+#######
+#######
+normalizePBList <- function(pb_list, scale = 1e4, pseudocount = 1) {
+  lapply(pb_list, function(mat) {
+    # 1. 计算每个样本（列）的总计数
+    lib_sizes <- Matrix::colSums(mat)
+    # 2. 按列除以 library size 并乘以 scale → CPM
+    #    注意使用 t() 以保持稀疏矩阵结构，转换后可能变为普通矩阵
+    cpm <- t( t(mat) / lib_sizes * scale )
+    # 3. log2 转换
+    log2(cpm + pseudocount)
+  }) -> normalized_list
+  # 保留原来的 names
+  names(normalized_list) <- names(pb_list)
+  normalized_list
+}
+
+Zebrafish_pseudo_count = getPseudoBulkByCellSample(Zebrafish_seurat_clcl)
+names(Zebrafish_pseudo_count)
+
+# 每个 celltype 的矩阵: gene x sample
+dim(Zebrafish_pseudo_count[['MG']])
+colnames(Zebrafish_pseudo_count[['MG']])
+
+saveRDS(Zebrafish_pseudo_count, file = "Zebrafish_pseudo_count_2026")
+
+
+
+###########
+########### 
+
+names(Zebrafish_pseudo_count)
+
+head(Zebrafish_pseudo_count[['MG']])
+
+########
+Zebrafish_pseudo_count_input = list()
+
+for(i in 1:length(Zebrafish_pseudo_count)){
+    tmp_mat = Zebrafish_pseudo_count[[i]]
+    # 列名格式 <age>_Rep<n>，age 取 _Rep 前面的数字
+    tmp_age = as.numeric(sub("_Rep.*$", "", colnames(tmp_mat)))
+    tmp_table = data.frame(sample=colnames(tmp_mat), age=tmp_age)
+    ####
+    tmp_list = list(bulk_mat=tmp_mat,bulk_meta=tmp_table)
+    Zebrafish_pseudo_count_input <- c(Zebrafish_pseudo_count_input,list(tmp_list))
+    ####
+}
+
+names(Zebrafish_pseudo_count_input) = names(Zebrafish_pseudo_count)
+
+
+########
+
+Smooth_FUN <- function(x,age){
+    ##########
+    vector = as.numeric(x)
+    vector = scale(vector)
+    ##########
+    if(length(unique(vector)) == 1){
+        df = data.frame(age=age,value=vector,predict=vector,p_value=1)
+        return(df)
+    }
+    ##########
+    df = data.frame(age=age,value=vector)
+    df = df[order(df$age),]
+    rownames(df) = 1:dim(df)[1]
+    #######
+    library(mgcv)
+    model_select <- gam(value ~ s(age, k = 4), data = df, select = TRUE)
+    p_value <- summary(model_select)$s.table[, 4]
+    #######
+    df_predict = predict(model_select, newdata = df, type = "response")
+    df$predict = df_predict
+    #######
+    df$p_value = p_value
+    ####### summary(model_select）#####
+    return(df)
+}
+
+#### list_process2 = Zebrafish_pseudo_count_input[[3]]
+
+Identify_DEGs <- function(list_process2){
+    #####
+    ########## 首先根据 bulk 的 data, 我们计算一下 correlation ############
+    #####
+    bulk_mat = list_process2$bulk_mat
+    bulk_meta = list_process2$bulk_meta
+    # 强制校验: bulk_mat 列顺序与 bulk_meta$sample 完全一致（保证 value 与 age 逐一对应）
+    stopifnot(identical(colnames(bulk_mat), as.character(bulk_meta$sample)))
+    ########## filter bulk_mat ####
+    avg_by_gene = apply(bulk_mat,1,mean)
+    k = which(avg_by_gene > 0.01)
+    bulk_mat = bulk_mat[k,]
+    ##########
+    Cor_table = data.frame(Gene=rownames(bulk_mat),Cor=0)
+    ########## Cor_table[which(Cor_table$Gene == "Apoe"),]
+    ##########
+    library(parallel)
+    ncores <- 30
+    #### Smooth <- apply(bulk_mat,1,Smooth_FUN,age=as.numeric(bulk_meta$age))
+    res_list <- mclapply(
+        seq_len(nrow(bulk_mat)),
+        function(i) Smooth_FUN(bulk_mat[i, ], age = as.numeric(bulk_meta$age)),
+        mc.cores = ncores
+    )
+    ########## cutoff 0.3 #########
+    ########## Smooth$Aqp4 ########
+    #delta = c()
+    pvalue = c()
+    for(i in 1:length(res_list)){
+        print(i)
+        tmp = res_list[[i]]
+        pvalue = c(pvalue,tmp$p_value[1])
+    }
+    #####
+    #Cor_table$delta = delta
+    Cor_table$pvalue = pvalue
+    res_table = Cor_table
+    #####
+    res_table$TAG = "NotDEGs"
+    ##### res_table[which(res_table$Gene == "stat1"),]
+    print(dim(res_table))
+    print(which(res_table$pvalue < 0.05))
+    #####
+    res_table_cl = res_table[which(res_table$pvalue < 0.05),]
+    #####
+    print("Done!")
+    #####
+    return(res_table_cl)
+}
+
+
+#####
+Zebrafish_DEGs <- list()
+
+for(i in 1:length(Zebrafish_pseudo_count_input)){
+    print(i)
+    #####
+    res = Identify_DEGs(Zebrafish_pseudo_count_input[[i]])
+    #####
+    Zebrafish_DEGs <- c(Zebrafish_DEGs,list(res))
+}
+
+######
+names(Zebrafish_DEGs) <- names(Zebrafish_pseudo_count_input)
+
+######
+
+######
+DEGs_List = Zebrafish_DEGs
+Avgs_List = Zebrafish_pseudo_count_input
+col_index = as.character(c(1,3,6,12,18,22,28,30,36,48))
+
+# 同一时间点(age)的多个 sample 取平均: 列名 <age>_Rep<n> -> 按 age 聚合
+collapse_samples_by_age <- function(mat){
+    ages = sub("_Rep.*$", "", colnames(mat))
+    uages = unique(ages)
+    out = sapply(uages, function(a) rowMeans(mat[, ages == a, drop = FALSE]))
+    out = as.matrix(out)
+    rownames(out) = rownames(mat)
+    colnames(out) = uages
+    out
+}
+
+Merge_DEGs_genes_and_Avg_expression <- function(DEGs_List,Avgs_List,col_index){
+    #########
+    #########
+    Avgs_List2  = list()
+    for(i in 1:length(Avgs_List)){
+        ####
+        tmp = Avgs_List[[i]][[1]]
+        #### 同一时间点的 sample 取平均 -> gene x age
+        tmp = collapse_samples_by_age(tmp)
+        rownames(tmp) = paste(names(Avgs_List)[i],rownames(tmp),sep="__")
+        print(dim(tmp))
+        Avgs_List2[[i]] = tmp
+    }
+    #########
+    all_Matrix = do.call("rbind",Avgs_List2)
+    #########
+    for(i in 1:length(DEGs_List)){
+        ####
+        tmp = DEGs_List[[i]]
+        tmp$Gene = paste(names(DEGs_List)[i],tmp$Gene,sep="__")
+        DEGs_List[[i]] = tmp
+    }
+    #########
+    all_DEGs = do.call("rbind",DEGs_List)
+    ######### all_Avg[grep("Clu",all_Avg$Gene),] #########
+    ######### all_Avg[grep("Xkr4",all_Avg$Gene),]
+    all_Matrix_cl = all_Matrix[which(rownames(all_Matrix) %in% all_DEGs$Gene == T),]
+    #########
+    all_Matrix_cl = all_Matrix_cl[,col_index]
+    #########
+    all_Matrix_cl_s = t(apply(all_Matrix_cl,1,scale))
+    rownames(all_Matrix_cl_s) = rownames(all_Matrix_cl)
+    colnames(all_Matrix_cl_s) = colnames(all_Matrix_cl)
+    #########
+    return(all_Matrix_cl_s)
+}
+
+#######
+col_index = as.character(c(1,3,6,12,18,22,28,30,36,48))
+Zebrafish_DEGs_Plot = Merge_DEGs_genes_and_Avg_expression(Zebrafish_DEGs,Avgs_List,col_index)
+
+
+
+#######
+#######
+####### Plot = Zebrafish_DEGs_Plot
+#######
+
+Zebrafish_DEGs_Plot_Kmeans = Kmeans_function(Zebrafish_DEGs_Plot,k=12)
+
+Kmeans_function <- function(Plot,k=8){
+    ############
+    #####
+    k_up = which(Plot > 4)
+    k_down = which(Plot < -4)
+    Plot[k_up] = 4
+    Plot[k_down] = -4
+    ############
+    set.seed(123)
+    kc = kmeans(Plot, k, iter.max = 100,nstart=20)
+    ####
+    kc_dat = data.frame(genes = names(kc$cluster),cluster=as.numeric(kc$cluster))
+    #### 
+    head(kc_dat)
+    ####
+    return(kc_dat)
+}
+
+######
+###### 先看一下 cluster ######
+######
+
+library('ComplexHeatmap')
+library('circlize')
+
+celltypes <- c("MG","AC","Cone","RGC","HC","Rod","BC","RPE","Microglia","Astrocyte")
+cols = c("#D11536","#F6BA00","#9EA220","#AAA9A9","#EF9000","#026AB1","#804537","#936DAD","#61BFB9","#EC6F64")
+
+celltype = sapply(strsplit(rownames(Zebrafish_DEGs_Plot),split="__"),function(x) x[[1]])
+names(celltype) = rownames(Zebrafish_DEGs_Plot)
+celltype_colors <- c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64")
+ra <- rowAnnotation(CellType = celltype,
+                    col = list(CellType = celltype_colors),
+                    annotation_name_side = "top")
+
+row_sp = as.factor(Zebrafish_DEGs_Plot_Kmeans$cluster)
+
+colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
+col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
+
+
+labels = c("MG__b2m","MG__apoeb","MG__sparc")
+at = match(labels,rownames(Zebrafish_DEGs_Plot))
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+png('Zebrafish_DEGs.png',height=7000,width=4000,res=72*12)
+Heatmap(Zebrafish_DEGs_Plot, name = "XX",right_annotation = ra,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-2,-1,0,1,2)),row_split=row_sp) +
+rowAnnotation(link = anno_mark(at = at,labels = labels),gp = gpar(fontsize = 20))
+dev.off()
+
+########
+######## reorder !!!! ####
+########
+
+rm = c(1,5,6)
+
+new_order_down = c(10,8,11)
+new_order_middle = c(7,9)
+new_order_up = c(3,2,12,4)
+
+new_order = c(new_order_down,new_order_middle,new_order_up)
+
+####### 去掉 rm 的 3 个 cluster, 矩阵和 kmeans 表一起过滤 #######
+keep = !(Zebrafish_DEGs_Plot_Kmeans$cluster %in% rm)
+Zebrafish_DEGs_Plot_Kmeans_order = Zebrafish_DEGs_Plot_Kmeans[keep,]
+Zebrafish_DEGs_Plot = Zebrafish_DEGs_Plot[keep,]
+
+####### 按 new_order 重新编号 cluster (1..length(new_order)) #######
+Zebrafish_DEGs_Plot_Kmeans_order$cluster = match(Zebrafish_DEGs_Plot_Kmeans_order$cluster,new_order)
+
+####### 按新 cluster 顺序重排行, 保持矩阵与 row_sp 对齐 #######
+ord = order(Zebrafish_DEGs_Plot_Kmeans_order$cluster)
+Zebrafish_DEGs_Plot_Kmeans_order = Zebrafish_DEGs_Plot_Kmeans_order[ord,]
+Zebrafish_DEGs_Plot = Zebrafish_DEGs_Plot[ord,]
+
+row_sp = as.factor(Zebrafish_DEGs_Plot_Kmeans_order$cluster)
+
+
+
+########
+library('ComplexHeatmap')
+library('circlize')
+
+celltypes <- c("MG","AC","Cone","RGC","HC","Rod","BC","RPE","Microglia","Astrocyte")
+cols = c("#D11536","#F6BA00","#9EA220","#AAA9A9","#EF9000","#026AB1","#804537","#936DAD","#61BFB9","#EC6F64")
+
+celltype = sapply(strsplit(rownames(Zebrafish_DEGs_Plot),split="__"),function(x) x[[1]])
+names(celltype) = rownames(Zebrafish_DEGs_Plot)
+celltype_colors <- c("MG" = "#D11536", "RGC" = "#AAA9A9", "AC" = "#F6BA00","HC"="#EF9000","BC"="#804537","Rod"="#026AB1","Cone"="#9EA220","RPE"="#936DAD","Microglia"="#EC6F64")
+ra <- rowAnnotation(CellType = celltype,
+                    col = list(CellType = celltype_colors),
+                    annotation_name_side = "top")
+
+row_sp = as.factor(Zebrafish_DEGs_Plot_Kmeans_order$cluster)
+
+colorList = c("#EC6F64","#61BFB9","#D11536","#936DAD","#A74997","#AAA9A9","#EF9000","#9EA220","#026AB1","#804537")
+col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
+
+
+labels = c("Rod__hsp90ab1","Rod__nr2e3","MG__sparc","Cone__gnat2","BC__aldoaa","BC__gpia",
+           "MG__adgra2","BC__clocka","MG__b2m","BC__arntl2","MG__sash1a")
+at = match(labels,rownames(Zebrafish_DEGs_Plot))
+
+png('Zebrafish_DEGs_neworder.png',height=7000,width=4000,res=72*12)
+Heatmap(Zebrafish_DEGs_Plot, name = "XX",right_annotation = ra,border = T,use_raster=FALSE,show_row_names=F,show_column_names=T,rect_gp = gpar(col = 'white', lwd = 0),cluster_rows = F,cluster_columns = F,col = col_fun,heatmap_legend_param = list(col_fun = col_fun,title = "",border ='black',at=c(-4,-2,0,2,4)),row_split=row_sp) +
+rowAnnotation(link = anno_mark(at = at,labels = labels,labels_gp = gpar(fontsize = 12,fontface = "italic")))
+dev.off()
+
+#########
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+save(Zebrafish_DEGs_Plot_Kmeans_order,file="Zebrafish_DEGs_Plot_Kmeans_order_neworder")
+save(Zebrafish_DEGs_Plot,file="Zebrafish_DEGs_Plot_neworder")
+
+######### Plot = Zebrafish_DEGs_Plot
+######### Kmeans_order = Zebrafish_DEGs_Plot_Kmeans_order
+
+Plot_dot <- function(Plot,Kmeans_order){
+    ######
+    library(reshape2)
+    all_Matrix_cl_s_Plot = melt(Plot)
+    all_Matrix_cl_s_Plot$class = Kmeans_order$cluster[match(all_Matrix_cl_s_Plot$Var1,Kmeans_order$genes)]
+    #####
+    levels_tag = levels(as.factor(all_Matrix_cl_s_Plot$Var2))
+    all_Matrix_cl_s_Plot$Var2_1 = as.numeric(match(all_Matrix_cl_s_Plot$Var2,levels_tag))
+    ######
+    cl_levels = sort(unique(Kmeans_order$cluster))
+    all_Matrix_cl_s_Plot$class = factor(all_Matrix_cl_s_Plot$class,levels=cl_levels)
+    ######
+    return(all_Matrix_cl_s_Plot)
+}
+
+Zebrafish_DEGs_Plot2 = Plot_dot(Zebrafish_DEGs_Plot,Zebrafish_DEGs_Plot_Kmeans_order)
+
+
+library(ggplot2)
+
+############----------------------------------------------------------------------------------------------------------------------------------------
+ggplot(Zebrafish_DEGs_Plot2, aes(x = Var2_1, y = value)) + 
+  geom_point(
+    size = 0, 
+    position = position_jitter(width = 0.2, height = 0.2),
+    alpha = 0.01
+  ) + 
+  stat_summary(
+    fun = mean, 
+    geom = "line", 
+    color = "red", 
+    size = 1
+  ) +
+  facet_wrap(
+    ~ class, 
+    ncol = 1, 
+    strip.position = "right"
+  ) +
+  scale_x_discrete(breaks = NULL) +
+  theme_classic() + 
+  theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),
+    strip.text       = element_blank(),      # remove facet (strip) labels
+    legend.position  = "none",               # remove any legends
+    axis.title.x     = element_blank()       # ensure x-axis title is gone
+  ) +
+  ylab("")
+
+ggsave("Zebrafish_trend2.png", height = 8, width = 1.2)
+############----------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+############ 下面我们补一下那个 barplot ########
+############
+
+
+
+DEGs_to_BarPlot_F <- function(kc,Upclusters,Downclusters,Middleclusters){
+    ###########
+    kc$cell_type = sapply(strsplit(kc$genes,split="__"),function(x) x[[1]])
+    ###########
+    index = names(table(kc$cell_type))
+    cell_type = c()
+    num_DEGs = c()
+    direction = c()
+    ###########
+    for(i in 1:length(index)){
+        #######
+        cell_type <- c(cell_type,rep(index[i],3))
+        k1 = which(kc$cell_type == index[i] &  kc$cluster %in% Downclusters == T)
+        k2 = which(kc$cell_type == index[i] &  kc$cluster %in% Upclusters == T)
+        k3 = which(kc$cell_type == index[i] &  kc$cluster %in% Middleclusters == T)
+        ####
+        num_DEGs <- c(num_DEGs,length(k1),length(k2),length(k3))
+        ####
+        direction <- c(direction, c("Young", "Old","Middle"))
+    }
+    #####
+    data = data.frame(cell_type=cell_type,num_DEGs=num_DEGs,direction=direction)
+    data$direction = factor(data$direction,levels=c("Young","Middle","Old"))
+    ######
+    res = tapply(data$num_DEGs,data$cell_type,function(x) sum(abs(x)))
+    cell_type_index = rev(names(res)[order(res)])
+    ######
+    data$cell_type = factor(data$cell_type,levels=cell_type_index)
+    return(data)
+}
+
+####### for fish ######
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+load("Zebrafish_DEGs_Plot_Kmeans_order_neworder")
+
+kc = Zebrafish_DEGs_Plot_Kmeans_order
+######### 重新编号后: down=1,2,3 / middle=4,5 / up=6,7,8,9
+Downclusters = c(1,2,3)
+Middleclusters = c(4,5)
+Upclusters = c(6,7,8,9)
+Zebrafish_data = DEGs_to_BarPlot_F(kc,Upclusters,Downclusters,Middleclusters)
+
+library(ggplot2)
+ggplot(Zebrafish_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
+  geom_col(position = "stack", width = 0.5) +                # 堆叠条形
+  scale_fill_manual(values = c("Young" = "lightblue",
+                               "Old"    = "pink",
+                               "Middle" = "darkgreen")) +          # 指定颜色
+  scale_y_continuous(expand = c(0, 0),limits=c(0,5500)) +                     # Y 轴从 0 开始，无扩展
+  labs(x = "", y = "Number of DEGs") +
+  theme_classic(base_size = 14) +
+ theme(
+    panel.border     = element_rect(color = "black", fill = NA, size = 1),  # 给整图加黑框
+    axis.title.y     = element_text(size = 16),                             # Y 轴标签放大
+    axis.text.x      = element_text(angle = 30, hjust = 1, vjust = 1),      # X 轴标签旋转 30°
+    legend.position  = "right"
+  )
+
+ggsave("Zebrafish_data_barplot.png",width=7,height=3)
+
+
+######
+###### 下面我要进一步分析 上调和下调的 DEGs ##### 
+###### 我希望根据 pseudobulk， 给他们 rank，然后做 GSEA 分析，该怎么做 ######
+######
+
+######
+###### 【新终端从这里开始】读入 / 加载依赖 (跑完再从 library(edgeR) 往下) ######
+######
+conda activate seurat_env
+R
+
+library(Seurat)
+library(Matrix)
+library(edgeR)
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+
+## 1) Seurat 对象 (优先 2026, 否则 2025)
+if(file.exists("Zebrafish_seurat_clcl_2026.rds")){
+    Zebrafish_seurat_clcl = readRDS("Zebrafish_seurat_clcl_2026.rds")
+} else if(file.exists("Zebrafish_seurat_clcl_2026")){
+    Zebrafish_seurat_clcl = readRDS("Zebrafish_seurat_clcl_2026")
+} else {
+    Zebrafish_seurat_clcl = readRDS("Zebrafish_seurat_clcl_2025")
+}
+
+## 2) 去掉低质量 sample (与前面一致)
+rm_samples <- c("6_Rep3", "3_Rep2", "24_Rep1")
+Zebrafish_seurat_clcl <- subset(Zebrafish_seurat_clcl, subset = !(sample %in% rm_samples))
+message(sprintf("已删除 %d 个 sample: %s", length(rm_samples), paste(rm_samples, collapse = ", ")))
+
+## 3) 去掉 mt- 和 ambient
+Z_ambient_genes = readRDS("Zebrafish_ambient_RNA_Jul29")
+Z_ambient_genes = Z_ambient_genes[order(Z_ambient_genes$Avg, decreasing = TRUE), ]
+Z_ambient_genes_Top50 = Z_ambient_genes$Gene[which(Z_ambient_genes$Avg > 0.0025)]
+Z_ambient_genes_Top50 = sapply(strsplit(Z_ambient_genes_Top50, split = "~~"), function(x) x[[2]])
+k = grep("^mt-", rownames(Zebrafish_seurat_clcl))
+if(length(k) > 0) Zebrafish_seurat_clcl = Zebrafish_seurat_clcl[-k, ]
+k = which(rownames(Zebrafish_seurat_clcl) %in% Z_ambient_genes_Top50)
+if(length(k) > 0) Zebrafish_seurat_clcl = Zebrafish_seurat_clcl[-k, ]
+message(sprintf("Zebrafish_seurat_clcl: %d cells x %d genes; samples=%d",
+                ncol(Zebrafish_seurat_clcl), nrow(Zebrafish_seurat_clcl),
+                length(unique(Zebrafish_seurat_clcl$sample))))
+print(table(Zebrafish_seurat_clcl$sample))
+
+## 4) pseudobulk 函数 (edgeR 用 normalize=FALSE)
+getPseudoBulkByCellSample <- function(
+  seurat_obj, assay_name = "RNA", layer_name = "counts",
+  celltype_col = "celltype", sample_col = "sample", normalize = TRUE
+) {
+  counts <- Seurat::GetAssayData(seurat_obj, assay = assay_name, layer = layer_name)
+  meta   <- seurat_obj@meta.data
+  if (!inherits(counts, "dgCMatrix")) counts <- as(counts, "dgCMatrix")
+  ct_levels <- c("MG","RGC","AC","HC","Cone","Rod","BC","Microglia","RPE")
+  pb_list <- lapply(ct_levels, function(ct) {
+    cells_ct <- rownames(meta)[meta[[celltype_col]] == ct]
+    if (length(cells_ct) == 0) return(NULL)
+    sub_counts <- counts[, cells_ct, drop = FALSE]
+    sub_meta   <- meta[cells_ct, , drop = FALSE]
+    grp_sample <- factor(sub_meta[[sample_col]], levels = sort(unique(sub_meta[[sample_col]])))
+    design <- model.matrix(~0 + grp_sample)
+    colnames(design) <- levels(grp_sample)
+    Matrix(sub_counts %*% Matrix(design, sparse = TRUE), sparse = TRUE)
+  })
+  names(pb_list) <- ct_levels
+  if (isTRUE(normalize)) stop("此处只需 normalize=FALSE 的 raw counts")
+  pb_list
+}
+
+message("=== 加载完成，可继续跑下面 edgeR / Rank (noKmeans) ===")
+
+######
+###### edgeR: Old vs Young 每个基因的 log2FC 和 pvalue (基于 pseudobulk) ######
+######
+
+library(edgeR)
+
+## 注意: Zebrafish_pseudo_count_input 的 bulk_mat 是 log2-CPM(已归一化), 不能直接给 edgeR!
+## edgeR 需要原始整数 counts, 这里用 normalize=FALSE 重新生成一份 raw counts 的 pseudobulk
+Zebrafish_pseudo_count_raw = getPseudoBulkByCellSample(Zebrafish_seurat_clcl, normalize = FALSE)
+
+Zebrafish_pseudo_count_input_raw = list()
+for(i in 1:length(Zebrafish_pseudo_count_raw)){
+    tmp_mat = as.matrix(Zebrafish_pseudo_count_raw[[i]])
+    tmp_age = as.numeric(sub("_Rep.*$", "", colnames(tmp_mat)))
+    tmp_table = data.frame(sample = colnames(tmp_mat), age = tmp_age)
+    Zebrafish_pseudo_count_input_raw[[i]] = list(bulk_mat = tmp_mat, bulk_meta = tmp_table)
+}
+names(Zebrafish_pseudo_count_input_raw) = names(Zebrafish_pseudo_count_raw)
+
+## 输入: Zebrafish_pseudo_count_input_raw[[ct]] = list(bulk_mat = gene x sample 原始 counts,
+##                                                     bulk_meta = data.frame(sample, age))
+## 按 age 分组: age <= young_max -> Young; age >= old_min -> Old; 中间时间点丢弃
+## 返回: data.frame(Gene, logFC, logCPM, F, PValue, FDR); logFC > 0 表示 Old 高于 Young
+call_DEG_edgeR <- function(list_process, young_max = 6, old_min = 36, min_n = 2){
+    bulk_mat  = as.matrix(list_process$bulk_mat)
+    bulk_meta = list_process$bulk_meta
+    stopifnot(identical(colnames(bulk_mat), as.character(bulk_meta$sample)))
+    age = as.numeric(bulk_meta$age)
+    ####### 分组 #######
+    grp = rep(NA_character_, length(age))
+    grp[age <= young_max] = "Young"
+    grp[age >= old_min]   = "Old"
+    keep_s = which(!is.na(grp))
+    counts = round(bulk_mat[, keep_s, drop = FALSE])
+    group  = factor(grp[keep_s], levels = c("Young","Old"))
+    ####### 样本量检查 #######
+    if(nlevels(droplevels(group)) < 2 || min(table(group)) < min_n){
+        message("样本不足, 跳过: ", paste(names(table(group)), table(group), collapse=" ")); 
+        return(NULL)
+    }
+    ####### edgeR QL pipeline #######
+    y = DGEList(counts = counts, group = group)
+    keep_g = filterByExpr(y, group = group)
+    y = y[keep_g, , keep.lib.sizes = FALSE]
+    y = calcNormFactors(y)
+    design = model.matrix(~ group)            # 第二列 = Old vs Young
+    y = estimateDisp(y, design)
+    fit = glmQLFit(y, design)
+    qlf = glmQLFTest(fit, coef = 2)
+    ####### 结果 #######
+    res = topTags(qlf, n = Inf, sort.by = "PValue")$table
+    res = data.frame(Gene = rownames(res), res, row.names = NULL)
+    res$direction = ifelse(res$logFC > 0, "Up_Old", "Down_Old")
+    return(res)
+}
+
+####### 对每个 celltype 计算 (用 raw counts) #######
+Zebrafish_DEG_edgeR = list()
+for(ct in names(Zebrafish_pseudo_count_input_raw)){
+    message("==== ", ct, " ====")
+    res = call_DEG_edgeR(Zebrafish_pseudo_count_input_raw[[ct]], young_max = 3, old_min = 36)
+    if(is.null(res)) next
+    n_up   = sum(res$PValue < 0.05 & res$logFC > 0)
+    n_down = sum(res$PValue < 0.05 & res$logFC < 0)
+    message(sprintf("%s: Up(Old高) = %d, Down(Old低) = %d (PValue<0.05)", ct, n_up, n_down))
+    Zebrafish_DEG_edgeR[[ct]] = res
+}
+
+####### 保存 #######
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+save(Zebrafish_DEG_edgeR, file = "Zebrafish_DEG_edgeR")
+
+
+######
+###### rank (与 Mouse / Human noKmeans 一致): 只用 edgeR，不与 Kmeans 取交集 ######
+###### metric = sign(logFC) * -log10(PValue)；全部 edgeR 基因直接打分 ######
+###### 注意: 旧版会把非 kmeans 基因 P 置 1 → rank≈0；noKmeans 下 nonzero 应接近全部基因数 ######
+######
+Build_Rank_from_DEG <- function(deg, eps = 1e-300){
+    pv = deg$PValue; pv[is.na(pv)] = 1
+    pv[pv < eps] = eps
+    stat = sign(deg$logFC) * (-log10(pv))
+    names(stat) = as.character(deg$Gene)
+    ok = !is.na(stat) & is.finite(stat)
+    stat = stat[ok]
+    stat = tapply(stat, names(stat), function(x) x[which.max(abs(x))])
+    sort(stat, decreasing = TRUE)
+}
+
+Zebrafish_DEG_rank = list()
+for(ct in names(Zebrafish_DEG_edgeR)){
+    deg = Zebrafish_DEG_edgeR[[ct]]
+    Zebrafish_DEG_rank[[ct]] = Build_Rank_from_DEG(deg)
+    n = length(Zebrafish_DEG_rank[[ct]])
+    n_nz = sum(Zebrafish_DEG_rank[[ct]] != 0)
+    pct_nz = 100 * n_nz / max(n, 1)
+    message(sprintf("[noKmeans] %s: n=%d, nonzero=%d (%.1f%%); P<0.05 up=%d down=%d",
+                    ct, n, n_nz, pct_nz,
+                    sum(deg$PValue < 0.05 & deg$logFC > 0, na.rm = TRUE),
+                    sum(deg$PValue < 0.05 & deg$logFC < 0, na.rm = TRUE)))
+    ## 诊断: 旧 kmeans 清零版 nonzero 通常只有几百/几千且 << n；noKmeans 应接近 100%
+    if(pct_nz < 50){
+        warning(sprintf("%s: nonzero 只有 %.1f%%，很像旧的 kmeans-overlap 清零版！请确认重跑了本段 Build_Rank_from_DEG",
+                        ct, pct_nz))
+    }
+}
+
+####### 保存 rank (新文件名, 避免 GSEA 误读旧版) #######
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+saveRDS(Zebrafish_DEG_rank, file = "Zebrafish_DEG_rank_noKmeans.rds")
+## 兼容旧文件名, 但内容已是 noKmeans
+save(Zebrafish_DEG_rank, file = "Zebrafish_DEG_rank")
+message("已保存: Zebrafish_DEG_rank_noKmeans.rds")
+
+
+#######
+#######  下一步 我们 rank 映射 到 人的基因 #######
+#######
+
+######
+###### 把 Zebrafish_DEG_rank 的鱼基因映射成人类 ortholog (用于 fgsea) ######
+######
+
+## HMZ_ortholog_combined = list(HM, HZ, MZ, HMZ); HZ = 斑马鱼->人 (列: human, zebrafish)
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+load("/projects/hmz-aging/Zebrafish_New_Datasets/HMZ_ortholog_combined")
+HZ = unique(HMZ_ortholog_combined$HZ[, c("human", "zebrafish")])
+HZ = HZ[HZ$human != "" & HZ$zebrafish != "", ]
+
+## 一个鱼基因对应多个人基因 -> 全部保留, 权重(rank值)相同(merge 展开即可)
+## 多个鱼基因对应同一个人基因 -> 取 |stat| 最大的 (fgsea 需要基因名唯一)
+zf_rank_to_human <- function(rank_vec, HZ){
+    df = data.frame(zebrafish = names(rank_vec), stat = as.numeric(rank_vec), stringsAsFactors = FALSE)
+    mg = merge(df, HZ, by = "zebrafish")          # 一对多: 每个 pair 一行, stat 不变
+    if(nrow(mg) == 0) return(numeric(0))
+    stat = tapply(mg$stat, mg$human, function(x) x[which.max(abs(x))])
+    stat = sort(stat, decreasing = TRUE)
+    return(stat)
+}
+
+Zebrafish_DEG_rank_human = lapply(Zebrafish_DEG_rank, zf_rank_to_human, HZ = HZ)
+names(Zebrafish_DEG_rank_human) = names(Zebrafish_DEG_rank)
+
+## 映射前后基因数对比
+rank_sum = data.frame(
+    celltype = names(Zebrafish_DEG_rank),
+    zf       = sapply(Zebrafish_DEG_rank, length),
+    zf_nonzero = sapply(Zebrafish_DEG_rank, function(x) sum(x != 0)),
+    human    = sapply(Zebrafish_DEG_rank_human, length),
+    human_nonzero = sapply(Zebrafish_DEG_rank_human, function(x) sum(x != 0))
+)
+print(rank_sum)
+message(sprintf("诊断: zf nonzero 比例中位数 = %.1f%% (noKmeans 应接近 100%%; 旧kmeans清零版通常 <20%%)",
+                100 * median(rank_sum$zf_nonzero / pmax(rank_sum$zf, 1))))
+
+####### 保存 #######
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+saveRDS(Zebrafish_DEG_rank_human, file = "Zebrafish_DEG_rank_human.rds")
+message("已保存: Zebrafish_DEG_rank_human.rds")
+
+
+########
+######## 打开一个新的终端，我们做 GSEA 分析 ########
+########
+conda activate clusterProfiler
+
+R
+
+library(fgsea)
+library(dplyr)
+library(tibble)
+
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+Zebrafish_DEG_rank_human = readRDS("Zebrafish_DEG_rank_human.rds")
+message("已读入: Zebrafish_DEG_rank_human.rds")
+load("/projects/hmz-aging/HMZ_GO_terms_Final/human_aging_catalog")
+
+
+######## 参考下代码 #########
+######## Aging_GSEA_final #####
+######## 我要先计算下所有大类的富集 #####
+
+######
+###### 1. 大类 gene sets: 9 个 aging category (category_unions) ######
+######
+category_sets = human_aging_catalog$category_unions
+## 每个大类基因数
+sapply(category_sets, length)
+
+######
+###### 2. fgsea runner (单个 celltype) ######
+######
+## noKmeans rank: 全基因连续打分; eps=0 保证 p 值可算
+run_fgsea_one <- function(ranks, pathways, minSize = 5, maxSize = 5000){
+    ranks = ranks[is.finite(ranks)]
+    ranks = sort(ranks, decreasing = TRUE)
+    set.seed(123)
+    res = fgsea(pathways = pathways, stats = ranks,
+                minSize = minSize, maxSize = maxSize, eps = 0)
+    res = res[order(res$NES, decreasing = TRUE), ]
+    return(res)
+}
+
+######
+###### 3. 对每个 celltype 计算大类富集 ######
+######
+Zebrafish_GSEA_category = list()
+for(ct in names(Zebrafish_DEG_rank_human)){
+    ranks = Zebrafish_DEG_rank_human[[ct]]
+    if(length(ranks) < 10){ message("跳过(基因太少): ", ct); next }
+    message("==== fgsea: ", ct, " ====")
+    res = run_fgsea_one(ranks, category_sets)
+    res$celltype = ct
+    Zebrafish_GSEA_category[[ct]] = res
+}
+
+######
+###### 4. 合并成长表 (避开 fgsea 的 list 列 leadingEdge) ######
+######
+Zebrafish_GSEA_category_df = do.call(rbind, lapply(Zebrafish_GSEA_category, function(x){
+    data.frame(
+        celltype = x$celltype,
+        category = x$pathway,
+        NES      = x$NES,
+        ES       = x$ES,
+        pval     = x$pval,
+        padj     = x$padj,
+        size     = x$size,
+        stringsAsFactors = FALSE
+    )
+}))
+rownames(Zebrafish_GSEA_category_df) = NULL
+
+## NES > 0 = 富集在 up(Old高)端; NES < 0 = 富集在 down(Young高)端
+Zebrafish_GSEA_category_df = Zebrafish_GSEA_category_df[
+    order(Zebrafish_GSEA_category_df$celltype, -Zebrafish_GSEA_category_df$NES), ]
+print(Zebrafish_GSEA_category_df)
+
+######
+###### 5. 保存大类 (与 Human 一样只存一个 tsv) ######
+######
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+write.table(Zebrafish_GSEA_category_df, file = "Zebrafish_GSEA_category.tsv",
+            sep = "\t", quote = FALSE, row.names = FALSE)
+message("已保存: Zebrafish_GSEA_category.tsv; 行数: ", nrow(Zebrafish_GSEA_category_df))
+
+######
+###### 6. 气泡图: celltype x category (点大小=-log10 pvalue, 颜色=NES) ######
+###### pvalue >= 0.05 留空; Nature(NPG) 配色
+######
+library(ggplot2)
+
+plot_df = Zebrafish_GSEA_category_df
+plot_df$neglogP = -log10(plot_df$pval)
+
+## 因子顺序: category 按 C1,C2,...,C10 数字顺序 (避免字符串排序把 C10 排到 C2 前)
+cat_all    = unique(plot_df$category)
+cat_num    = as.numeric(sub("^C([0-9]+)_.*", "\\1", cat_all))
+cat_levels = cat_all[order(cat_num)]                              # C1 ... C10
+ct_levels  = c("MG","RGC","AC","HC","BC","Cone","Rod","Microglia","RPE")
+ct_levels  = ct_levels[ct_levels %in% plot_df$celltype]
+plot_df$category = factor(plot_df$category, levels = rev(cat_levels))  # 反转使 C1 在最上
+plot_df$celltype = factor(plot_df$celltype, levels = ct_levels)
+
+## 只画显著的 (pval < 0.05), 其余格子自动留空
+plot_sig = plot_df[plot_df$pval < 0.05 & !is.na(plot_df$pval), ]
+
+## 气泡图配色/点大小与 Mouse 一致
+library(scales)
+p = ggplot(plot_sig, aes(x = celltype, y = category)) +
+  geom_point(aes(size = neglogP, fill = NES), shape = 21, color = "grey30", stroke = 0.3) +
+  scale_fill_gradient2(low = "#3C5488", mid = "white", high = "#E64B35",
+                       midpoint = 0, name = "NES", limits = c(-3, 3), oob = scales::squish) +
+  scale_size_continuous(range = c(4, 14), name = expression(-log[10]~italic(P))) +
+  scale_x_discrete(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  guides(fill = guide_colorbar(order = 1), size = guide_legend(order = 2)) +
+  theme_bw(base_size = 12) +
+  theme(
+    aspect.ratio     = 1,
+    panel.grid.major = element_line(color = "grey92", linewidth = 0.3),
+    panel.grid.minor = element_blank(),
+    panel.border     = element_rect(color = "black", fill = NA, linewidth = 0.8),
+    axis.text.x      = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y      = element_text(color = "black"),
+    axis.ticks       = element_line(color = "black")
+  ) +
+  labs(x = "", y = "")
+
+ggsave("Zebrafish_GSEA_category_bubble123.png", plot = p, width = 7, height = 7, dpi = 300)
+
+######
+###### 7. term 级别 GSEA: human_aging_catalog$pathways (除 category_unions 外的所有 gene sets) ######
+######
+
+## pathways: 每个 term_id -> 人类 symbol; annotation: term_id 的 category/subcategory/gene_set 名称
+term_sets   = human_aging_catalog$pathways
+term_anno   = human_aging_catalog$annotation     # 列: term_id, source, gene_set, category, subcategory, db_version, n_genes
+length(term_sets)
+
+## 对每个 celltype 跑 term 级别 fgsea (复用上面的 run_fgsea_one)
+Zebrafish_GSEA_term = list()
+for(ct in names(Zebrafish_DEG_rank_human)){
+    ranks = Zebrafish_DEG_rank_human[[ct]]
+    if(length(ranks) < 10){ message("跳过(基因太少): ", ct); next }
+    message("==== fgsea term: ", ct, " ====")
+    res = run_fgsea_one(ranks, term_sets, minSize = 5, maxSize = 2000)
+    res$celltype = ct
+    Zebrafish_GSEA_term[[ct]] = res
+}
+
+## 合并成长表 (避开 leadingEdge list 列), 并 merge annotation 拿到 category/subcategory/通路名
+Zebrafish_GSEA_term_df = do.call(rbind, lapply(Zebrafish_GSEA_term, function(x){
+    data.frame(
+        celltype = x$celltype,
+        term_id  = x$pathway,
+        NES = x$NES, ES = x$ES, pval = x$pval, padj = x$padj, size = x$size,
+        stringsAsFactors = FALSE
+    )
+}))
+Zebrafish_GSEA_term_df = merge(
+    Zebrafish_GSEA_term_df,
+    term_anno[, c("term_id", "source", "gene_set", "category", "subcategory")],
+    by = "term_id", all.x = TRUE
+)
+Zebrafish_GSEA_term_df = Zebrafish_GSEA_term_df[
+    order(Zebrafish_GSEA_term_df$celltype, Zebrafish_GSEA_term_df$category, -Zebrafish_GSEA_term_df$NES), ]
+rownames(Zebrafish_GSEA_term_df) = NULL
+
+## 看下每个 celltype 显著的通路数
+print(table(Zebrafish_GSEA_term_df$celltype[Zebrafish_GSEA_term_df$pval < 0.05]))
+
+######
+###### 保存 term (只存一个 tsv) ######
+######
+setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
+write.table(Zebrafish_GSEA_term_df, file = "Zebrafish_GSEA_term.tsv",
+            sep = "\t", quote = FALSE, row.names = FALSE)
+message("已保存: Zebrafish_GSEA_term.tsv; 行数: ", nrow(Zebrafish_GSEA_term_df))
+
+######
+###### 用 complexHeatmap 只画在 大于等于一个 celltype 里面富集的 GO terms ########
+###### 把 C1 C2 categroy 标在 heatmap 左边 #####
+###### nature 配色 ####
+######
+
+library(ComplexHeatmap)
+library(circlize)
+library(reshape2)
+
+df = Zebrafish_GSEA_term_df
+df$sig = df$pval < 0.05 & !is.na(df$pval)
+
+## 1. 只保留: 至少在一个 celltype 显著富集的 term
+sig_terms = unique(df$term_id[df$sig])
+df_keep   = df[df$term_id %in% sig_terms, ]
+message(sprintf("至少在一个 celltype 显著的 term: %d 个", length(sig_terms)))
+
+## 2. 构建 NES 矩阵 (term x celltype) + 显著性矩阵
+nes_mat = acast(df_keep, term_id ~ celltype, value.var = "NES")
+sig_mat = acast(df_keep, term_id ~ celltype, value.var = "sig")
+sig_mat[is.na(sig_mat)] = FALSE
+nes_mat[!sig_mat] = NA              # 不显著的格子留白
+
+## 3. 列(celltype)顺序
+ct_levels = c("MG","RGC","AC","HC","BC","Cone","Rod","Microglia","RPE")
+ct_levels = ct_levels[ct_levels %in% colnames(nes_mat)]
+nes_mat   = nes_mat[, ct_levels, drop = FALSE]
+
+## 4. 行注释信息: category + 可读通路名; 按 C1..C10 数字顺序排行
+term_info = unique(df_keep[, c("term_id","gene_set","category")])
+term_info = term_info[match(rownames(nes_mat), term_info$term_id), ]
+term_info$cat_short = sub("^(C[0-9]+)_.*", "\\1", term_info$category)
+term_info$cat_num   = as.numeric(sub("^C([0-9]+)_.*", "\\1", term_info$category))
+ord = order(term_info$cat_num, rownames(nes_mat))
+nes_mat   = nes_mat[ord, , drop = FALSE]
+term_info = term_info[ord, ]
+rownames(nes_mat) = term_info$gene_set       # 行名换成可读名
+
+## 5. 配色 (NPG/Nature): NES 蓝-白-红; category 色块
+col_fun = colorRamp2(c(-2, 0, 2), c("#3C5488", "white", "#E64B35"))
+npg_cols = c("#E64B35","#4DBBD5","#00A087","#3C5488","#F39B7F",
+             "#8491B4","#91D1C2","#DC0000","#7E6148","#B09C85")
+cats = unique(term_info$category[order(term_info$cat_num)])
+cat_colors = setNames(npg_cols[seq_along(cats)], cats)
+
+## Category 设为因子(按 C1..C10 排序); 图例每个 category 一行
+cat_factor = factor(term_info$category, levels = cats)
+left_anno = rowAnnotation(
+    Category = cat_factor,
+    col = list(Category = cat_colors),
+    show_annotation_name = FALSE,
+    annotation_legend_param = list(Category = list(title = "Category", ncol = 1))
+)
+
+row_sp = factor(term_info$cat_short, levels = paste0("C", sort(unique(term_info$cat_num))))
+
+## 6. 画图 (高度按 term 数自适应)
+h_in = max(6, nrow(nes_mat) * 0.13 + 2)
+ht = Heatmap(
+    nes_mat, name = "NES", col = col_fun, na_col = "grey95",
+    left_annotation = left_anno,
+    row_split = row_sp, row_title_rot = 0, row_gap = unit(1, "mm"),
+    cluster_rows = FALSE, cluster_columns = FALSE,
+    show_row_names = TRUE, row_names_gp = gpar(fontsize = 5.5),
+    show_column_names = TRUE, column_names_gp = gpar(fontsize = 11),
+    column_names_rot = 45,
+    rect_gp = gpar(col = "white", lwd = 0.5),
+    border = TRUE,
+    heatmap_legend_param = list(title = "NES", at = c(-2,-1,0,1,2), border = "black")
+)
+
+png("Zebrafish_GSEA_term_heatmap.png", width = 7.5, height = h_in, units = "in", res = 300)
+draw(ht,
+     heatmap_legend_side    = "right",
+     annotation_legend_side = "right")
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
