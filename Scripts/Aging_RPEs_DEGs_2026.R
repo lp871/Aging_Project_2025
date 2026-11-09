@@ -950,6 +950,15 @@ if (nrow(same_direction) > 0) {
        column_title_gp = gpar(fontsize = 14, fontface = "bold"),
        ht_gap = unit(8, "mm"))
   dev.off()
+
+  # Export the genes actually shown in the heatmap (by category)
+  smoke_hm_genes <- data.frame(
+    gene = ordered_sym,
+    category = c(rep("Up with aging & smoking", length(up_sym_ht)),
+                 rep("Down with aging & smoking", length(down_sym_ht)))
+  )
+  write.csv(smoke_hm_genes, "Smoking_heatmap_genes_category.csv", row.names = FALSE)
+  cat("Saved", nrow(smoke_hm_genes), "smoking heatmap genes to Smoking_heatmap_genes_category.csv\n")
 }
 
 

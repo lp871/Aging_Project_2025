@@ -239,6 +239,20 @@ cat("  Down with age (adj.P<0.05):", sum(degs_cont$adj.P.Val < 0.05 & degs_cont$
 
 head(degs_cont[order(degs_cont$P.Value), ], 20)
 
+####
+####
+####
+
+setwd("/projects/hmz-aging/Metformin/Human_RPE_atlas_mtx")
+saveRDS(degs_cont,file="Human_RPE_aging_DEGs.RData")
+
+
+####
+####
+####
+
+
+
 # 用 P < 0.01 筛选
 degs_sig <- degs_cont[degs_cont$P.Value < 0.005, ]
 cat("\n=== P < 0.005 ===\n")
@@ -734,6 +748,17 @@ ht_height <- min(14, max(4, length(common_ordered) * 0.08 + 1.5))
 png("CCHS_MET_reverses_aging_heatmapXXX.png", width = 8, height = ht_height, units = "in", res = 300)
 draw(ht_met + ht_male + ht_female, ht_gap = unit(3, "mm"))
 dev.off()
+
+# Export the genes actually shown in the heatmap (by category)
+human_met_hm_genes <- data.frame(
+  gene = common_ordered,
+  direction = ifelse(common_ordered %in% common_up,
+                     "Aging Up (Met Down)", "Aging Down (Met Up)"),
+  functional_category = unname(gene_to_category[common_ordered])
+)
+human_met_hm_genes$functional_category[is.na(human_met_hm_genes$functional_category)] <- "Other"
+write.csv(human_met_hm_genes, "Human_Metformin_heatmap_genes_category.csv", row.names = FALSE)
+cat("Saved", nrow(human_met_hm_genes), "human metformin heatmap genes to Human_Metformin_heatmap_genes_category.csv\n")
 
 ######
 ######
