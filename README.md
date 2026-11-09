@@ -13,6 +13,8 @@ Aging is the major risk factor for retinal degeneration, but the cellular progra
 
 The data are available in GEO under accession numbers [GSE325479](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE325479) and [GSE307031](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE307031).
 
+The data files used in the analyses are available on [Google Drive](https://drive.google.com/drive/folders/1mZwCLEwMzZQ7NT0jy4jzjRcL8Zxu6xYi?usp=drive_link).
+
 ## Mouse samples
 
 | Sample name | Seurat name |
