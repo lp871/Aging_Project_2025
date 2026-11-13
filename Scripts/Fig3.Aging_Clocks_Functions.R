@@ -1,9 +1,9 @@
 ########################################################################
 ######## Aging Clocks Functions for Human Data
-######## 包含所有用于 Elastic Net LODO 的 R 函数
+######## All R functions used for Elastic Net LODO
 ########################################################################
 
-# 加载必要的包
+# Load required packages
 library(Matrix)
 library(Seurat)
 library(glmnet)
@@ -11,7 +11,7 @@ library(parallel)
 library(ggplot2)
 library(viridis)
 
-# 1. 从 mtx 文件夹读取数据并创建 Seurat 对象
+# 1. Read data from an mtx folder and create a Seurat object
 load_mtx_to_seurat <- function(mtx_dir) {
   mat <- readMM(file.path(mtx_dir, "matrix.mtx"))
   mat <- as(mat, "CsparseMatrix")
@@ -24,7 +24,7 @@ load_mtx_to_seurat <- function(mtx_dir) {
   CreateSeuratObject(counts = mat, meta.data = meta)
 }
 
-# 2. 批量处理单个 celltype（读取 mtx -> Seurat -> 保存 rds）
+# 2. Batch-process a single celltype (read mtx -> Seurat -> save rds)
 process_one_celltype <- function(ct, mtx_base, seurat_out_dir) {
   mtx_dir <- file.path(mtx_base, paste0(ct, "_clean4_smoothed"))
   if (!dir.exists(mtx_dir)) { message(ct, ": mtx dir not found"); return(invisible(NULL)) }
@@ -37,15 +37,15 @@ process_one_celltype <- function(ct, mtx_base, seurat_out_dir) {
   invisible(NULL)
 }
 
-# 3. 添加 Age_numeric 和 age_interval 列（10年和30年）
+# 3. Add Age_numeric and age_interval columns (10-year and 30-year)
 seurat_add_age_numeric_and_interval <- function(seu, age_col = "age") {
   meta <- seu@meta.data
   if (!age_col %in% colnames(meta)) stop(paste("age column not found:", age_col))
-  message("原始 age 列前5个值: ", paste(head(meta[[age_col]], 5), collapse = ", "))
+  message("First 5 values of original age column: ", paste(head(meta[[age_col]], 5), collapse = ", "))
   age_str <- as.character(meta[[age_col]])
   age_numeric <- as.numeric(gsub("[^0-9.]", "", age_str))
   meta$Age_numeric <- age_numeric
-  message("转换后 Age_numeric 前5个值: ", paste(head(age_numeric, 5), collapse = ", "))
+  message("First 5 values of converted Age_numeric: ", paste(head(age_numeric, 5), collapse = ", "))
   age_interval_10yr <- cut(age_numeric, breaks = seq(0, 90, by = 10), labels = c("0-10", "10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90"), right = FALSE, include.lowest = TRUE)
   meta$age_interval_10yr <- as.character(age_interval_10yr)
   age_interval_30yr <- cut(age_numeric, breaks = c(0, 30, 60, 90), labels = c("0-30", "30-60", "60-90"), right = FALSE, include.lowest = TRUE)
@@ -54,7 +54,7 @@ seurat_add_age_numeric_and_interval <- function(seu, age_col = "age") {
   seu
 }
 
-# 4. 添加 cell-level balance weights（IPF迭代平衡）
+# 4. Add cell-level balance weights (IPF iterative balancing)
 seurat_add_balance_weights <- function(x, donor_col = "donor_id", sex_col = "sex", age_interval_col = "age_interval_10yr", target_per_donor = 1, target_per_interval = 1, max_iter = 100, tol = 1e-6) {
   is_seurat <- inherits(x, "Seurat")
   meta <- if (is_seurat) x@meta.data else x
@@ -63,8 +63,8 @@ seurat_add_balance_weights <- function(x, donor_col = "donor_id", sex_col = "sex
   sex <- as.character(meta[[sex_col]])
   aint <- as.character(meta[[age_interval_col]])
   keep <- !is.na(donor) & donor != "" & !is.na(sex) & sex != "" & !is.na(aint) & aint != ""
-  message("添加 balance weights (IPF): 平衡 age_interval (", age_interval_col, "), sex, donor")
-  message("有效 cell 数: ", sum(keep), "/", length(donor))
+  message("Adding balance weights (IPF): balancing age_interval (", age_interval_col, "), sex, donor")
+  message("Valid cells: ", sum(keep), "/", length(donor))
   meta$weight <- 1.0
   meta$weight[!keep] <- 0
   unique_donors <- unique(donor[keep])
@@ -110,7 +110,7 @@ seurat_add_balance_weights <- function(x, donor_col = "donor_id", sex_col = "sex
   meta
 }
 
-# 5. 针对老年 interval（60-70, 70-80, 80-90）进行下采样，按 sex 分层
+# 5. Downsample donors in old intervals (60-70, 70-80, 80-90), stratified by sex
 seurat_downsample_old_donors_10yr <- function(seu, donor_col = "donor_id", age_interval_col = "age_interval_10yr", sex_col = "sex", seed = 123) {
   meta <- seu@meta.data
   if (!donor_col %in% names(meta) || !age_interval_col %in% names(meta)) stop("columns not found")
@@ -126,7 +126,7 @@ seurat_downsample_old_donors_10yr <- function(seu, donor_col = "donor_id", age_i
     group <- paste(aint, sex, sep = "_")
     uniq_donors_by_group <- lapply(split(donor, group), unique)
     n_donors_by_group <- sapply(uniq_donors_by_group, length)
-    message("每个 (10yr interval, sex) 的 donor 数量（下采样前）：")
+    message("Number of donors per (10yr interval, sex) (before downsampling):")
     print(n_donors_by_group)
     young_intervals <- c("0-10", "10-20", "20-30", "30-40", "40-50", "50-60")
     old_intervals <- c("60-70", "70-80", "80-90")
@@ -138,11 +138,11 @@ seurat_downsample_old_donors_10yr <- function(seu, donor_col = "donor_id", age_i
         target_by_sex[[s]] <- round(mean(young_counts))
       }
     }
-    message("年轻时间点（0-60岁）每个 sex 的平均 donor 数:")
+    message("Mean number of donors per sex at young time points (0-60 years):")
     print(unlist(target_by_sex))
     set.seed(seed)
     selected_donors <- character(0)
-    message("\n下采样策略：")
+    message("\nDownsampling strategy:")
     for (grp_name in names(uniq_donors_by_group)) {
       donors_in_grp <- uniq_donors_by_group[[grp_name]]
       parts <- strsplit(grp_name, "_")[[1]]
@@ -152,35 +152,35 @@ seurat_downsample_old_donors_10yr <- function(seu, donor_col = "donor_id", age_i
         target_n <- target_by_sex[[sex_name]]
         n_select <- min(target_n, length(donors_in_grp))
         selected_donors <- c(selected_donors, sample(donors_in_grp, n_select))
-        message("  [下采样] ", grp_name, ": ", length(donors_in_grp), " -> ", n_select, " donors")
+        message("  [Downsampled] ", grp_name, ": ", length(donors_in_grp), " -> ", n_select, " donors")
       } else {
         selected_donors <- c(selected_donors, donors_in_grp)
         if (int_name %in% old_intervals) {
-          message("  [保留全部] ", grp_name, ": ", length(donors_in_grp), " donors (无对应 sex 的 target)")
+          message("  [Kept all] ", grp_name, ": ", length(donors_in_grp), " donors (no target for this sex)")
         } else {
-          message("  [保留全部] ", grp_name, ": ", length(donors_in_grp), " donors (年轻时间点)")
+          message("  [Kept all] ", grp_name, ": ", length(donors_in_grp), " donors (young time point)")
         }
       }
     }
   } else {
-    warning("sex column not found, 不按 sex 分层下采样")
+    warning("sex column not found, downsampling without sex stratification")
     keep <- !is.na(aint) & aint != "" & !is.na(donor) & donor != ""
     aint <- aint[keep]
     donor <- donor[keep]
     cells_keep <- rownames(meta)[keep]
     uniq_donors_by_aint <- lapply(split(donor, aint), unique)
     n_donors <- sapply(uniq_donors_by_aint, length)
-    message("每个 10yr interval 的 donor 数量（下采样前）：")
+    message("Number of donors per 10yr interval (before downsampling):")
     print(n_donors)
     young_intervals <- c("0-10", "10-20", "20-30", "30-40", "40-50", "50-60")
     old_intervals <- c("60-70", "70-80", "80-90")
     young_counts <- n_donors[names(n_donors) %in% young_intervals]
     if (length(young_counts) == 0) {
-      warning("没有找到年轻 interval (0-60岁)，无法计算 target")
+      warning("No young intervals (0-60 years) found, cannot compute target")
       return(seu)
     }
     target_n <- round(mean(young_counts))
-    message("年轻时间点（0-60岁）平均 donor 数: ", target_n)
+    message("Mean number of donors at young time points (0-60 years): ", target_n)
     set.seed(seed)
     selected_donors <- character(0)
     for (int_name in names(uniq_donors_by_aint)) {
@@ -195,16 +195,16 @@ seurat_downsample_old_donors_10yr <- function(seu, donor_col = "donor_id", age_i
   }
   cells_selected <- cells_keep[donor %in% selected_donors]
   seu_sub <- subset(seu, cells = cells_selected)
-  message("下采样后保留 ", ncol(seu_sub), " 个 cell（原 ", ncol(seu), "）")
+  message("Kept ", ncol(seu_sub), " cells after downsampling (originally ", ncol(seu), ")")
   return(seu_sub)
 }
 
-# 6. 按 (age_interval_30yr, sex) 组合对 donor 做下采样（备用函数，当前不使用）
+# 6. Downsample donors by (age_interval_30yr, sex) group (fallback function, currently unused)
 seurat_downsample_donors_by_interval <- function(seu, donor_col = "donor_id", age_interval_col = "age_interval_30yr", sex_col = "sex", seed = 123) {
   meta <- seu@meta.data
   if (!donor_col %in% names(meta) || !age_interval_col %in% names(meta)) stop("columns not found")
   if (!sex_col %in% names(meta)) {
-    warning("sex column not found, 只按 age_interval 下采样（不考虑 sex）")
+    warning("sex column not found, downsampling by age_interval only (ignoring sex)")
     aint <- as.character(meta[[age_interval_col]])
     donor <- as.character(meta[[donor_col]])
     keep <- !is.na(aint) & aint != "" & !is.na(donor) & donor != ""
@@ -214,15 +214,15 @@ seurat_downsample_donors_by_interval <- function(seu, donor_col = "donor_id", ag
     donors_by_aint <- split(donor, aint)
     uniq_donors_by_aint <- lapply(donors_by_aint, unique)
     n_donors <- sapply(uniq_donors_by_aint, length)
-    message("每个 age_interval 的 donor 数量（下采样前）：")
+    message("Number of donors per age_interval (before downsampling):")
     print(n_donors)
     min_n <- min(n_donors)
-    message("将每个 interval 下采样到 ", min_n, " 个 donor")
+    message("Downsampling each interval to ", min_n, " donors")
     set.seed(seed)
     selected_donors <- unlist(lapply(uniq_donors_by_aint, function(d) sample(d, min(min_n, length(d)))))
     cells_selected <- cells_keep[donor %in% selected_donors]
     seu_sub <- subset(seu, cells = cells_selected)
-    message("下采样后保留 ", ncol(seu_sub), " 个 cell（原 ", ncol(seu), "）")
+    message("Kept ", ncol(seu_sub), " cells after downsampling (originally ", ncol(seu), ")")
     return(seu_sub)
   }
   aint <- as.character(meta[[age_interval_col]])
@@ -237,19 +237,19 @@ seurat_downsample_donors_by_interval <- function(seu, donor_col = "donor_id", ag
   donors_by_group <- split(donor, group)
   uniq_donors_by_group <- lapply(donors_by_group, unique)
   n_donors <- sapply(uniq_donors_by_group, length)
-  message("每个 (age_interval, sex) 组合的 donor 数量（下采样前）：")
+  message("Number of donors per (age_interval, sex) group (before downsampling):")
   print(n_donors)
   min_n <- min(n_donors)
-  message("将每个 (age_interval, sex) 下采样到 ", min_n, " 个 donor")
+  message("Downsampling each (age_interval, sex) group to ", min_n, " donors")
   set.seed(seed)
   selected_donors <- unlist(lapply(uniq_donors_by_group, function(d) sample(d, min(min_n, length(d)))))
   cells_selected <- cells_keep[donor %in% selected_donors]
   seu_sub <- subset(seu, cells = cells_selected)
-  message("下采样后保留 ", ncol(seu_sub), " 个 cell（原 ", ncol(seu), "）")
+  message("Kept ", ncol(seu_sub), " cells after downsampling (originally ", ncol(seu), ")")
   return(seu_sub)
 }
 
-# 7. Elastic Net LODO (Leave-One-Donor-Out) 交叉验证
+# 7. Elastic Net LODO (Leave-One-Donor-Out) cross-validation
 elastic_net_LODO <- function(seu, donor_col = "donor_id", age_col = "age", alphas = c(0.1, 0.5, 1), ncores = 5, scale.factor = 1e4) {
   seu <- seurat_add_age_numeric_and_interval(seu, age_col = age_col)
   meta <- seu@meta.data
@@ -269,9 +269,9 @@ elastic_net_LODO <- function(seu, donor_col = "donor_id", age_col = "age", alpha
   cell_names <- rownames(meta)
   weights_all <- if ("weight" %in% colnames(meta)) meta$weight else rep(1, nrow(meta))
   if ("weight" %in% colnames(meta)) {
-    message("使用 cell weights（来自 seurat_add_balance_weights）")
+    message("Using cell weights (from seurat_add_balance_weights)")
   } else {
-    message("未检测到 weight 列，所有 cell 权重为 1")
+    message("No weight column detected, all cells weighted 1")
   }
   all_donors <- unique(donors)
   nfolds_inner <- 5

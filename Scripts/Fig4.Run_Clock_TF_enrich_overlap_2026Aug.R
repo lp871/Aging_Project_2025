@@ -1,26 +1,26 @@
 #!/usr/bin/env Rscript
 ########################################################################
-# 2026 Final clocks → TF enrichment → 种内 / 跨物种 overlap → 图 + Excel
+# 2026 Final clocks → TF enrichment → within-species / cross-species overlap → figures + Excel
 #
-# Old / Young 来自最新 Final aging clocks（不是 edgeR / kmeans）:
+# Old / Young from the latest Final aging clocks (not edgeR / kmeans):
 #   coef > 0  → Old
 #   coef < 0  → Young
-# Human 用合并版 FinalClock_clean5_2026，不用 bySex。
+# Human uses the merged FinalClock_clean5_2026, not bySex.
 #
-# GRN: 旧版 2025 lists（*_GRNs_list_clcl_2025），unique TF–Gene pairs
-#   调控方向 Class = pos/neg，由 TF–Gene Pearson (GG_Cor / GG_Corr) 决定
-#   标签 combined_Tag = pos_Old / pos_Young / neg_Old / neg_Young
+# GRN: legacy 2025 lists (*_GRNs_list_clcl_2025), unique TF–Gene pairs
+#   Regulatory direction Class = pos/neg, determined by TF–Gene Pearson (GG_Cor / GG_Corr)
+#   Label combined_Tag = pos_Old / pos_Young / neg_Old / neg_Young
 #
-# TF 富集: TF–Gene pair 水平超几何
-# 选定 TF 点图暂不画。
+# TF enrichment: hypergeometric test at the TF–Gene pair level
+# Dot plots of selected TFs are not drawn for now.
 #
-# 另加 C1–C10 种内 overlap TF bubble（3 张）:
-#   Human C2_down：各 CT 上 (LE∩edgeR)_male ∪ (LE∩edgeR)_female
+# Additional C1–C10 within-species overlap TF bubbles (3 plots):
+#   Human C2_down: per CT, (LE∩edgeR)_male ∪ (LE∩edgeR)_female
 #   Zebrafish C3 down
 #   Mouse C5 up
-#   三张都按全部 CT 平均 -log10(P) 取前 25
+#   All three take the top 25 by mean -log10(P) across all CTs
 #
-# 输出目录:
+# Output directory:
 #   /projects/hmz-aging/Clock_TF_enrich_2026Aug/
 #
 # HPC:
@@ -37,7 +37,7 @@ if (!requireNamespace("openxlsx", quietly = TRUE)) {
 library(openxlsx)
 
 ## ------------------------------------------------------------------
-## 路径 / 参数
+## Paths / parameters
 ## ------------------------------------------------------------------
 grn_dir         <- "/projects/hmz-aging/GRNs"
 mouse_dir       <- "/projects/hmz-aging/Mouse_New_Datasets"
@@ -55,8 +55,8 @@ dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 major_cts     <- c("MG", "RGC", "AC", "HC", "Rod", "Cone", "BC")
 species_order <- c("Zebrafish", "Mouse", "Human")
-p_cut         <- 0.05          # 显著 TF / overlap
-min_shared_ct <- 3L            # 种内直方图：至少共享几个 CT
+p_cut         <- 0.05          # significant TF / overlap
+min_shared_ct <- 3L            # within-species histogram: minimum number of shared CTs
 tags          <- c("pos_Old", "pos_Young", "neg_Old", "neg_Young")
 bar_tags      <- c("neg_Young", "neg_Old", "pos_Young", "pos_Old",
                    "neg_NODIFF", "pos_NODIFF")
@@ -70,7 +70,7 @@ ortho_candidates <- c(
 )
 
 ## ------------------------------------------------------------------
-## 工具
+## Utilities
 ## ------------------------------------------------------------------
 find_existing <- function(cands) {
     hit <- cands[file.exists(cands)]
@@ -88,11 +88,11 @@ load_ortholog <- function(fp) {
     }
     obj <- tryCatch(readRDS(fp), error = function(e) NULL)
     if (!is.null(obj)) return(obj)
-    stop("无法读入 ortholog: ", fp)
+    stop("Cannot read ortholog: ", fp)
 }
 
 load_r_object <- function(fp, prefer = NULL) {
-    ## 无后缀的 2025 GRN 实际是 saveRDS，不是 load() 的 RData
+    ## Extensionless 2025 GRN files are actually saveRDS output, not load() RData
     obj <- tryCatch(readRDS(fp), error = function(e) NULL)
     if (!is.null(obj)) return(obj)
     env <- new.env(parent = emptyenv())
@@ -100,11 +100,11 @@ load_r_object <- function(fp, prefer = NULL) {
     if (!is.null(prefer) && exists(prefer, envir = env, inherits = FALSE))
         return(get(prefer, envir = env))
     objs <- ls(envir = env)
-    if (length(objs) == 0) stop("空对象: ", fp)
+    if (length(objs) == 0) stop("Empty object: ", fp)
     get(objs[[1]], envir = env)
 }
 
-## 最新 Final clocks：Human 合并版；Mouse/Fish 各 CT 目录
+## Latest Final clocks: merged version for Human; per-CT directories for Mouse/Fish
 clock_rds_path <- function(species, ct) {
     if (species == "Human") {
         file.path(human_final_dir, paste0(ct, "_final_aging_clock_model_2026.rds"))
@@ -123,7 +123,7 @@ clock_csv_path <- function(species, ct) {
     }
 }
 
-## coef>0 = Old, coef<0 = Young；优先 rds$coefs，缺则 csv
+## coef>0 = Old, coef<0 = Young; prefer rds$coefs, fall back to csv
 read_clock_old_young <- function(species, ct) {
     empty <- list(Old = character(0), Young = character(0), table = NULL, src = NA_character_)
     rds <- clock_rds_path(species, ct)
@@ -155,7 +155,7 @@ read_clock_old_young <- function(species, ct) {
          table = tab, src = src)
 }
 
-## 读旧版 2025 GRN list（*_GRNs_list_clcl_2025）；收成 unique TF–Gene pairs
+## Read legacy 2025 GRN lists (*_GRNs_list_clcl_2025); collapse into unique TF–Gene pairs
 load_grn_list <- function(species) {
     cands <- c(
         file.path(grn_dir, sprintf("%s_GRNs_list_clcl_2025", species)),
@@ -169,7 +169,7 @@ load_grn_list <- function(species) {
         )
     }
     fp <- find_existing(cands)
-    if (is.na(fp)) stop("找不到 ", species, " 旧 GRN: ", paste(cands, collapse = " | "))
+    if (is.na(fp)) stop("Cannot find ", species, " legacy GRN: ", paste(cands, collapse = " | "))
     message("[GRN 2025] ", fp)
     normalize_grn_list(load_r_object(fp), species)
 }
@@ -180,19 +180,19 @@ normalize_grn_list <- function(grn_list, species) {
         x <- as.data.frame(grn_list[[ct]])
         if (!"Gene" %in% names(x) && "Target" %in% names(x)) x$Gene <- x$Target
         if (!all(c("TF", "Gene") %in% names(x))) {
-            stop(species, "/", ct, " GRN 缺 TF/Gene: ",
+            stop(species, "/", ct, " GRN missing TF/Gene: ",
                  paste(names(x), collapse = ","))
         }
         x$TF <- as.character(x$TF)
         x$Gene <- as.character(x$Gene)
         x <- x[!is.na(x$TF) & nzchar(x$TF) & !is.na(x$Gene) & nzchar(x$Gene), ]
         n0 <- nrow(x)
-        ## 2025 clcl list 已有 Class=pos/neg；没有相关列也没关系
+        ## 2025 clcl lists already have Class=pos/neg; a missing correlation column is fine
         if (!"Class" %in% names(x) || !all(x$Class %in% c("pos", "neg"))) {
             if (!"GG_Cor" %in% names(x) && "GG_Corr" %in% names(x)) x$GG_Cor <- x$GG_Corr
             if (!"GG_Cor" %in% names(x) && "Pearson" %in% names(x)) x$GG_Cor <- x$Pearson
             if (!"GG_Cor" %in% names(x)) {
-                stop(species, "/", ct, " GRN 缺 Class/GG_Cor: ",
+                stop(species, "/", ct, " GRN missing Class/GG_Cor: ",
                      paste(names(x), collapse = ","))
             }
             x$GG_Cor <- as.numeric(as.character(x$GG_Cor))
@@ -210,7 +210,7 @@ normalize_grn_list <- function(grn_list, species) {
     out
 }
 
-## 用 clock Old/Young 给每个 TF–Gene pair 打 AGE，再拼 combined_Tag
+## Assign AGE to each TF–Gene pair from clock Old/Young, then build combined_Tag
 annotate_grn_with_clock <- function(grn_list, old_list, young_list) {
     out <- list()
     for (ct in names(grn_list)) {
@@ -229,7 +229,7 @@ annotate_grn_with_clock <- function(grn_list, old_list, young_list) {
     out
 }
 
-## TF–Gene pair 水平超几何：每个 TF × pos_Old / pos_Young / neg_Old / neg_Young
+## Hypergeometric test at the TF–Gene pair level: each TF × pos_Old / pos_Young / neg_Old / neg_Young
 enrich_tfs_pair <- function(grn_list) {
     res <- list()
     for (ct in names(grn_list)) {
@@ -270,7 +270,7 @@ enrich_list_to_df <- function(enrich_list, species) {
     df
 }
 
-## 种内：每个 TF 在几个 CT 对 pos_Old / pos_Young 显著
+## Within-species: number of CTs in which each TF is significant for pos_Old / pos_Young
 within_overlap_mats <- function(enrich_list, pcut = 0.05) {
     cts <- names(enrich_list)
     tfs <- unique(unlist(lapply(enrich_list, function(x) x$TF)))
@@ -293,7 +293,7 @@ within_overlap_mats <- function(enrich_list, pcut = 0.05) {
     list(pos_Old = to_df(mat_o), pos_Young = to_df(mat_y))
 }
 
-## 跨物种：同一 CT、同一方向（pos_Old 或 pos_Young）的显著 TF，用 ortholog 对齐
+## Cross-species: significant TFs in the same CT and direction (pos_Old or pos_Young), matched via orthologs
 prepare_cross_dot <- function(H, M, Z, ct, tag, ortho) {
     get_mat <- function(x) {
         if (is.null(x) || !ct %in% names(x)) return(NULL)
@@ -340,7 +340,7 @@ prepare_cross_dot <- function(H, M, Z, ct, tag, ortho) {
     lst <- Filter(Negate(is.null), lst)
     if (length(lst) == 0) return(data.frame())
     res <- do.call(rbind, lst)
-    ## HM/HZ/MZ 里已属于 HMZ 的对去掉，避免重复
+    ## Drop HM/HZ/MZ pairs already in HMZ to avoid duplicates
     if (any(res$class == "HMZ")) {
         hmz_ids <- unique(res$index[res$class == "HMZ"])
         drop <- res$class != "HMZ" & vapply(seq_len(nrow(res)), function(i) {
@@ -367,7 +367,7 @@ prepare_cross_dot <- function(H, M, Z, ct, tag, ortho) {
     res$order <- match(res$class, c("HMZ", "HM", "HZ", "MZ"))
     res$sp <- factor(res$sp, levels = c("Z", "M", "H"),
                      labels = c("Zebrafish", "Mouse", "Human"))
-    ## y 轴标签 / 排序：zebrafish → mouse → human（对齐原 Process_res2）
+    ## y-axis labels / order: zebrafish → mouse → human (matching the original Process_res2)
     z <- m <- h <- character(nrow(res))
     new_idx <- character(nrow(res))
     for (i in seq_len(nrow(res))) {
@@ -413,7 +413,7 @@ theme_bar <- function() {
 
 safe_sheet <- function(x) substr(gsub("[\\[\\]\\*\\?/\\\\:]", "_", x), 1, 31)
 
-## 不再写 tsv：收集成 Excel tab
+## No longer write tsv; collect into Excel tabs
 tsv_book <- list()
 write_table <- function(df, tab, desc = NULL) {
     if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
@@ -440,7 +440,7 @@ write_table <- function(df, tab, desc = NULL) {
 # 0) ortholog
 ########################################################################
 ortho_fp <- find_existing(ortho_candidates)
-if (is.na(ortho_fp)) stop("找不到 HMZ_ortholog_combined")
+if (is.na(ortho_fp)) stop("Cannot find HMZ_ortholog_combined")
 HMZ_ortholog_combined <- load_ortholog(ortho_fp)
 message("[Ortholog] ", ortho_fp)
 
@@ -462,20 +462,20 @@ for (sp in species_order) {
                         sp, ct, length(oy$Old), length(oy$Young),
                         if (is.na(oy$src)) "MISSING" else basename(oy$src)))
         if (is.na(oy$src)) {
-            warning(sp, "/", ct, " 缺少 Final clock: ", clock_rds_path(sp, ct))
+            warning(sp, "/", ct, " missing Final clock: ", clock_rds_path(sp, ct))
         }
     }
 }
 clock_df <- do.call(rbind, clock_tables)
 rownames(clock_df) <- NULL
 write_table(clock_df, "Clock_OldYoung_genesets",
-            "2026 Final clocks；Old=coef>0；Young=coef<0。Human=FinalClock_clean5_2026")
+            "2026 Final clocks; Old=coef>0; Young=coef<0. Human=FinalClock_clean5_2026")
 
 
 ########################################################################
-# 2) GRNs + 标注
+# 2) GRNs + annotation
 ########################################################################
-message("\n========== 2) 读 2025 GRNs 并用 2026 clock 标注 ==========")
+message("\n========== 2) Read 2025 GRNs and annotate with 2026 clocks ==========")
 grn_raw <- list()
 grn_ann <- list()
 bar_rows <- list()
@@ -504,13 +504,13 @@ rownames(bar_df) <- NULL
 bar_df$combined_Tag <- factor(as.character(bar_df$combined_Tag), levels = bar_tags)
 bar_df$celltype <- factor(bar_df$celltype, levels = major_cts)
 write_table(bar_df, "GRN_clock_pair_counts",
-            "全部 TF–Gene pair 数：4 类 aging + pos/neg_NODIFF（柱高=该 CT 总 GRN 数）")
+            "All TF–Gene pair counts: 4 aging classes + pos/neg_NODIFF (bar height = total GRN count for the CT)")
 
 
 ########################################################################
 # 3) TF enrichment
 ########################################################################
-message("\n========== 3) TF–Gene pair 水平 TF enrichment ==========")
+message("\n========== 3) TF enrichment at the TF–Gene pair level ==========")
 enrich_list <- list()
 enrich_rows <- list()
 for (sp in species_order) {
@@ -521,13 +521,13 @@ for (sp in species_order) {
 enrich_df <- do.call(rbind, enrich_rows)
 rownames(enrich_df) <- NULL
 write_table(enrich_df, "TF_enrich_clock_all",
-            "TF–Gene pair 水平超几何：每个 TF × 四个 combined_Tag 的 p / coverage / k")
+            "Hypergeometric test at the TF–Gene pair level: p / coverage / k for each TF × four combined_Tags")
 
 
 ########################################################################
-# 4) 种内 overlap
+# 4) Within-species overlap
 ########################################################################
-message("\n========== 4) 种内 TF overlap（共享 CT 数） ==========")
+message("\n========== 4) Within-species TF overlap (number of shared CTs) ==========")
 within_list <- list()
 within_long <- list()
 for (sp in species_order) {
@@ -538,7 +538,7 @@ for (sp in species_order) {
         d$direction <- dirn
         within_long[[length(within_long) + 1]] <- d
         write_table(d, sprintf("Within_%s_%s", sp, dirn),
-                    sprintf("种内 %s %s：每个 TF 在哪些 CT 显著；sum=显著 CT 数", sp, dirn))
+                    sprintf("Within-species %s %s: CTs in which each TF is significant; sum = number of significant CTs", sp, dirn))
     }
 }
 within_df <- do.call(rbind, within_long)
@@ -546,9 +546,9 @@ rownames(within_df) <- NULL
 
 
 ########################################################################
-# 5) 跨物种 overlap
+# 5) Cross-species overlap
 ########################################################################
-message("\n========== 5) 跨物种 TF overlap（每个 cell type） ==========")
+message("\n========== 5) Cross-species TF overlap (per cell type) ==========")
 cross_rows <- list()
 for (ct in major_cts) {
     for (tag in c("pos_Old", "pos_Young")) {
@@ -565,7 +565,7 @@ for (ct in major_cts) {
                         paste(unique(tmp$class), collapse = ",")))
         cross_rows[[length(cross_rows) + 1]] <- tmp
         write_table(tmp, sprintf("Cross_%s_%s", ct, tag),
-                    sprintf("跨物种 %s %s：HMZ/HM/HZ/MZ ortholog 对齐", ct, tag))
+                    sprintf("Cross-species %s %s: HMZ/HM/HZ/MZ ortholog matching", ct, tag))
     }
 }
 cross_df <- if (length(cross_rows)) do.call(rbind, cross_rows) else data.frame()
@@ -573,9 +573,9 @@ if (nrow(cross_df) > 0) rownames(cross_df) <- NULL
 
 
 ########################################################################
-# 6) 图
+# 6) Figures
 ########################################################################
-message("\n========== 6) 出图 ==========")
+message("\n========== 6) Plotting ==========")
 fill_cols <- c(
     pos_NODIFF = "#D9D9D9",
     neg_NODIFF = "#BDBDBD",
@@ -591,7 +591,7 @@ legend_breaks <- c("pos_Old", "pos_Young", "neg_Old", "neg_Young",
 legend_labels <- c("Activate Old", "Activate Young", "Repress Old", "Repress Young",
                    "Other Activate", "Other Repress")
 
-## A) 三物种合并 barplot（对齐 GRNs_Plots）
+## A) Combined three-species barplot (matching GRNs_Plots)
 if (nrow(bar_df) > 0) {
     bar_plot <- bar_df
     bar_plot$combined_Tag <- factor(as.character(bar_plot$combined_Tag),
@@ -635,11 +635,11 @@ if (nrow(bar_df) > 0) {
     save_png_pdf(p, "HMZ_GRNs_clock_bar_2026Aug", 8.5, 3.2)
 }
 
-## B) TF number overlap barplot（对齐 GRNs_Plots / GRNs_for_aging_HMZ.R）
-##    x = 该 TF 在几个 CT 显著；y = 这样的 TF 个数
-##    合并图：上 Activate Old / 下 Activate Young；左→右 Zebrafish Mouse Human
-##    另存每个物种 Old / Young 单图
-## 种内 overlap 最高的 TF；不足 min_n 个则加上第二高一档
+## B) TF number overlap barplot (matching GRNs_Plots / GRNs_for_aging_HMZ.R)
+##    x = number of CTs in which the TF is significant; y = number of such TFs
+##    Combined plot: top Activate Old / bottom Activate Young; left→right Zebrafish Mouse Human
+##    Also save separate Old / Young plots per species
+## TFs with the highest within-species overlap; if fewer than min_n, add the second-highest tier
 top_within_overlap_tfs <- function(overlap_df, min_n = 5L, min_overlap = 2L) {
     meta <- c("TF", "sum", "species", "direction")
     ct_cols <- setdiff(names(overlap_df), meta)
@@ -667,16 +667,16 @@ print_top_within_overlap_tfs <- function(overlap_df, species, dirn,
     res <- top_within_overlap_tfs(overlap_df, min_n = min_n,
                                   min_overlap = min_overlap)
     if (is.null(res$df) || nrow(res$df) == 0) {
-        message(sprintf("  [top TFs] %s %s: 无 overlap>=%d 的 TF",
+        message(sprintf("  [top TFs] %s %s: no TF with overlap>=%d",
                         species, dirn, min_overlap))
         return(invisible(NULL))
     }
     n_top <- sum(res$df$sum == res$top_n)
     extra_txt <- if (!is.na(res$extra_n)) {
-        sprintf("；不足%d个，接着打印共享 %d CT (n=%d)",
+        sprintf("; fewer than %d, also printing TFs shared by %d CT (n=%d)",
                 min_n, res$extra_n, sum(res$df$sum == res$extra_n))
     } else ""
-    message(sprintf("  [top TFs] %s %s: 最高 overlap = %d CT (n=%d)%s",
+    message(sprintf("  [top TFs] %s %s: highest overlap = %d CT (n=%d)%s",
                     species, dirn, res$top_n, n_top, extra_txt))
     out_rows <- list()
     for (i in seq_len(nrow(res$df))) {
@@ -708,7 +708,7 @@ overlap_count_df <- function(overlap_df, species, class_label, min_overlap = 2) 
 
 overlap_parts <- list()
 top_tf_parts <- list()
-message("\n----- 种内 overlap 最高 TF（画 bar 时打印；不足5个打第二档） -----")
+message("\n----- Top within-species overlap TFs (printed when drawing bars; second tier added if fewer than 5) -----")
 for (sp in species_order) {
     for (dirn in c("pos_Old", "pos_Young")) {
         cls <- if (dirn == "pos_Old") "Activate Old" else "Activate Young"
@@ -725,7 +725,7 @@ for (sp in species_order) {
         overlap_parts[[length(overlap_parts) + 1]] <- tab
         write_table(tab, sprintf("%s_%s_CT_counts", sp,
                                 if (dirn == "pos_Old") "old" else "young"),
-                    sprintf("%s %s：共享 CT 数 → TF 个数（barplot 数据）", sp, cls))
+                    sprintf("%s %s: number of shared CTs → number of TFs (barplot data)", sp, cls))
         fill <- if (dirn == "pos_Old") "pink" else "lightblue"
         ymax <- max(tab$Freq) * 1.25
         p1 <- ggplot(tab, aes(x = factor(as.integer(n_ct)), y = Freq)) +
@@ -773,16 +773,16 @@ if (length(overlap_parts)) {
         )
     save_png_pdf(p, "HMZ_TF_overlap_bar_2026Aug", 6.5, 3.8)
 } else {
-    message("  [WARN] 没有 TF overlap 计数，跳过 HMZ_TF_overlap_bar")
+    message("  [WARN] no TF overlap counts; skipping HMZ_TF_overlap_bar")
 }
 if (length(top_tf_parts)) {
     top_tf_df <- do.call(rbind, top_tf_parts)
     rownames(top_tf_df) <- NULL
     write_table(top_tf_df, "Within_top_overlap_TFs",
-                "画 overlap bar 时打印的种内最高 overlap TF；不足5个含第二档")
+                "Top within-species overlap TFs printed with the overlap bars; includes second tier if fewer than 5")
 }
 
-## C) 跨物种点图：每个 cell type × pos_Old / pos_Young
+## C) Cross-species dot plot: each cell type × pos_Old / pos_Young
 cross_colors <- c(pos_Old = "red", pos_Young = "blue")
 if (nrow(cross_df) > 0) {
     for (ct in major_cts) {
@@ -794,7 +794,7 @@ if (nrow(cross_df) > 0) {
             }
             hi <- cross_colors[[tag]]
             sub$logP[sub$logP > 5] <- 5
-            ## 从上到下：HMZ → HM → HZ → MZ；组内按 fish → mouse → human
+            ## Top to bottom: HMZ → HM → HZ → MZ; within groups: fish → mouse → human
             sub$class <- factor(as.character(sub$class),
                                 levels = c("HMZ", "HM", "HZ", "MZ"))
             ord <- unique(sub$index[order(as.integer(sub$class),
@@ -826,8 +826,8 @@ if (nrow(cross_df) > 0) {
 
 
 ########################################################################
-# 7) C1–C10 → TF enrich bubble（3 张）
-#    1 Human: C2_down = (LE∩edgeR)_male ∪ (LE∩edgeR)_female（每 CT；不用 C1）
+# 7) C1–C10 → TF enrich bubble (3 plots)
+#    1 Human: C2_down = (LE∩edgeR)_male ∪ (LE∩edgeR)_female (per CT; C1 not used)
 #    2 Zebrafish: C3 down
 #    3 Mouse: C5 up
 ########################################################################
@@ -838,12 +838,12 @@ if (!file.exists(gs_fp)) {
     alts <- list.files(gs_dir, pattern = "_summary\\.tsv$", full.names = TRUE)
     alts <- alts[!grepl("^ALL_", basename(alts))]
     if (length(alts)) {
-        message("[GeneSets] 无 ALL summary，拼接: ", paste(basename(alts), collapse = ", "))
+        message("[GeneSets] no ALL summary; concatenating: ", paste(basename(alts), collapse = ", "))
         gs_sum <- do.call(rbind, lapply(alts, function(f)
             read.delim(f, stringsAsFactors = FALSE, check.names = FALSE)))
     } else {
         gs_sum <- NULL
-        warning("找不到 ", gs_fp, "；跳过 C1-C10 bubble。请先跑 Build_Aging_GeneSets_LEedgeR_2026.R")
+        warning("Cannot find ", gs_fp, "; skipping C1-C10 bubble. Run Build_Aging_GeneSets_LEedgeR_2026.R first")
     }
 } else {
     message("[GeneSets] ", gs_fp)
@@ -869,7 +869,7 @@ gs_native <- function(species, label, celltype) {
     parse_genes(rows[[col]])
 }
 
-## Human C2 基因集：见下方 h_gs（male/female 各自 C2_down 再 union）
+## Human C2 gene sets: see h_gs below (union of male and female C2_down)
 
 enrich_tf_geneset <- function(grn_df, geneset, min_targets = 5L) {
     empty <- data.frame(TF = character(0), pvalue = numeric(0),
@@ -897,7 +897,7 @@ enrich_tf_geneset <- function(grn_df, geneset, min_targets = 5L) {
     do.call(rbind, rows)
 }
 
-## 按所有 cell type 的平均 -log10(P) 排序（缺测 CT 记 0），取 top_n
+## Rank by mean -log10(P) across all cell types (missing CTs count as 0); take top_n
 select_tfs_mean_logp <- function(enrich_df, top_n = 20L) {
     empty <- data.frame(TF = character(0), n_sig_CT = integer(0),
                         mean_neglogP = numeric(0), stringsAsFactors = FALSE)
@@ -928,7 +928,7 @@ select_tfs_mean_logp <- function(enrich_df, top_n = 20L) {
     rank_df
 }
 
-## 跨 CT conserved：先按显著 CT 数，再按平均 -log10(P)
+## Cross-CT conserved: sort by number of significant CTs, then by mean -log10(P)
 select_top_overlap_tfs <- function(enrich_df, top_n = 18L, pcut = 0.05,
                                    min_shared = 2L) {
     empty <- data.frame(TF = character(0), n_sig_CT = integer(0),
@@ -951,7 +951,7 @@ select_top_overlap_tfs <- function(enrich_df, top_n = 18L, pcut = 0.05,
         rank_df <- shared
         message(sprintf("  conserved TFs (>=%d CT)=%d", min_shared, nrow(rank_df)))
     } else {
-        message(sprintf("  conserved (>=%d CT) 只有 %d 个，改用全部显著 TF 按 CT 数排",
+        message(sprintf("  conserved (>=%d CT) only %d; using all significant TFs ranked by CT count",
                         min_shared, nrow(shared)))
     }
     if (nrow(rank_df) > top_n) rank_df <- rank_df[seq_len(top_n), , drop = FALSE]
@@ -1024,7 +1024,7 @@ plot_ct_tf_bubble <- function(enrich_df, tf_rank, title, stem = NULL,
         save_png_pdf(p, stem, fig_w, fig_h)
         if (is.data.frame(tf_rank) && nrow(tf_rank) > 0) {
             write_table(tf_rank, paste0(stem, "_TFs"),
-                        paste(title, "| 跨 CT conserved TFs"))
+                        paste(title, "| cross-CT conserved TFs"))
         }
     }
     invisible(p)
@@ -1069,7 +1069,7 @@ run_geneset_enrich <- function(species, geneset_by_ct, title, tab,
 if (!is.null(gs_sum)) {
     gs_size_rows <- list()
 
-    ## 1) Human C2_down：male / female 各自 LE∩edgeR，再取并集（不用 C1）
+    ## 1) Human C2_down: LE∩edgeR for male / female separately, then union (C1 not used)
     h_size_detail <- list()
     h_gs <- setNames(lapply(major_cts, function(ct) {
         g_m <- gs_native("Human", "C2_down", paste0(ct, "_male"))
@@ -1094,7 +1094,7 @@ if (!is.null(gs_sum)) {
     }
     if (length(h_size_detail)) {
         write_table(do.call(rbind, h_size_detail), "Human_C2_mf_sizes",
-                    "Human C2_down：各 CT 上 male / female LE∩edgeR 大小及并集/交集大小")
+                    "Human C2_down: per-CT male / female LE∩edgeR sizes and union/intersection sizes")
     }
     h_gene_rows <- lapply(major_cts, function(ct) {
         g <- h_gs[[ct]]
@@ -1104,7 +1104,7 @@ if (!is.null(gs_sum)) {
     h_gene_rows <- Filter(Negate(is.null), h_gene_rows)
     if (length(h_gene_rows)) {
         write_table(do.call(rbind, h_gene_rows), "Human_C2_mf_genes",
-                    "Human C2_down genes：(LE∩edgeR)_male ∪ (LE∩edgeR)_female（每 CT）")
+                    "Human C2_down genes: (LE∩edgeR)_male ∪ (LE∩edgeR)_female (per CT)")
     }
     h_res <- run_geneset_enrich(
         "Human", h_gs,
@@ -1167,13 +1167,13 @@ if (!is.null(gs_sum)) {
         gs_size <- do.call(rbind, gs_size_rows)
         rownames(gs_size) <- NULL
         write_table(gs_size, "C1C10_geneset_sizes",
-                    "各分析用的基因集大小（Human C2 = male∪female of LE∩edgeR down）")
+                    "Gene set sizes used in each analysis (Human C2 = male∪female of LE∩edgeR down)")
     }
 }
 
 
 ########################################################################
-# 8) Excel：原 tsv 各一 tab + Contents
+# 8) Excel: one tab per former tsv + Contents
 ########################################################################
 message("\n========== 8) Excel ==========")
 wb <- createWorkbook()
@@ -1199,7 +1199,7 @@ push_sheet <- function(tab, desc, df) {
 clock_sum <- aggregate(gene ~ species + celltype + direction, data = clock_df, FUN = length)
 names(clock_sum)[names(clock_sum) == "gene"] <- "n_genes"
 push_sheet("Clock_geneset_counts",
-           "各物种×celltype 的 Old/Young clock 基因数",
+           "Old/Young clock gene counts per species × celltype",
            clock_sum)
 
 sig_long <- do.call(rbind, lapply(tags, function(tg) {
@@ -1219,13 +1219,13 @@ if (!is.null(sig_long) && nrow(sig_long) > 0) {
     sig_long <- sig_long[order(sig_long$species, sig_long$celltype, sig_long$tag, sig_long$pvalue), ]
     rownames(sig_long) <- NULL
     push_sheet("TF_enrich_SIG",
-               sprintf("pvalue < %s 的显著 TF（四个 tag）", p_cut),
+               sprintf("Significant TFs with pvalue < %s (four tags)", p_cut),
                sig_long)
 }
 
 for (sp in species_order) {
     push_sheet(paste0(sp, "_enrich"),
-               paste(sp, "完整 TF enrich 表"),
+               paste(sp, "full TF enrichment table"),
                enrich_df[enrich_df$species == sp, ])
 }
 
@@ -1267,9 +1267,9 @@ excel_out <- file.path(out_dir, "Clock_TF_enrich_overlap_2026Aug.xlsx")
 saveWorkbook(wb, excel_out, overwrite = TRUE)
 
 message("\n=== Done ===")
-message("输出目录: ", out_dir)
+message("Output dir: ", out_dir)
 message("Excel:     ", excel_out)
-message("图:")
+message("Figures:")
 message("  HMZ_GRNs_clock_bar_2026Aug.png")
 message("  HMZ_TF_overlap_bar_2026Aug.png")
 message("  {Zebrafish,Mouse,Human}_{old,young}_overlap_2026Aug.png")

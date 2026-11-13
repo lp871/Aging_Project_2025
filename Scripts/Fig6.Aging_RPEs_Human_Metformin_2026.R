@@ -1,7 +1,7 @@
 #######
-####### 我们先找一下 Human RPE 的 scRNAseq ###### 
+####### First, find the Human RPE scRNA-seq data ###### 
 ####### metformin human bulk iRPE #############
-####### 然后构建 RPE Aging clocks ##############
+####### Then build RPE aging clocks ##############
 #######
 
 
@@ -10,26 +10,26 @@
 
 
 #######
-####### 分别 把 男女的 sample 分开 ##########
+####### Split samples by sex (male vs female) ##########
 #######
 
 
 #######
 #######
 
-# H_ambient_genes <- readRDS("/zp1/data/plyu3/Aging_Clocks_Final/Human_ambient_RNA_Jul29")
+# H_ambient_genes <- readRDS("/path/to/data/Aging_Clocks_Final/Human_ambient_RNA_Jul29")
 # H_ambient_genes <- H_ambient_genes[order(H_ambient_genes$Avg,decreasing=T),]
 # H_ambient_genes_Top50 = H_ambient_genes$Gene[which(H_ambient_genes$Avg > 0.005)]
 # H_ambient_genes_Top50 = sapply(strsplit(H_ambient_genes_Top50,split="~~"),function(x) x[[2]])
 
 #######
-####### 在 python 里面读入 然后变成 seurat #######
+####### Read in Python, then convert to Seurat #######
 #######
 
 
 ##### /projects/hmz-aging/Metformin/
 ##### Human_RPE_atlas.h5ad
-##### python 里面读入 #######
+##### Read in Python #######
 
 conda activate scvi-env
 python
@@ -46,14 +46,14 @@ print(adata)
 print(adata.obs.columns.tolist())
 print(adata.obs.head())
 
-# 查看细胞类型和样本信息
+# Inspect cell types and sample information
 if 'cell_type' in adata.obs.columns:
     print(adata.obs['cell_type'].value_counts())
 
 if 'subclass' in adata.obs.columns:
     print(adata.obs['subclass'].value_counts())
 
-# 检查 X 是否为 raw counts
+# Check whether X contains raw counts
 import numpy as np
 x_sample = adata.X[:10, :10]
 if hasattr(x_sample, 'toarray'):
@@ -64,7 +64,7 @@ print("X min:", adata.X.min(), "| max:", adata.X.max())
 x_dense = x_sample if not hasattr(x_sample, 'toarray') else x_sample.toarray()
 print("Has integers?", np.allclose(x_dense, np.round(x_dense)))
 
-# 检查是否有 raw layer
+# Check for a raw layer
 if adata.raw is not None:
     print("\nadata.raw exists:", adata.raw.X.shape)
 
@@ -73,34 +73,34 @@ if 'counts' in adata.layers:
 
 print("Available layers:", list(adata.layers.keys()))
 
-# 导出 mtx + tsv 给 Seurat 读入
+# Export mtx + tsv for Seurat import
 import scipy.io
 import pandas as pd
 
 out_dir = "/projects/hmz-aging/Metformin/Human_RPE_atlas_mtx"
 os.makedirs(out_dir, exist_ok=True)
 
-# 导出 raw count matrix (genes x cells)
+# Export raw count matrix (genes x cells)
 from scipy.sparse import csc_matrix
 mat = csc_matrix(adata.X.T)
 scipy.io.mmwrite(os.path.join(out_dir, "matrix.mtx"), mat)
 
-# 导出 gene names
+# Export gene names
 genes = pd.DataFrame({"gene": adata.var_names})
 genes.to_csv(os.path.join(out_dir, "features.tsv"), sep="\t", header=False, index=False)
 
-# 导出 cell barcodes
+# Export cell barcodes
 barcodes = pd.DataFrame({"barcode": adata.obs_names})
 barcodes.to_csv(os.path.join(out_dir, "barcodes.tsv"), sep="\t", header=False, index=False)
 
-# 导出 metadata
+# Export metadata
 adata.obs.to_csv(os.path.join(out_dir, "metadata.tsv"), sep="\t")
 
 print("Exported to:", out_dir)
 print("Files:", os.listdir(out_dir))
 
 
-##### 回到 R 读入 #####
+##### Back to R: read in #####
 # conda activate seurat_env
 # R
 
@@ -125,7 +125,7 @@ cat("Saved to:", file.path(mtx_dir, "Human_RPE_atlas_seurat.rds"), "\n")
 
 
 #########
-######### 新终端重新读入 #######
+######### Re-read in a new session #######
 ######### we remove RPE donors which cells < 100 ######
 #########
 
@@ -144,7 +144,7 @@ human_rpe
 
 table(human_rpe$Donor)
 
-# 去掉小于 100 个 cell 的 donor
+# Remove donors with fewer than 100 cells
 donor_counts <- table(human_rpe$Donor)
 keep_donors <- names(donor_counts)[donor_counts >= 100]
 cat("Donors before:", length(donor_counts), "| After:", length(keep_donors), "\n")
@@ -161,7 +161,7 @@ table(human_rpe_cl$Age)
 
 ##### Pseudobulk by Donor #####
 
-# Pseudobulk: 按 Donor 汇总 raw counts
+# Pseudobulk: aggregate raw counts by donor
 Idents(human_rpe_cl) <- "Donor"
 donors <- levels(Idents(human_rpe_cl))
 
@@ -187,7 +187,7 @@ rownames(meta_donor) <- meta_donor$Donor
 
 print(meta_donor[order(meta_donor$Age), ])
 
-# 创建 pseudobulk Seurat 对象
+# Create pseudobulk Seurat object
 pb_seurat <- CreateSeuratObject(counts = pb, meta.data = meta_donor[colnames(pb), ])
 pb_seurat
 
@@ -202,11 +202,11 @@ library(edgeR)
 
 
 
-##### 连续回归: Age + Gender #####
+##### Continuous regression: Age + Gender #####
 
 pb_counts_raw = pb_seurat[['RNA']]$counts
 
-# 用全部 donor
+# Use all donors
 dge_all <- DGEList(counts = pb_counts_raw)
 dge_all <- calcNormFactors(dge_all, method = "TMM")
 
@@ -225,7 +225,7 @@ v_cont <- voom(dge_all, design_cont, plot = FALSE)
 fit_cont <- lmFit(v_cont, design_cont)
 fit_cont <- eBayes(fit_cont)
 
-# coef=2 是 age 的效应（控制了 gender）
+# coef=2 is the age effect (adjusted for gender)
 degs_cont <- topTable(fit_cont, coef = 2, number = Inf, sort.by = "P")
 degs_cont$gene <- rownames(degs_cont)
 
@@ -253,7 +253,7 @@ saveRDS(degs_cont,file="Human_RPE_aging_DEGs.RData")
 
 
 
-# 用 P < 0.01 筛选
+# Filter by P < 0.01
 degs_sig <- degs_cont[degs_cont$P.Value < 0.005, ]
 cat("\n=== P < 0.005 ===\n")
 cat("Total sig:", nrow(degs_sig), "\n")
@@ -265,7 +265,7 @@ human_aging_down <- degs_sig$gene[degs_sig$logFC < 0]
 
 write.csv(degs_sig, "Human_RPE_aging_DEGs_continuous.csv", row.names = FALSE)
 
-# 打印 top 30 up with age (按 logFC)
+# Print top 30 genes up with age (by logFC)
 up_sorted <- degs_sig[degs_sig$logFC > 0, ]
 up_sorted <- up_sorted[order(-up_sorted$logFC), ]
 print(head(up_sorted[, c("gene", "logFC", "P.Value", "adj.P.Val")], 30))
@@ -343,7 +343,7 @@ png("Human_RPE_aging_DEGs_heatmapXXX.png", width = 6, height = 6, units = "in", 
 draw(ht_male + ht_female, ht_gap = unit(8, "mm"))
 dev.off()
 
-# 保存 heatmap 中的基因
+# Save genes shown in the heatmap
 heatmap_genes_h <- data.frame(
   gene = c(human_aging_up, human_aging_down),
   direction = c(rep("Up", length(human_aging_up)), rep("Down", length(human_aging_down)))
@@ -367,17 +367,17 @@ table(meta$treatment)
 
 assay(bharti_human)[1:10,1:10]
 
-##### 用 Human RPE aging DEGs 预测 bharti_human 的 aging score #####
+##### Predict bharti_human aging score using Human RPE aging DEGs #####
 
 library(GSVA)
 library(ggplot2)
 
-# 读入 human aging 基因 list
+# Read human aging gene list
 heatmap_genes_h <- read.csv("/projects/hmz-aging/Metformin/Human_RPE_atlas_mtx/Human_RPE_aging_heatmap_genes.csv")
 up_h <- heatmap_genes_h$gene[heatmap_genes_h$direction == "Up"]
 down_h <- heatmap_genes_h$gene[heatmap_genes_h$direction == "Down"]
 
-# 表达矩阵是非整数的 counts，round 后用 DESeq2 VST 归一化
+# Expression matrix has non-integer counts; round, then normalize with DESeq2 VST
 library(DESeq2)
 counts_human <- round(as.matrix(assay(bharti_human)))
 meta_human <- as.data.frame(colData(bharti_human))
@@ -387,7 +387,7 @@ vsd_human <- vst(dds_human, blind = TRUE)
 expr_human <- assay(vsd_human)
 cat("VST expression range:", round(range(expr_human), 2), "\n")
 
-# 匹配基因
+# Match genes
 up_found_h <- intersect(up_h, rownames(expr_human))
 down_found_h <- intersect(down_h, rownames(expr_human))
 cat("Up found:", length(up_found_h), "/", length(up_h), "\n")
@@ -407,11 +407,11 @@ score_h <- data.frame(
 )
 print(score_h[order(score_h$treatment), ])
 
-# 散点图（去掉 POS 和 POS+MET）
+# Scatter plot (excluding POS and POS+MET)
 score_h <- score_h[!score_h$treatment %in% c("POS", "POS+MET"), ]
 score_h$treatment <- factor(score_h$treatment,
                             levels = c("untreated", "MET", "CCHS", "CCHS+MET"))
-# 计算配对 p 值
+# Compute paired p-values
 comp_pairs <- list(c("untreated", "MET"), c("CCHS", "CCHS+MET"))
 pval_annot <- data.frame(x1 = numeric(), x2 = numeric(), y = numeric(), label = character())
 y_range <- diff(range(score_h$aging_score))
@@ -452,7 +452,7 @@ p_human <- ggplot(score_h, aes(x = treatment, y = aging_score, color = treatment
 
 ggsave("bharti_human_aging_scoreXXX.png", plot = p_human, width = 4, height = 5, dpi = 300)
 
-##### 配对比较：MET 处理 vs 对照 #####
+##### Paired comparison: MET treatment vs control #####
 comparisons <- list(
   c("CCHS", "CCHS+MET"),
   c("untreated", "MET")
@@ -480,7 +480,7 @@ for (comp in comparisons) {
 #######
 #######
 
-# ##### Human RPE aging DEGs GO 分析 #####
+# ##### Human RPE aging DEGs GO analysis #####
 
 # setwd("/projects/hmz-aging/Metformin/Human_RPE_atlas_mtx")
 
@@ -492,7 +492,7 @@ for (comp in comparisons) {
 # up_symbols_h <- heatmap_genes_h$gene[heatmap_genes_h$direction == "Up"]
 # down_symbols_h <- heatmap_genes_h$gene[heatmap_genes_h$direction == "Down"]
 
-# # 使用 MSigDB Hallmark + GO BP + KEGG
+# # Use MSigDB Hallmark + GO BP + KEGG
 # library(msigdbr)
 
 # hallmark <- msigdbr(species = "Homo sapiens", collection = "H")
@@ -520,7 +520,7 @@ for (comp in comparisons) {
 # cat("Up enriched terms:", nrow(as.data.frame(enr_up_h)), "\n")
 # cat("Down enriched terms:", nrow(as.data.frame(enr_down_h)), "\n")
 
-# # 过滤和画图函数
+# # Filtering and plotting functions
 # filter_enr <- function(enr_res, ratio_cutoff = 0.03) {
 #   df <- as.data.frame(enr_res)
 #   if (nrow(df) == 0) return(df)
@@ -570,7 +570,7 @@ for (comp in comparisons) {
 
 
 
-##### CCHS vs CCHS+MET 差异基因，找 MET 逆转衰老的基因 #####
+##### CCHS vs CCHS+MET DEGs: find aging genes reversed by MET #####
 
 library(limma)
 library(edgeR)
@@ -578,7 +578,7 @@ library(edgeR)
 counts_bh <- round(as.matrix(assay(bharti_human)))
 meta_bh <- as.data.frame(colData(bharti_human))
 
-# 只取 CCHS 和 CCHS+MET
+# Keep only CCHS and CCHS+MET
 idx_cchs <- meta_bh$treatment %in% c("CCHS", "CCHS+MET")
 counts_cchs <- counts_bh[, idx_cchs]
 meta_cchs <- meta_bh[idx_cchs, ]
@@ -602,7 +602,7 @@ cat("p < 0.1:", sum(cchs_degs$P.Value < 0.1), "\n")
 cchs_degs_sig <- cchs_degs[cchs_degs$P.Value < 0.05, ]
 cat("Sig DEGs (p<0.05):", nrow(cchs_degs_sig), "| Up:", sum(cchs_degs_sig$logFC > 0), "| Down:", sum(cchs_degs_sig$logFC < 0), "\n")
 
-#### 与 human aging DEGs 比较: 找方向相反的 ####
+#### Compare with human aging DEGs: find genes with opposite direction ####
 
 aging_degs_h <- read.csv("/projects/hmz-aging/Metformin/Human_RPE_atlas_mtx/Human_RPE_aging_heatmap_genes.csv")
 
@@ -622,18 +622,18 @@ if (nrow(opposite_cchs) > 0) print(opposite_cchs[, c("gene", "logFC", "P.Value",
 write.csv(opposite_cchs, "CCHS_MET_reverses_aging_genes.csv", row.names = FALSE)
 
 
-##### Heatmap: CCHS+MET 逆转衰老基因 #####
+##### Heatmap: aging genes reversed by CCHS+MET #####
 
 library(ComplexHeatmap)
 library(circlize)
 
-# opposite 基因按 aging 方向分组
+# Group opposite genes by aging direction
 opp_genes <- opposite_cchs$gene
 opp_aging_up <- opposite_cchs$gene[opposite_cchs$direction == "Up"]
 opp_aging_down <- opposite_cchs$gene[opposite_cchs$direction == "Down"]
 all_opp <- c(opp_aging_up, opp_aging_down)
 
-# 左边: Metformin bulk (CCHS / CCHS+MET)
+# Left: Metformin bulk (CCHS / CCHS+MET)
 cchs_samples <- rownames(meta_bh)[meta_bh$treatment == "CCHS"]
 cchs_met_samples <- rownames(meta_bh)[meta_bh$treatment == "CCHS+MET"]
 met_col_order <- c(cchs_samples, cchs_met_samples)
@@ -642,7 +642,7 @@ all_opp_in_expr <- all_opp[all_opp %in% rownames(expr_human)]
 met_mat_h <- expr_human[all_opp_in_expr, met_col_order]
 met_z_h <- t(scale(t(met_mat_h)))
 
-# 中间/右边: Aging pseudobulk (male / female)
+# Middle/right: Aging pseudobulk (male / female)
 all_opp_in_pb <- all_opp_in_expr[all_opp_in_expr %in% rownames(pb_norm)]
 
 male_idx <- which(pb_seurat$Gender == "Male")
@@ -661,12 +661,12 @@ met_z_final <- t(scale(t(expr_human[common_ordered, met_col_order])))
 male_z_final <- t(scale(t(pb_norm[common_ordered, male_order])))
 female_z_final <- t(scale(t(pb_norm[common_ordered, female_order])))
 
-# 行分组
+# Row split
 row_split_opp <- factor(c(rep("Aging Up\n(Met Down)", length(common_up)),
                            rep("Aging Down\n(Met Up)", length(common_down))),
                          levels = c("Aging Up\n(Met Down)", "Aging Down\n(Met Up)"))
 
-# 左边列注释
+# Left column annotation
 met_group <- c(rep("CCHS", length(cchs_samples)), rep("CCHS+MET", length(cchs_met_samples)))
 anno_met <- HeatmapAnnotation(
   Group = met_group,
@@ -674,7 +674,7 @@ anno_met <- HeatmapAnnotation(
   show_annotation_name = FALSE
 )
 
-# 中间/右边 Age 注释
+# Middle/right Age annotation
 anno_male <- HeatmapAnnotation(
   Age = as.numeric(pb_seurat$Age[male_order]),
   col = list(Age = colorRamp2(c(0, 50, 100), c("#4DBBD5", "white", "#E64B35"))),
@@ -708,7 +708,7 @@ ht_male <- Heatmap(male_z_final, name = "Male\nZ-score",
                    show_row_names = FALSE,
                    show_column_names = FALSE)
 
-# 右侧标注关键基因
+# Label key genes on the right
 highlight_genes <- list(
   "Inflammatory / NF-kB" = c("OSMR","IL6R","RELB","NFKBIA","CEBPD","LGALS3","SERPINA3","SERPING1","CHI3L1","ICAM1","TNFAIP1"),
   "Epithelial remodeling" = c("ITGA3","ITGB4","PXN","ACTN4","PKP2","PVR","FOSL2","MAFK","TGIF1","AHNAK"),
@@ -721,7 +721,7 @@ all_highlight <- unlist(highlight_genes)
 gene_to_category <- rep(names(highlight_genes), sapply(highlight_genes, length))
 names(gene_to_category) <- all_highlight
 
-# 构建右侧 row annotation
+# Build right-side row annotation
 mark_idx <- which(common_ordered %in% all_highlight)
 mark_labels <- common_ordered[mark_idx]
 

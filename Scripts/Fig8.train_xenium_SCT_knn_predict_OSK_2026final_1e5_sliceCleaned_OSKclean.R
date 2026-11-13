@@ -2,22 +2,22 @@
 # =============================================================================
 # 2026final_1e5_sliceCleaned_OSKclean | SCT-kNN aging clocks → predict OSK
 #
-# 从 train_xenium_SCT_knn_predict_OSK_2026final_1e5_sliceCleaned.R 另存。
-# 上一份脚本不动。本版把预测用的 OSK 换成切片 clean 后的对象。
+# Copied from train_xenium_SCT_knn_predict_OSK_2026final_1e5_sliceCleaned.R.
+# The previous script is unchanged. This version uses the slice-cleaned OSK object for prediction.
 #
-# Aging Seurat（训练，同上一份）:
+# Aging Seurat (training, same as the previous script):
 #   .../R1_4_seurat_Merged_dim_RNA_2024_sliceCleaned_colored.rds
-# OSK Seurat（预测，本版替换）:
+# OSK Seurat (prediction, replaced in this version):
 #   /projects/hmz-aging/Xenium5k_Mouse/OSK_New/OSK_Spatial_slice_clean/OSK_obj_cl_2026_sliceCleaned_OSKR3R4.rds
-# Aging / OSK 没有 SCT 时都会对 RNA 跑 SCTransform。
+# For both Aging and OSK, SCTransform is run on RNA if SCT is absent.
 #
-# clocks 可复用上一份 sliceCleaned 训练结果；OSK 预测输出另开目录。
+# Clocks can reuse the previous sliceCleaned training results; OSK predictions go to a separate directory.
 #
 # Example:
-#   # 只预测：已有 Xmodel + OSK knn 时直接预测画图（不重训、不重 smooth）
+#   # Prediction only: with existing Xmodel + OSK knn, predict and plot directly (no retraining or re-smoothing)
 #   Rscript train_xenium_SCT_knn_predict_OSK_2026final_1e5_sliceCleaned_OSKclean.R --mode predict
 #
-#   # 全流程（训练 + 预测）
+#   # Full pipeline (training + prediction)
 #   Rscript train_xenium_SCT_knn_predict_OSK_2026final_1e5_sliceCleaned_OSKclean.R --mode all --n_cores 20
 # =============================================================================
 
@@ -42,7 +42,7 @@ osk_root <- "/projects/hmz-aging/Xenium5k_Mouse/OSK_New"
 proximity_root <- "/projects/hmz-aging/ProximityEffect"
 
 xenium_seurat_cands <- c(
-  "/Users/pin/Desktop/Proximity_final/R1_4_seurat_Merged_dim_RNA_2024_sliceCleaned_colored.rds",
+  "/path/to/Proximity_final/R1_4_seurat_Merged_dim_RNA_2024_sliceCleaned_colored.rds",
   file.path(
     proximity_root, "Spatial_slice_clean",
     "R1_4_seurat_Merged_dim_RNA_2024_sliceCleaned_colored.rds"
@@ -92,7 +92,7 @@ celltypes <- strsplit(
   ",",
   fixed = TRUE
 )[[1]]
-# 2026final 变体：kNN smooth 之后 depth-norm = 1e5
+# 2026final variant: depth-norm = 1e5 after kNN smoothing
 scale_factor <- as.numeric(get_arg("--scale_factor", "1e5"))
 n_cores <- as.integer(get_arg("--n_cores", "20"))
 train_frac <- as.numeric(get_arg("--train_frac", "0.7"))
@@ -134,7 +134,7 @@ parse_condition_map <- function(s) {
 cond_map <- parse_condition_map(condition_map_str)
 
 ct_k_npcs <- function(ct) {
-  # 与 OSK_clocks_New_2026 / Xenium_Aging_Clocks.R 一致
+  # Consistent with OSK_clocks_New_2026 / Xenium_Aging_Clocks.R
   if (ct %in% c("Rod", "AC", "MG", "BC", "Cone", "RGC")) {
     list(k = 15L, npcs = 25L)
   } else if (ct %in% c("HC", "RPE")) {
@@ -175,7 +175,7 @@ ensure_sct <- function(seu) {
   if (!"RNA" %in% Assays(seu)) {
     stop("No SCT and no RNA. Assays: ", paste(Assays(seu), collapse = ", "))
   }
-  log_msg("sliceCleaned 没有 SCT，对 RNA 跑 SCTransform ...")
+  log_msg("sliceCleaned has no SCT; running SCTransform on RNA ...")
   DefaultAssay(seu) <- "RNA"
   seu <- SCTransform(seu, verbose = FALSE, return.only.var.genes = FALSE)
   log_msg("SCTransform done | assays=", paste(Assays(seu), collapse = ","))
@@ -220,8 +220,8 @@ NormalizeAndPCASCT <- function(
     nfeatures = 2000,
     npcs = 30
 ) {
-  # 原文：不改 DefaultAssay；SCTransform 后默认是 SCT → PCA/kNN 在 SCT 上算
-  # PseudoBulk 再单独对 SCT@counts 求和
+  # Original: DefaultAssay unchanged; after SCTransform the default is SCT → PCA/kNN computed on SCT
+  # PseudoBulk then sums SCT@counts separately
   if ("SCT" %in% Assays(seu)) {
     DefaultAssay(seu) <- "SCT"
   }
@@ -232,7 +232,7 @@ NormalizeAndPCASCT <- function(
     verbose = FALSE
   )
   nfeatures_use <- min(nfeatures, nrow(seu))
-  # SCT 若已有 VariableFeatures 可复用；否则重算
+  # Reuse SCT VariableFeatures if present; otherwise recompute
   if (!length(VariableFeatures(seu))) {
     seu <- FindVariableFeatures(
       seu,
@@ -243,7 +243,7 @@ NormalizeAndPCASCT <- function(
   }
   feats <- VariableFeatures(seu)
   if (!length(feats)) feats <- rownames(seu)[seq_len(min(nfeatures_use, nrow(seu)))]
-  # 原文 ScaleData(features=rownames(seu))；用 VF 更稳
+  # Original: ScaleData(features=rownames(seu)); using VF is more robust
   seu <- ScaleData(seu, features = feats, verbose = FALSE)
   n_cells <- ncol(seu)
   max_npcs <- min(length(feats), n_cells) - 1L
@@ -270,7 +270,7 @@ PseudoBulkByKNN_fast_SCT <- function(
   nn_idx <- knn$nn.index
   ncells <- nrow(nn_idx)
 
-  # 自身 + k 邻居
+  # self + k neighbors
   rows <- as.integer(c(t(nn_idx), seq_len(ncells)))
   cols <- rep(seq_len(ncells), each = k + 1L)
   A <- sparseMatrix(i = rows, j = cols, x = 1, dims = c(ncells, ncells))
@@ -354,7 +354,7 @@ smooth_by_ct_sample <- function(
   out
 }
 
-# 原文 Elastic_net_one_round_Xenium
+# Original: Elastic_net_one_round_Xenium
 Elastic_net_one_round_Xenium <- function(
     seu,
     scale.factor = 1e4,
@@ -444,7 +444,7 @@ Elastic_net_one_round_Xenium <- function(
   )
 }
 
-# 原文 Prepare_Matrix_And_Meta_OSK：1e4 + log2
+# Original: Prepare_Matrix_And_Meta_OSK: 1e4 + log2
 Prepare_Matrix_And_Meta_OSK <- function(pb_list, scale.factor = 1e4) {
   results <- lapply(names(pb_list), function(ct) {
     tmp <- pb_list[[ct]]
@@ -462,7 +462,7 @@ Prepare_Matrix_And_Meta_OSK <- function(pb_list, scale.factor = 1e4) {
 
     cs <- Matrix::colSums(mat)
     cs[cs == 0] <- 1
-    # 原文: factor = colSums/1e4; sweep(mat, 2, factor, "/")
+    # Original: factor = colSums/1e4; sweep(mat, 2, factor, "/")
     mat_log2 <- log2(sweep(as.matrix(mat), 2, cs / scale.factor, "/") + 1)
     list(Matrix = mat_log2, Meta = meta)
   })
@@ -470,7 +470,7 @@ Prepare_Matrix_And_Meta_OSK <- function(pb_list, scale.factor = 1e4) {
   results
 }
 
-# 原文 PredictAgeFromModel
+# Original: PredictAgeFromModel
 PredictAgeFromModel <- function(expr_mat, test_meta, fit_res) {
   coef_df <- coef(fit_res, s = fit_res$lambda.min)
   coef_df <- data.frame(
@@ -652,7 +652,7 @@ run_predict <- function() {
   all_res <- do.call(rbind, pred_list)
   rownames(all_res) <- NULL
 
-  # 原文先筛 OSKR3/OSKR4，再画 boxplot；这里映射成 Ctrl/OSK
+  # Original filtered OSKR3/OSKR4 first, then drew boxplots; here mapped to Ctrl/OSK
   all_res$condition <- unname(cond_map[as.character(all_res$sample)])
   d <- all_res[all_res$condition %in% c("Ctrl", "OSK"), , drop = FALSE]
   if (!nrow(d)) {

@@ -47,13 +47,13 @@ counts_mouse <- as.matrix(assay(bharti_mouse))
 meta_mouse <- as.data.frame(colData(bharti_mouse))
 cat("Dim:", dim(counts_mouse), "\n")
 
-# # DESeq2 归一化 + variance stabilizing transformation
+# # DESeq2 normalization + variance stabilizing transformation
 # dds <- DESeqDataSetFromMatrix(countData = counts_mouse,
 #                                colData = meta_mouse,
 #                                design = ~ 1)
 # vsd <- vst(dds, blind = TRUE)
 
-# # 去掉 0 方差基因后做 PCA
+# # Remove zero-variance genes, then run PCA
 # vsd_mat <- assay(vsd)
 # gene_var <- apply(vsd_mat, 1, var)
 # vsd_mat <- vsd_mat[gene_var > 0, ]
@@ -82,7 +82,7 @@ cat("Dim:", dim(counts_mouse), "\n")
 
 # ggsave("bharti_mouse_PCA.png", plot = p_pca, width = 8, height = 6, dpi = 300)
 
-# # 分 Retina 和 RPE 单独做 PCA
+# # Run PCA separately for Retina and RPE
 # meta_mouse$tissue <- ifelse(grepl("Retina", meta_mouse$Genotype_Treatment_Tissue), "Retina", "RPE_Choroid")
 
 # # Retina samples
@@ -175,29 +175,29 @@ vsd_rpe_mat <- vsd_rpe_mat[apply(vsd_rpe_mat, 1, var) > 0, ]
 # ggsave("bharti_mouse_UMAP.png", plot = p_umap, width = 8, height = 6, dpi = 300)
 
 
-######## 用 Aging DEGs 计算 bulk RPE 的 aging score ########
+######## Compute aging score of bulk RPE using aging DEGs ########
 
-# # 读入 aging DEGs
+# # Read aging DEGs
 # aging_degs <- read.csv("/projects/hmz-aging/RPE_smoking/RPE_aging_consistent_DEGs.csv")
 # up_aging <- aging_degs$gene_symbol[aging_degs$direction == "Up"]
 # down_aging <- aging_degs$gene_symbol[aging_degs$direction == "Down"]
 
-# # 只用 RPE/Choroid 样本的 VST 归一化数据
-# # vsd_rpe_mat 已经在前面 PCA 时计算好了
+# # Use VST-normalized data from RPE/Choroid samples only
+# # vsd_rpe_mat was already computed in the PCA step above
 # rpe_expr <- vsd_rpe_mat
 
-# # 提取基因名（如果 rownames 有 ENSEMBL 前缀，需要转换）
+# # Extract gene names (convert if rownames carry an ENSEMBL prefix)
 # gene_names <- rownames(rpe_expr)
 # cat("Example gene names:", head(gene_names, 5), "\n")
 
-# # 匹配 aging DEGs
+# # Match aging DEGs
 # up_found <- intersect(up_aging, gene_names)
 # down_found <- intersect(down_aging, gene_names)
 # cat("Up genes found:", length(up_found), "/", length(up_aging), "\n")
 # cat("Down genes found:", length(down_found), "/", length(down_aging), "\n")
 
-# # 计算 aging score: 每个样本的 z-score 平均值
-# # 先对每个基因做 z-score（跨样本标准化）
+# # Compute aging score: mean z-score per sample
+# # First z-score each gene (standardize across samples)
 # rpe_z <- t(scale(t(rpe_expr)))
 
 # # Aging score = mean(z-score of up genes) - mean(z-score of down genes)
@@ -205,7 +205,7 @@ vsd_rpe_mat <- vsd_rpe_mat[apply(vsd_rpe_mat, 1, var) > 0, ]
 # down_score <- colMeans(rpe_z[down_found, , drop = FALSE], na.rm = TRUE)
 # aging_score_bulk <- up_score - down_score
 
-# # 打印每个样本的 aging score
+# # Print aging score for each sample
 # score_df <- data.frame(
 #   sample = names(aging_score_bulk),
 #   group = meta_rpe$Genotype_Treatment_Tissue,
@@ -213,7 +213,7 @@ vsd_rpe_mat <- vsd_rpe_mat[apply(vsd_rpe_mat, 1, var) > 0, ]
 # )
 # print(score_df[order(score_df$group), ])
 
-# # 画 barplot
+# # Draw barplot
 # library(ggplot2)
 # p_score <- ggplot(score_df, aes(x = reorder(sample, aging_score), y = aging_score, fill = group)) +
 #   geom_col() +
@@ -229,20 +229,24 @@ vsd_rpe_mat <- vsd_rpe_mat[apply(vsd_rpe_mat, 1, var) > 0, ]
 
 rpe_expr <- vsd_rpe_mat
 
-# 读入 aging DEGs
+# Read aging DEGs (excluding mt genes)
 aging_degs <- read.csv("/projects/hmz-aging/RPE_smoking/RPE_aging_consistent_DEGs.csv")
+mt_drop <- grepl("^mt-", aging_degs$gene_symbol, ignore.case = TRUE)
+cat("dropped mt aging features:", paste(aging_degs$gene_symbol[mt_drop], collapse = ", "),
+    "(", sum(mt_drop), ")\n")
+aging_degs <- aging_degs[!mt_drop, ]
 up_aging <- aging_degs$gene_symbol[aging_degs$direction == "Up"]
 down_aging <- aging_degs$gene_symbol[aging_degs$direction == "Down"]
 
-# 只用 RPE/Choroid 样本的 VST 归一化数据
-# vsd_rpe_mat 已经在前面 PCA 时计算好了
+# Use VST-normalized data from RPE/Choroid samples only
+# vsd_rpe_mat was already computed in the PCA step above
 rpe_expr <- vsd_rpe_mat
 
-# 提取基因名（如果 rownames 有 ENSEMBL 前缀，需要转换）
+# Extract gene names (convert if rownames carry an ENSEMBL prefix)
 gene_names <- rownames(rpe_expr)
 cat("Example gene names:", head(gene_names, 5), "\n")
 
-# 匹配 aging DEGs
+# Match aging DEGs
 up_found <- intersect(up_aging, gene_names)
 down_found <- intersect(down_aging, gene_names)
 cat("Up genes found:", length(up_found), "/", length(up_aging), "\n")
@@ -264,7 +268,7 @@ score_ssgsea <- data.frame(
 )
 print(score_ssgsea[order(score_ssgsea$group), ])
 
-# 400mg vs 其他样品的 aging score 比较
+# Compare aging score of 400mg vs other samples
 score_ssgsea$is_400mg <- grepl("400 mg", score_ssgsea$group)
 
 met_scores <- score_ssgsea$aging_score[score_ssgsea$is_400mg]
@@ -274,29 +278,28 @@ cat("400mg scores:", met_scores, "\n")
 cat("Other scores:", other_scores, "\n")
 cat("400mg mean:", mean(met_scores), "| Other mean:", mean(other_scores), "\n")
 
-# Wilcoxon test (单侧: 400mg 是否显著低于其他)
-wt <- wilcox.test(met_scores, other_scores, alternative = "less")
-cat("Wilcox p-value (400mg < others):", wt$p.value, "\n")
+# Wilcoxon / t-test (two-sided)
+wt <- wilcox.test(met_scores, other_scores, alternative = "two.sided")
+cat("Wilcox p-value (two-sided):", wt$p.value, "\n")
 
-# t-test
-tt <- t.test(met_scores, other_scores, alternative = "less")
-cat("t-test p-value (400mg < others):", tt$p.value, "\n")
-cat("t-test 95% CI upper:", tt$conf.int[2], "\n")
+tt <- t.test(met_scores, other_scores, alternative = "two.sided")
+cat("t-test p-value (two-sided):", tt$p.value, "\n")
+cat("t-test 95% CI:", tt$conf.int[1], tt$conf.int[2], "\n")
 
 
 
 ####
-#### sample 1，2 #####
+#### sample 1, 2 #####
 ####
 ####
 
-#### 散点图: Metformin- vs Metformin+ ####
+#### Scatter plot: Metformin- vs Metformin+ ####
 
 score_ssgsea$condition <- ifelse(grepl("400 mg", score_ssgsea$group), "Metformin+", "Metformin-")
 score_ssgsea$condition <- factor(score_ssgsea$condition, levels = c("Metformin-", "Metformin+"))
 
-# t-test: Metformin+ < Metformin-
-pval <- t.test(aging_score ~ condition, data = score_ssgsea, alternative = "greater")$p.value
+# t-test: Metformin+ vs Metformin- (two-sided)
+pval <- t.test(aging_score ~ condition, data = score_ssgsea, alternative = "two.sided")$p.value
 pval_label <- paste0("p = ", format(pval, digits = 3))
 
 y_max <- max(score_ssgsea$aging_score) + 0.05 * diff(range(score_ssgsea$aging_score))
@@ -343,7 +346,7 @@ ggsave("metformin_aging_score_dotplotXXX.png", plot = p_dot, width = 6, height =
 
 library(limma)
 
-# 分组: treated vs untreated
+# Grouping: treated vs untreated
 group_met <- ifelse(grepl("400 mg", meta_rpe$Genotype_Treatment_Tissue), "treated", "untreated")
 group_met <- factor(group_met, levels = c("untreated", "treated"))
 
@@ -356,7 +359,7 @@ v <- voom(dge, design, plot = FALSE)
 fit <- lmFit(v, design)
 fit <- eBayes(fit)
 
-# 最宽松条件: 不设 logFC 和 p 值阈值
+# Most lenient setting: no logFC or p-value thresholds
 met_degs <- topTable(fit, coef = 2, number = Inf, sort.by = "P")
 met_degs$gene <- rownames(met_degs)
 
@@ -365,13 +368,13 @@ cat("p < 0.05:", sum(met_degs$P.Value < 0.05), "\n")
 cat("p < 0.1:", sum(met_degs$P.Value < 0.1), "\n")
 cat("adj.P < 0.1:", sum(met_degs$adj.P.Val < 0.1), "\n")
 
-# 用 p < 0.1 作为宽松阈值
+# Use p < 0.1 as a lenient threshold
 met_degs_sig <- met_degs[met_degs$P.Value < 0.1, ]
 cat("Sig DEGs (p<0.1):", nrow(met_degs_sig), "\n")
 cat("  Up:", sum(met_degs_sig$logFC > 0), "\n")
 cat("  Down:", sum(met_degs_sig$logFC < 0), "\n")
 
-#### 与 aging DEGs 比较: 找方向相反的 ####
+#### Compare with aging DEGs: find genes with opposite direction ####
 ####
 
 aging_degs <- read.csv("/projects/hmz-aging/RPE_smoking/RPE_aging_consistent_DEGs.csv")
@@ -379,8 +382,8 @@ aging_degs <- read.csv("/projects/hmz-aging/RPE_smoking/RPE_aging_consistent_DEG
 # merge
 overlap_met <- merge(met_degs_sig, aging_degs, by.x = "gene", by.y = "gene_symbol")
 
-# 方向相反: metformin 下调 + aging 上调, 或 metformin 上调 + aging 下调
-# => metformin 逆转了衰老
+# Opposite direction: down with metformin + up with aging, or up with metformin + down with aging
+# => metformin reverses aging
 overlap_met$met_direction <- ifelse(overlap_met$logFC > 0, "Up", "Down")
 opposite_met <- overlap_met[overlap_met$met_direction != overlap_met$direction, ]
 same_met <- overlap_met[overlap_met$met_direction == overlap_met$direction, ]
@@ -408,23 +411,23 @@ library(Seurat)
 reversed_up = opposite_met$gene[opposite_met$direction == "Up"]
 reversed_down = opposite_met$gene[opposite_met$direction == "Down"]
 
-# 只取方向和 aging 相反的基因
+# Keep only genes with direction opposite to aging
 # reversed_up: met up + aging down
 # reversed_down: met down + aging up
 all_met_genes <- c(reversed_up, reversed_down)
 all_met_genes <- all_met_genes[all_met_genes %in% rownames(expr)]
 cat("Reversed genes to plot:", length(all_met_genes), "\n")
 
-# 左边: Metformin bulk samples, 按 WT → KO_untreated → KO_400mg 排序
+# Left: Metformin bulk samples, ordered WT -> KO_untreated -> KO_400mg
 col_order <- c(wt_samples, ko_samples, met_samples)
 met_mat <- expr[all_met_genes, col_order]
 met_z <- t(scale(t(met_mat)))
 
-# 行分组: Aging Up (met down) / Aging Down (met up)
+# Row split: Aging Up (met down) / Aging Down (met up)
 met_row_dir <- ifelse(all_met_genes %in% reversed_down, "Aging Up\n(Met Down)", "Aging Down\n(Met Up)")
 met_row_split <- factor(met_row_dir, levels = c("Aging Up\n(Met Down)", "Aging Down\n(Met Up)"))
 
-# 列注释
+# Column annotation
 col_group <- c(rep("WT_untreated", length(wt_samples)),
                rep("ABCA4KO_untreated", length(ko_samples)),
                rep("ABCA4KO_400mg", length(met_samples)))
@@ -436,7 +439,7 @@ col_anno_met <- HeatmapAnnotation(
 
 col_fun_left <- colorRamp2(c(-2, 0, 2), c("#3C5488", "white", "#E64B35"))
 
-# 右边: Aging RPE pseudobulk (重新计算)
+# Right: Aging RPE pseudobulk (recomputed)
 Mouse_RPE_rpe <- Mouse_RPE_aging[, Mouse_RPE_aging$celltype %in% c("RPE")]
 Mouse_RPE_rpe$sample <- factor(Mouse_RPE_rpe$sample, levels = c("5W_RPE", "49W_RPE", "91W_RPE"))
 counts_ag <- GetAssayData(Mouse_RPE_rpe, assay = "RNA", layer = "counts")
@@ -490,6 +493,14 @@ draw(ht_left + ht_right, ht_gap = unit(8, "mm"),
      heatmap_legend_side = "bottom", annotation_legend_side = "bottom",
      merge_legend = TRUE)
 dev.off()
+
+# Export the genes actually shown in the heatmap (by category)
+mouse_met_hm_genes <- data.frame(
+  gene = common_final,
+  category = gsub("\n", " ", met_row_dir2)
+)
+write.csv(mouse_met_hm_genes, "Mouse_Metformin_heatmap_genes_category.csv", row.names = FALSE)
+cat("Saved", nrow(mouse_met_hm_genes), "mouse metformin heatmap genes to Mouse_Metformin_heatmap_genes_category.csv\n")
 
 
 

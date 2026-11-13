@@ -1,8 +1,8 @@
 ##########
 ########## We use human datasets (2026 clean5) ##########
-########## clean5: X = raw counts；obs: sex, donor_id, sampleid, age, celltype
-########## per-donor pseudobulk = 按 obs['donor_id'] 累加 raw counts
-########## sex 在 obs['sex'] (male/female)，可做协变量 / 分性别 DEG
+########## clean5: X = raw counts; obs: sex, donor_id, sampleid, age, celltype
+########## per-donor pseudobulk = raw counts summed by obs['donor_id']
+########## sex is in obs['sex'] (male/female); usable as a covariate / for sex-stratified DEGs
 ##########
 
 conda activate scvi-env
@@ -17,16 +17,16 @@ import os, re
 
 h5ad_dir   = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
 out_root   = "/projects/hmz-aging/Human_New_Datasets/pseudobulk_sample"
-# 2026: 用 {ct}_clean5.h5ad（X = raw counts；列名统一: sex/donor_id/sampleid/age/celltype）
+# 2026: use {ct}_clean5.h5ad (X = raw counts; unified columns: sex/donor_id/sampleid/age/celltype)
 celltypes  = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
 os.makedirs(out_root, exist_ok=True)
 
 def check_raw_counts(X, name="X", n_check=200000):
-    """检查矩阵是否像 raw counts：非负 + 接近整数。返回 (is_raw, msg)。"""
+    """Check whether the matrix looks like raw counts: non-negative + near-integer. Returns (is_raw, msg)."""
     if sp.issparse(X):
         d = X.data
         if d.size == 0:
-            return False, f"{name}: 空矩阵"
+            return False, f"{name}: empty matrix"
         if d.size > n_check:
             rng = np.random.default_rng(0)
             d = d[rng.choice(d.size, n_check, replace=False)]
@@ -37,27 +37,27 @@ def check_raw_counts(X, name="X", n_check=200000):
             d = d[rng.choice(d.size, n_check, replace=False)]
     d = d[np.isfinite(d)]
     if d.size == 0:
-        return False, f"{name}: 无有效数值"
+        return False, f"{name}: no valid values"
     mn, mx = float(d.min()), float(d.max())
     frac_nonneg = float(np.mean(d >= -1e-8))
     frac_int = float(np.mean(np.isclose(d, np.round(d), atol=1e-6)))
     is_raw = (frac_nonneg > 0.999) and (frac_int > 0.99) and (mx > 1)
     msg = (f"{name}: min={mn:.4f}, max={mx:.4f}, "
-           f"非负比例={frac_nonneg:.4f}, 接近整数比例={frac_int:.4f}, 疑似raw_counts={is_raw}")
+           f"frac_nonneg={frac_nonneg:.4f}, frac_near_int={frac_int:.4f}, likely_raw_counts={is_raw}")
     return is_raw, msg
 
 def make_sample_pseudobulk(celltype, h5ad_dir=h5ad_dir, out_root=out_root):
     h5ad_file = os.path.join(h5ad_dir, f"{celltype}_clean5.h5ad")
     print(f"\n==== {celltype} ====")
-    assert os.path.exists(h5ad_file), f"找不到 {h5ad_file}"
+    assert os.path.exists(h5ad_file), f"File not found: {h5ad_file}"
     adata = sc.read_h5ad(h5ad_file)
     print(f"  {adata.shape[0]} cells x {adata.shape[1]} genes")
-    print(f"  obs 列: {adata.obs.columns.tolist()}")
-    # clean5: adata.X = raw counts；读入后检查
+    print(f"  obs columns: {adata.obs.columns.tolist()}")
+    # clean5: adata.X = raw counts; check after loading
     is_raw, msg = check_raw_counts(adata.X, name="adata.X")
     print(f"  {msg}")
     if not is_raw:
-        raise ValueError(f"{celltype}: adata.X 不像 raw counts，请核对 clean5！")
+        raise ValueError(f"{celltype}: adata.X does not look like raw counts, please check clean5!")
     counts = adata.X
     if not sp.issparse(counts):
         counts = sp.csr_matrix(counts)
@@ -65,16 +65,16 @@ def make_sample_pseudobulk(celltype, h5ad_dir=h5ad_dir, out_root=out_root):
     #
     obs = adata.obs.copy()
     obs['sampleid'] = obs['sampleid'].astype(str)
-    # clean5 的 age 可能是 "90 years" 或数值；统一转成可解析字符串
+    # age in clean5 may be "90 years" or numeric; convert to a parseable string
     obs['age'] = obs['age'].astype(str)
-    # donor_id: 主图谱有真实 donor; 若缺失/全空则退回用 sampleid
+    # donor_id: the main atlas has real donors; if missing/all empty, fall back to sampleid
     if ('donor_id' not in obs.columns) or obs['donor_id'].isna().all():
         obs['donor_id'] = obs['sampleid']
     obs['donor_id'] = obs['donor_id'].astype(str)
-    # 按 donor 聚合 (同一供体的多个 sample 合并成一个), 避免伪重复
+    # Aggregate by donor (multiple samples from the same donor merged into one) to avoid pseudoreplication
     donor_ids = sorted(obs['donor_id'].unique().tolist())
     #
-    # 按 donor 累加 -> gene x donor
+    # Sum by donor -> gene x donor
     pb = np.zeros((adata.shape[1], len(donor_ids)), dtype=np.float64)
     meta_rows = []
     for j, did in enumerate(donor_ids):
@@ -85,40 +85,40 @@ def make_sample_pseudobulk(celltype, h5ad_dir=h5ad_dir, out_root=out_root):
         m = re.search(r'(\d+)', age_str)             # "90 years" / "90" -> 90
         age_num = int(m.group(1)) if m else np.nan
         sex     = sub['sex'].mode().iloc[0] if 'sex' in sub else 'NA'
-        n_samp  = sub['sampleid'].nunique()          # 该 donor 合并了几个原始 sample
+        n_samp  = sub['sampleid'].nunique()          # number of original samples merged for this donor
         meta_rows.append({'donor_id': did, 'donor_age': age_str, 'age': age_num,
                           'sex': sex, 'n_samples': n_samp, 'n_cells': len(idx)})
     meta = pd.DataFrame(meta_rows)
     #
-    # 归一化: log2(CP10K + 1) (与 zebrafish/mouse 一致, 用于趋势/可视化)
-    lib_sizes = pb.sum(axis=0)                          # 每个 sample 的 library size
-    lib_sizes[lib_sizes == 0] = 1                       # 防止除零
+    # Normalization: log2(CP10K + 1) (consistent with zebrafish/mouse; for trends/visualization)
+    lib_sizes = pb.sum(axis=0)                          # library size of each sample
+    lib_sizes[lib_sizes == 0] = 1                       # avoid division by zero
     cp10k = pb / lib_sizes * 1e4
     pb_norm = np.log2(cp10k + 1)
     #
-    # 导出: matrix_raw.mtx (原始 counts, 给 edgeR) + matrix_norm.mtx (log2-CP10K) + genes.tsv + samples.tsv
+    # Export: matrix_raw.mtx (raw counts, for edgeR) + matrix_norm.mtx (log2-CP10K) + genes.tsv + samples.tsv
     out_dir = os.path.join(out_root, celltype)
     os.makedirs(out_dir, exist_ok=True)
-    sio.mmwrite(os.path.join(out_dir, "matrix_raw.mtx"),  sp.csr_matrix(pb))        # 不 normalize, edgeR 用
+    sio.mmwrite(os.path.join(out_dir, "matrix_raw.mtx"),  sp.csr_matrix(pb))        # not normalized, for edgeR
     sio.mmwrite(os.path.join(out_dir, "matrix_norm.mtx"), sp.csr_matrix(pb_norm))   # log2-CP10K
     pd.Series(adata.var_names).to_csv(os.path.join(out_dir, "genes.tsv"), sep="\t", index=False, header=False)
     meta.to_csv(os.path.join(out_dir, "samples.tsv"), sep="\t", index=False)
-    print(f"  donor 数: {len(donor_ids)}; 已保存 raw + norm -> {out_dir}")
+    print(f"  n donors: {len(donor_ids)}; saved raw + norm -> {out_dir}")
     print(meta[['donor_id','age','sex','n_samples','n_cells']].head())
     return meta
 
-# 逐个 celltype 生成
+# Generate for each celltype
 all_meta = {}
 for ct in celltypes:
     all_meta[ct] = make_sample_pseudobulk(ct)
 
-print("\n=== 全部完成（基于 clean5 raw counts）===")
+print("\n=== All done (based on clean5 raw counts) ===")
 
 
 
 #############
-############# 接下来在 R 里面计算 DEGs ####
-############# 我需要 sex 分开计算，并且加权值，解决样品不平衡的问题 ######
+############# Next, compute DEGs in R ####
+############# Compute separately by sex, with weights to address sample imbalance ######
 #############
 
 R
@@ -130,8 +130,8 @@ library(parallel)
 pb_root   = "/projects/hmz-aging/Human_New_Datasets/pseudobulk_sample"
 celltypes = c("AC","BC","RGC","Rod","Cone","HC","MG","Microglia","RPE")
 
-###### 读取一个 celltype 的 per-donor pseudobulk ######
-## which = "norm" (log2-CP10K, 用于 GAM) 或 "raw" (原始 counts, 用于 edgeR)
+###### Read per-donor pseudobulk for one celltype ######
+## which = "norm" (log2-CP10K, for GAM) or "raw" (raw counts, for edgeR)
 read_human_pb <- function(ct, root = pb_root, which = c("norm","raw")){
     which = match.arg(which)
     d     = file.path(root, ct)
@@ -143,39 +143,39 @@ read_human_pb <- function(ct, root = pb_root, which = c("norm","raw")){
     list(bulk_mat = mat, bulk_meta = meta)
 }
 
-###### 年龄分箱 (不等距, 中点 = 10,25,37.5,50,60,70,80,90; 年轻端更宽以平衡稀疏样本) ######
+###### Age bins (unequal widths, midpoints = 10,25,37.5,50,60,70,80,90; wider at the young end to balance sparse samples) ######
 age_breaks = c(0,20,30,45,55,65,75,85,95)
 age_labels = c("10","25","37.5","50","60","70","80","90")
 
-###### 权重: 每个 bin 总权重 ∝ interval 宽度; bin 内除以样本数 (消除样本数不均) ######
-## -> 宽 interval (如 0-20) 总话语权更大; 老年样本多也不会主导
+###### Weights: total weight per bin proportional to interval width; divided by sample count within bin (removes sample-size imbalance) ######
+## -> wide intervals (e.g. 0-20) get more total weight; abundant old samples do not dominate
 make_age_weights <- function(age, breaks = age_breaks){
     bin           = cut(as.numeric(age), breaks = breaks, right = FALSE, include.lowest = TRUE)
-    widths        = diff(breaks)                   # 各 interval 宽度
+    widths        = diff(breaks)                   # width of each interval
     names(widths) = levels(bin)
     n_per_bin     = table(bin)
     w = widths[as.character(bin)] / as.numeric(n_per_bin[as.character(bin)])
-    w[is.na(w)] = mean(w, na.rm = TRUE)            # 落在分箱外的 age 补均值, 防 NA
-    as.numeric(w / mean(w))                        # 归一化, 均值=1
+    w[is.na(w)] = mean(w, na.rm = TRUE)            # ages outside bins get the mean, avoids NA
+    as.numeric(w / mean(w))                        # normalize, mean = 1
 }
 
-###### 加权 GAM 平滑 (在原 Smooth_FUN 基础上加 weights, 并做健壮化) ######
+###### Weighted GAM smoothing (original Smooth_FUN plus weights, made more robust) ######
 Smooth_FUN <- function(x, age, w = NULL){
     vector = as.numeric(scale(as.numeric(x)))
     if(is.null(w)) w = rep(1, length(vector))
-    # 常量行 / 全 NA -> 直接返回 p=1
+    # Constant row / all NA -> return p=1 directly
     if(length(unique(vector[!is.na(vector)])) <= 1){
         return(data.frame(age = age, value = vector, predict = vector, p_value = 1))
     }
     df = data.frame(age = age, value = vector, w = w)
     df = df[order(df$age), ]
     rownames(df) = 1:nrow(df)
-    # k 自适应: 不能超过 unique 年龄点数
+    # Adaptive k: cannot exceed the number of unique ages
     k_use = min(4, length(unique(df$age)))
     fit = tryCatch(
         gam(value ~ s(age, k = k_use), data = df, weights = df$w, select = TRUE),
         error = function(e) NULL)
-    if(is.null(fit)){                          # gam 失败 -> p=1 兜底
+    if(is.null(fit)){                          # gam failed -> fall back to p=1
         df$predict = df$value; df$p_value = 1; return(df)
     }
     st = summary(fit)$s.table
@@ -184,28 +184,28 @@ Smooth_FUN <- function(x, age, w = NULL){
     df
 }
 
-###### 对一个 (celltype, sex) 子集的 bulk 鉴定 DEGs (加权 GAM) ######
-## bulk_list: list(bulk_mat = gene x donor, bulk_meta = data.frame(含 age))
+###### Identify DEGs on the bulk of one (celltype, sex) subset (weighted GAM) ######
+## bulk_list: list(bulk_mat = gene x donor, bulk_meta = data.frame(with age))
 Identify_DEGs <- function(bulk_list, avg_cutoff = 0.01, ncores = 20){
     bulk_mat  = bulk_list$bulk_mat
     bulk_meta = bulk_list$bulk_meta
     stopifnot(identical(colnames(bulk_mat), as.character(bulk_meta$donor_id)))
-    # 剔除 age 无法解析的 donor (NA age 会让权重/gam 出错)
+    # Remove donors with unparseable age (NA age breaks weights/gam)
     age = suppressWarnings(as.numeric(bulk_meta$age))
     ok  = which(!is.na(age))
-    if(length(ok) < length(age)) message("    剔除 ", length(age)-length(ok), " 个 NA age donor")
+    if(length(ok) < length(age)) message("    Removed ", length(age)-length(ok), " NA-age donors")
     bulk_mat = bulk_mat[, ok, drop = FALSE]
     age      = age[ok]
-    # 过滤低表达基因
+    # Filter lowly expressed genes
     avg_by_gene = rowMeans(bulk_mat)
     bulk_mat    = bulk_mat[avg_by_gene > avg_cutoff, , drop = FALSE]
-    # 逆频权重 (按 age 分箱)
+    # Inverse-frequency weights (by age bin)
     w = make_age_weights(age)
-    # 逐基因加权 GAM
+    # Per-gene weighted GAM
     res_list = mclapply(seq_len(nrow(bulk_mat)),
                         function(i) Smooth_FUN(bulk_mat[i, ], age = age, w = w),
                         mc.cores = ncores)
-    # 容错提取: 非 data.frame (try-error) 的基因记 p=1, delta=0
+    # Fault-tolerant extraction: genes with non-data.frame (try-error) results get p=1, delta=0
     pvalue = vapply(res_list, function(z) if(is.data.frame(z)) z$p_value[1] else 1, numeric(1))
     delta  = vapply(res_list, function(z) if(is.data.frame(z)) z$predict[nrow(z)] - z$predict[1] else 0, numeric(1))
     res = data.frame(Gene   = rownames(bulk_mat),
@@ -217,7 +217,7 @@ Identify_DEGs <- function(bulk_list, avg_cutoff = 0.01, ncores = 20){
     res
 }
 
-###### 主循环: 每个 celltype x 每个 sex 分别计算 ######
+###### Main loop: compute separately for each celltype x each sex ######
 Human_DEGs = list()
 for(ct in celltypes){
     message("\n==== ", ct, " ====")
@@ -233,7 +233,7 @@ for(ct in celltypes){
                                      right = FALSE, include.lowest = TRUE)))
         message("  ", sx, ": ", n_donor, " donors, ", n_bin, " age-bins")
         if(n_donor < 5 || n_bin < 3){
-            message("    -> 样本/年龄段太少, 跳过")
+            message("    -> too few samples/age bins, skipping")
             next
         }
         Human_DEGs[[ct]][[sx]] = Identify_DEGs(list(bulk_mat = sub_mat, bulk_meta = sub_meta))
@@ -243,13 +243,13 @@ for(ct in celltypes){
 }
 
 saveRDS(Human_DEGs, file.path(pb_root, "Human_DEGs_GAM_bySex.rds"))
-message("\n已保存: ", file.path(pb_root, "Human_DEGs_GAM_bySex.rds"))
+message("\nSaved: ", file.path(pb_root, "Human_DEGs_GAM_bySex.rds"))
 
 
 
 #####
-##### 每个 age bin: 各 donor CP10K 取平均 -> log2(mean+1) -> male/female 合并 -> kmeans -> heatmap
-##### (在斑马鱼代码基础上改)
+##### Per age bin: average donor CP10K -> log2(mean+1) -> combine male/female -> kmeans -> heatmap
+##### (adapted from the zebrafish code)
 #####
 
 bin_of_age <- function(age){
@@ -257,11 +257,11 @@ bin_of_age <- function(age){
                      right = FALSE, include.lowest = TRUE))
 }
 
-###### 一个 (celltype, sex) 子集: bin 内各 donor CP10K 取平均, 再 log2(mean+1) -> gene x bin ######
-## mat: log2(CP10K+1); 先还原 CP10K = 2^mat - 1
+###### One (celltype, sex) subset: average donor CP10K within bin, then log2(mean+1) -> gene x bin ######
+## mat: log2(CP10K+1); first back-transform CP10K = 2^mat - 1
 make_bin_avg <- function(mat, meta){
     bin = bin_of_age(meta$age)
-    ub  = age_labels[age_labels %in% unique(bin)]          # 只留有数据的 bin, 保持年龄顺序
+    ub  = age_labels[age_labels %in% unique(bin)]          # keep only bins with data, in age order
     cp10k = (2^mat) - 1
     out = sapply(ub, function(b) {
         log2(rowMeans(cp10k[, bin == b, drop = FALSE]) + 1)
@@ -271,7 +271,7 @@ make_bin_avg <- function(mat, meta){
     out
 }
 
-###### 每个 celltype x sex 算 bin 聚合 (用 norm = log2(CP10K+1) 还原后取平均) ######
+###### Bin aggregation for each celltype x sex (average after back-transforming norm = log2(CP10K+1)) ######
 Human_bin_list = list()
 for(ct in celltypes){
     pb = read_human_pb(ct, which = "norm")
@@ -283,14 +283,14 @@ for(ct in celltypes){
     }
 }
 
-###### 所有 (celltype, sex) 共有的 bin (列, 保证堆叠后无 NA) ######
+###### Bins shared by all (celltype, sex) (columns; ensures no NA after stacking) ######
 bins_each  = list()
 for(ct in celltypes) for(sx in c("male","female"))
     bins_each[[paste(ct,sx)]] = colnames(Human_bin_list[[ct]][[sx]])
 common_bin = age_labels[age_labels %in% Reduce(intersect, bins_each)]
-message("共有 age bins (列): ", paste(common_bin, collapse = ", "))
+message("Shared age bins (columns): ", paste(common_bin, collapse = ", "))
 
-###### 每个 celltype 的 DEG 基因 (male/female 任一 pvalue<0.05 的并集) ######
+###### DEG genes per celltype (union of pvalue<0.05 in either male or female) ######
 get_deg_genes <- function(ct){
     g = c()
     for(sx in c("male","female")){
@@ -300,7 +300,7 @@ get_deg_genes <- function(ct){
     unique(g)
 }
 
-###### male/female 按行堆叠 (M_/F_ 行名前缀), 列 = 共有 age bin, 只留 DEG 基因 ######
+###### Stack male/female by row (M_/F_ row-name prefix), columns = shared age bins, DEG genes only ######
 row_list = list()
 for(ct in celltypes){
     degg = get_deg_genes(ct)
@@ -308,14 +308,14 @@ for(ct in celltypes){
         pref = ifelse(sx == "male", "M_", "F_")
         m = Human_bin_list[[ct]][[sx]][, common_bin, drop = FALSE]
         m = m[rownames(m) %in% degg, , drop = FALSE]
-        rownames(m) = paste0(pref, ct, "__", rownames(m))   # 行名: M_/F_ + celltype__gene
+        rownames(m) = paste0(pref, ct, "__", rownames(m))   # row name: M_/F_ + celltype__gene
         row_list[[paste(ct,sx)]] = m
     }
 }
 Human_DEGs_Plot_raw = do.call(rbind, row_list)
-message("统一 matrix: ", nrow(Human_DEGs_Plot_raw), " rows x ", ncol(Human_DEGs_Plot_raw), " bins")
+message("Combined matrix: ", nrow(Human_DEGs_Plot_raw), " rows x ", ncol(Human_DEGs_Plot_raw), " bins")
 
-###### 行内 scale (z-score), 常量行(sd=0)置 0 ######
+###### Row-wise scale (z-score); constant rows (sd=0) set to 0 ######
 Human_DEGs_Plot = t(apply(Human_DEGs_Plot_raw, 1, scale))
 rownames(Human_DEGs_Plot) = rownames(Human_DEGs_Plot_raw)
 colnames(Human_DEGs_Plot) = colnames(Human_DEGs_Plot_raw)
@@ -323,7 +323,7 @@ Human_DEGs_Plot[is.na(Human_DEGs_Plot)] = 0
 
 saveRDS(Human_DEGs_Plot, file.path(pb_root, "Human_DEGs_Plot.rds"))
 
-###### kmeans (复用斑马鱼的 Kmeans_function) ######
+###### kmeans (reuses the zebrafish Kmeans_function) ######
 Kmeans_function <- function(Plot, k = 18){
     Plot[Plot > 4]  =  4
     Plot[Plot < -4] = -4
@@ -333,11 +333,11 @@ Kmeans_function <- function(Plot, k = 18){
 }
 Human_DEGs_Plot_Kmeans = Kmeans_function(Human_DEGs_Plot, k = 24)
 
-###### 画 heatmap (列 = age bin; 行 = sex+celltype 基因, 按 kmeans cluster 分块) ######
+###### Draw heatmap (columns = age bins; rows = sex+celltype genes, split by kmeans cluster) ######
 library('ComplexHeatmap')
 library('circlize')
 
-# 行注释: celltype 和 sex (都从行名解析)
+# Row annotation: celltype and sex (both parsed from row names)
 celltype = sub("^[MF]_", "", rownames(Human_DEGs_Plot))
 celltype = sapply(strsplit(celltype, split = "__"), function(x) x[[1]])
 sex      = ifelse(grepl("^M_", rownames(Human_DEGs_Plot)), "Male", "Female")
@@ -355,7 +355,7 @@ col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','
 setwd("/projects/hmz-aging/Human_New_Datasets")
 png('Human_DEGs.png', height = 7000, width = 4000, res = 72*12)
 Heatmap(Human_DEGs_Plot, name = "z", right_annotation = ra, border = TRUE,
-        use_raster = TRUE, raster_quality = 5,          # 行多时打开 raster 避免发淡
+        use_raster = TRUE, raster_quality = 5,          # enable raster for many rows to avoid washed-out colors
         show_row_names = FALSE, show_column_names = TRUE,
         rect_gp = gpar(col = 'white', lwd = 0),
         cluster_rows = FALSE, cluster_columns = FALSE, col = col_fun,
@@ -367,18 +367,18 @@ saveRDS(Human_DEGs_Plot_Kmeans, file.path(pb_root, "Human_DEGs_Plot_Kmeans.rds")
 
 
 #######
-####### 去掉指定 cluster -> 对剩余行重新 kmeans -> 重画 heatmap #######
+####### Remove selected clusters -> re-run kmeans on remaining rows -> redraw heatmap #######
 #######
 rm = c(12,17,23)
 
 keep = !(Human_DEGs_Plot_Kmeans$cluster %in% rm)
 Human_DEGs_Plot2 = Human_DEGs_Plot[keep, , drop = FALSE]
-message("去掉 cluster ", paste(rm, collapse=","), " 后剩余: ", nrow(Human_DEGs_Plot2), " 行")
+message("Remaining after removing cluster ", paste(rm, collapse=","), ": ", nrow(Human_DEGs_Plot2), " rows")
 
-###### 重新聚类 (k 可调) ######
+###### Re-cluster (k adjustable) ######
 Human_DEGs_Plot_Kmeans2 = Kmeans_function(Human_DEGs_Plot2, k = 12)
 
-###### 行注释 (从新矩阵行名解析) ######
+###### Row annotation (parsed from row names of the new matrix) ######
 celltype2 = sub("^[MF]_", "", rownames(Human_DEGs_Plot2))
 celltype2 = sapply(strsplit(celltype2, split = "__"), function(x) x[[1]])
 sex2      = ifelse(grepl("^M_", rownames(Human_DEGs_Plot2)), "Male", "Female")
@@ -404,18 +404,18 @@ saveRDS(Human_DEGs_Plot_Kmeans2, file.path(pb_root, "Human_DEGs_Plot_Kmeans2.rds
 
 
 #######
-####### 第三轮: 再去掉 cluster -> 重新 kmeans -> 重画 #######
+####### Round 3: remove more clusters -> re-run kmeans -> redraw #######
 #######
 rm2 = c(1,12,6,2)
 
 keep2 = !(Human_DEGs_Plot_Kmeans2$cluster %in% rm2)
 Human_DEGs_Plot3 = Human_DEGs_Plot2[keep2, , drop = FALSE]
-message("去掉 cluster ", paste(rm2, collapse=","), " 后剩余: ", nrow(Human_DEGs_Plot3), " 行")
+message("Remaining after removing cluster ", paste(rm2, collapse=","), ": ", nrow(Human_DEGs_Plot3), " rows")
 
-###### 重新聚类 (k 可调) ######
+###### Re-cluster (k adjustable) ######
 Human_DEGs_Plot_Kmeans3 = Kmeans_function(Human_DEGs_Plot3, k = 20)
 
-###### 行注释 ######
+###### Row annotation ######
 celltype3 = sub("^[MF]_", "", rownames(Human_DEGs_Plot3))
 celltype3 = sapply(strsplit(celltype3, split = "__"), function(x) x[[1]])
 sex3      = ifelse(grepl("^M_", rownames(Human_DEGs_Plot3)), "Male", "Female")
@@ -441,18 +441,18 @@ saveRDS(Human_DEGs_Plot_Kmeans3, file.path(pb_root, "Human_DEGs_Plot_Kmeans3.rds
 
 
 #######
-####### 第四轮: 再去掉 cluster -> 重新 kmeans -> 重画 #######
+####### Round 4: remove more clusters -> re-run kmeans -> redraw #######
 #######
-rm3 = c(2,5,4,18,14,16,3,6)   # 填要去掉的 Kmeans3 cluster 编号
+rm3 = c(2,5,4,18,14,16,3,6)   # Kmeans3 cluster IDs to remove
 
 keep3 = !(Human_DEGs_Plot_Kmeans3$cluster %in% rm3)
 Human_DEGs_Plot4 = Human_DEGs_Plot3[keep3, , drop = FALSE]
-message("去掉 cluster ", paste(rm3, collapse=","), " 后剩余: ", nrow(Human_DEGs_Plot4), " 行")
+message("Remaining after removing cluster ", paste(rm3, collapse=","), ": ", nrow(Human_DEGs_Plot4), " rows")
 
-###### 重新聚类 (k 可调) ######
+###### Re-cluster (k adjustable) ######
 Human_DEGs_Plot_Kmeans4 = Kmeans_function(Human_DEGs_Plot4, k = 9)
 
-###### 行注释 ######
+###### Row annotation ######
 celltype4 = sub("^[MF]_", "", rownames(Human_DEGs_Plot4))
 celltype4 = sapply(strsplit(celltype4, split = "__"), function(x) x[[1]])
 sex4      = ifelse(grepl("^M_", rownames(Human_DEGs_Plot4)), "Male", "Female")
@@ -479,8 +479,8 @@ saveRDS(Human_DEGs_Plot_Kmeans4, file.path(pb_root, "Human_DEGs_Plot_Kmeans4.rds
 #####
 #####
 
-####### 基于 Plot4 / Kmeans4: 去掉 rm -> 按 new_order 重排 -> 画图 #######
-rm = c()   # 填要去掉的 Kmeans4 cluster；不删则保持 c()
+####### Based on Plot4 / Kmeans4: remove rm -> reorder by new_order -> plot #######
+rm = c()   # Kmeans4 clusters to remove; keep c() to remove none
 
 new_order_down = c(2,6,9,5)
 new_order_middle = c(7,4)
@@ -488,20 +488,20 @@ new_order_up = c(8,3,1)
 
 new_order = c(new_order_down, new_order_middle, new_order_up)
 
-####### 去掉 rm 的 cluster, 矩阵和 kmeans 表一起过滤 #######
+####### Remove clusters in rm; filter matrix and kmeans table together #######
 keep4b = !(Human_DEGs_Plot_Kmeans4$cluster %in% rm)
 Human_DEGs_Plot_Kmeans4_order = Human_DEGs_Plot_Kmeans4[keep4b, ]
 Human_DEGs_Plot4_order        = Human_DEGs_Plot4[keep4b, , drop = FALSE]
 
-####### 按 new_order 重新编号 cluster (1..length(new_order)) #######
+####### Renumber clusters by new_order (1..length(new_order)) #######
 Human_DEGs_Plot_Kmeans4_order$cluster = match(Human_DEGs_Plot_Kmeans4_order$cluster, new_order)
 
-####### 按新 cluster 顺序重排行, 保持矩阵与 row_sp 对齐 #######
+####### Reorder rows by new cluster order, keeping matrix aligned with row_sp #######
 ord = order(Human_DEGs_Plot_Kmeans4_order$cluster)
 Human_DEGs_Plot_Kmeans4_order = Human_DEGs_Plot_Kmeans4_order[ord, ]
 Human_DEGs_Plot4_order        = Human_DEGs_Plot4_order[ord, , drop = FALSE]
 
-###### 行注释 ######
+###### Row annotation ######
 celltype4o = sub("^[MF]_", "", rownames(Human_DEGs_Plot4_order))
 celltype4o = sapply(strsplit(celltype4o, split = "__"), function(x) x[[1]])
 sex4o      = ifelse(grepl("^M_", rownames(Human_DEGs_Plot4_order)), "Male", "Female")
@@ -512,13 +512,13 @@ ra4o <- rowAnnotation(CellType = celltype4o, Sex = sex4o,
 row_sp4o = factor(Human_DEGs_Plot_Kmeans4_order$cluster,
                   levels = 1:length(new_order))
 
-###### 要标注的基因 (行名格式: 前缀_celltype__gene) ######
+###### Genes to label (row-name format: prefix_celltype__gene) ######
 mark_rows = c("F_Cone__STAT1","M_MG__BTN3A3","M_RPE__BTN3A3","M_RPE__APOE",
               "F_AC__EBF1","F_AC__BTN3A3","F_RGC__ELOVL6","M_RGC__CLOCK",
               "M_RPE__DKK3","F_RGC__CLOCK")
-mark_rows = mark_rows[mark_rows %in% rownames(Human_DEGs_Plot4_order)]   # 只留存在的
+mark_rows = mark_rows[mark_rows %in% rownames(Human_DEGs_Plot4_order)]   # keep only existing rows
 at = match(mark_rows, rownames(Human_DEGs_Plot4_order))
-# 显示文字: 前缀_celltype__gene -> celltype_sex__gene (与图一致)
+# Display text: prefix_celltype__gene -> celltype_sex__gene (consistent with the figure)
 mark_labels = sapply(mark_rows, function(r){
     sx = ifelse(grepl("^M_", r), "M", "F")
     rest = sub("^[MF]_", "", r)                       # celltype__gene
@@ -546,12 +546,12 @@ saveRDS(Human_DEGs_Plot_Kmeans4_order, file.path(pb_root, "Human_DEGs_Plot_Kmean
 #####
 
 #####
-##### 基于 Plot4_order: 分 male / female 画 barplot ###
+##### Based on Plot4_order: barplots for male / female separately ###
 #####
 
 library(ggplot2)
 
-###### 每个 celltype 各方向(Down=Young / Up=Old / Middle)的 DEG 数 ######
+###### Number of DEGs per celltype in each direction (Down=Young / Up=Old / Middle) ######
 make_bar_data <- function(kc, Downclusters, Middleclusters, Upclusters){
     kc$cell_type = sapply(strsplit(sub("^[MF]_", "", kc$genes), split = "__"),
                           function(x) x[[1]])
@@ -572,14 +572,14 @@ make_bar_data <- function(kc, Downclusters, Middleclusters, Upclusters){
     data
 }
 
-###### 重编号后的分组: 直接对应上面的 new_order_down / middle / up ######
+###### Groups after renumbering: correspond directly to new_order_down / middle / up above ######
 n_down = length(new_order_down)
 n_mid  = length(new_order_middle)
 n_up   = length(new_order_up)
-Downclusters   = c(1:4)                         # 例: 1:3
-Middleclusters = c(5,6)                 # 例: 4:6
-Upclusters     = c(7:9)          # 例: 7:9
-message(sprintf("barplot 分组: Down=%s | Middle=%s | Up=%s",
+Downclusters   = c(1:4)                         # e.g. 1:3
+Middleclusters = c(5,6)                 # e.g. 4:6
+Upclusters     = c(7:9)          # e.g. 7:9
+message(sprintf("barplot groups: Down=%s | Middle=%s | Up=%s",
                 paste(Downclusters, collapse=","),
                 paste(Middleclusters, collapse=","),
                 paste(Upclusters, collapse=",")))
@@ -590,7 +590,7 @@ kc_F = kc[grepl("^F_", kc$genes), ]
 data_M = make_bar_data(kc_M, Downclusters, Middleclusters, Upclusters)
 data_F = make_bar_data(kc_F, Downclusters, Middleclusters, Upclusters)
 
-###### 两性共用 y 轴上限, 方便比较 ######
+###### Shared y-axis limit for both sexes, for easier comparison ######
 ymax = max(tapply(data_M$num_DEGs, data_M$cell_type, sum),
            tapply(data_F$num_DEGs, data_F$cell_type, sum))
 
@@ -613,15 +613,15 @@ ggsave("Human_data_barplot_female.png", plot_bar(data_F, "Female"), width = 7, h
 
 
 #####
-#### 然后画那个点图 (趋势散点, 按 Plot4_order 的 cluster facet) #####
+#### Then draw the dot plot (trend scatter, faceted by Plot4_order cluster) #####
 #####
 
 Plot_dot <- function(Plot, Kmeans_order){
     library(reshape2)
     d = melt(Plot)
     d$class  = Kmeans_order$cluster[match(d$Var1, Kmeans_order$genes)]
-    d$Var2_1 = as.numeric(factor(d$Var2, levels = colnames(Plot)))   # 列顺序 = 年龄顺序
-    cl_levels = seq_len(length(new_order))                           # 与 new_order 重编号一致
+    d$Var2_1 = as.numeric(factor(d$Var2, levels = colnames(Plot)))   # column order = age order
+    cl_levels = seq_len(length(new_order))                           # consistent with new_order renumbering
     d$class  = factor(d$class, levels = cl_levels)
     d
 }
@@ -644,18 +644,18 @@ p_trend = ggplot(Human_DEGs_Plot_dot, aes(x = Var2_1, y = value)) +
 ggsave("Human_trend.png", p_trend, height = 8, width = 1.2)
 
 
-##### 先保存下 cluster的结果 ####
+##### Save the cluster results first ####
 saveRDS(Human_DEGs_Plot4_order,        file.path(pb_root, "Human_DEGs_Plot4_order.rds"))
 saveRDS(Human_DEGs_Plot_Kmeans4_order, file.path(pb_root, "Human_DEGs_Plot_Kmeans4_order.rds"))
 
 
 #####
-##### edgeR: 按 sex 分开计算 Old vs Young (raw counts)，并按 sex 分别保存 / 生成 Rank #####
+##### edgeR: Old vs Young computed separately by sex (raw counts); save / build Rank per sex #####
 #####
 
 library(edgeR)
 
-###### edgeR: 单一性别内 Old vs Young (~ group)；age 中间段丢弃 ######
+###### edgeR: Old vs Young within a single sex (~ group); middle ages discarded ######
 call_DEG_edgeR <- function(list_process, young_max = 40, old_min = 80, min_n = 2,
                            sex_keep = c("male","female")){
     sex_keep  = match.arg(sex_keep)
@@ -671,7 +671,7 @@ call_DEG_edgeR <- function(list_process, young_max = 40, old_min = 80, min_n = 2
     counts = round(bulk_mat[, keep_s, drop = FALSE])
     group  = factor(grp[keep_s], levels = c("Young","Old"))
     if(length(keep_s) == 0 || nlevels(droplevels(group)) < 2 || min(table(group)) < min_n){
-        message("  ", sex_keep, " 样本不足, 跳过: ",
+        message("  ", sex_keep, " insufficient samples, skipping: ",
                 paste(names(table(group)), as.integer(table(group)), collapse = " "))
         return(NULL)
     }
@@ -679,7 +679,7 @@ call_DEG_edgeR <- function(list_process, young_max = 40, old_min = 80, min_n = 2
     keep_g = filterByExpr(y, group = group)
     y = y[keep_g, , keep.lib.sizes = FALSE]
     y = calcNormFactors(y)
-    design = model.matrix(~ group)                 # 性别内不再加 sex 协变量
+    design = model.matrix(~ group)                 # no sex covariate within a single sex
     y   = estimateDisp(y, design)
     fit = glmQLFit(y, design)
     qlf = glmQLFTest(fit, coef = 2)
@@ -690,7 +690,7 @@ call_DEG_edgeR <- function(list_process, young_max = 40, old_min = 80, min_n = 2
     res
 }
 
-####### 每个 celltype × sex 分开计算 / 保存 #######
+####### Compute / save separately for each celltype x sex #######
 Human_DEG_edgeR = list()
 for(ct in celltypes){
     message("\n==== ", ct, " ====")
@@ -701,30 +701,30 @@ for(ct in celltypes){
         if(is.null(res)) next
         n_up   = sum(res$PValue < 0.05 & res$logFC > 0)
         n_down = sum(res$PValue < 0.05 & res$logFC < 0)
-        message(sprintf("  %s: Up(Old高)=%d, Down(Old低)=%d (PValue<0.05)", sx, n_up, n_down))
+        message(sprintf("  %s: Up(higher in Old)=%d, Down(lower in Old)=%d (PValue<0.05)", sx, n_up, n_down))
         Human_DEG_edgeR[[ct]][[sx]] = res
     }
 }
 saveRDS(Human_DEG_edgeR, file.path(pb_root, "Human_DEG_edgeR_bySex.rds"))
-message("已保存: ", file.path(pb_root, "Human_DEG_edgeR_bySex.rds"))
+message("Saved: ", file.path(pb_root, "Human_DEG_edgeR_bySex.rds"))
 
 
 ######
-###### 按 sex 生成 rank (用于 GSEA; 不用 Kmeans4，全部 edgeR 基因直接打分)
+###### Build rank per sex (for GSEA; no Kmeans4, score all edgeR genes directly)
 ###### ranking metric = sign(logFC) * -log10(PValue)
 ######
 
 ######
-###### 【新终端从这里开始】读入 edgeR 结果，再往下跑 rank ######
+###### [Start here in a new terminal] Load edgeR results, then run rank below ######
 ######
 conda activate seurat_env
 R
 
 pb_root = "/projects/hmz-aging/Human_New_Datasets/pseudobulk_sample"
 Human_DEG_edgeR = readRDS(file.path(pb_root, "Human_DEG_edgeR_bySex.rds"))
-message("已读入 Human_DEG_edgeR: ",
+message("Loaded Human_DEG_edgeR: ",
         paste(names(Human_DEG_edgeR), collapse = ", "))
-message("=== 加载完成，继续跑下面 rank ===")
+message("=== Loading done, continue with rank below ===")
 
 Build_Rank_from_DEG <- function(deg, eps = 1e-300){
     pv = deg$PValue; pv[is.na(pv)] = 1
@@ -755,13 +755,13 @@ for(ct in names(Human_DEG_edgeR)){
                         sum(Human_DEG_rank[[ct]][[sx]] != 0)))
     }
 }
-Human_DEG_rank = flatten_rank(Human_DEG_rank)   # 扁平: AC_male / AC_female ...
+Human_DEG_rank = flatten_rank(Human_DEG_rank)   # flattened: AC_male / AC_female ...
 saveRDS(Human_DEG_rank, file.path(pb_root, "Human_DEG_rank.rds"))
-message("已保存: ", file.path(pb_root, "Human_DEG_rank.rds"))
+message("Saved: ", file.path(pb_root, "Human_DEG_rank.rds"))
 
 
 #######
-####### GSEA 大类: 分 sex 各算一遍，画 male / female 气泡图 #######
+####### GSEA categories: run separately by sex, draw male / female bubble plots #######
 #######
 conda activate clusterProfiler
 
@@ -781,7 +781,7 @@ category_sets = human_aging_catalog$category_unions
 ###### helpers ######
 flatten_rank_list <- function(x){
     if(length(x) == 0) return(x)
-    if(is.numeric(x[[1]])) return(x)                 # 已是扁平: AC_male
+    if(is.numeric(x[[1]])) return(x)                 # already flat: AC_male
     flat = list()
     for(ct in names(x))
         for(sx in names(x[[ct]]))
@@ -813,13 +813,13 @@ run_fgsea_one <- function(ranks, pathways, minSize = 5, maxSize = 5000){
     res[order(res$NES, decreasing = TRUE), ]
 }
 
-## 对一套扁平 rank (名字=celltype_sex) 跑大类 GSEA，返回 list + df
+## Run category GSEA on a set of flat ranks (name = celltype_sex); returns list + df
 run_category_gsea <- function(rank_flat, pathways, tag){
     message("\n########## GSEA category: ", tag, " ##########")
     gsea_list = list()
     for(nm in names(rank_flat)){
         ranks = rank_flat[[nm]]
-        if(length(ranks) < 10){ message("跳过(基因太少): ", nm); next }
+        if(length(ranks) < 10){ message("Skipped (too few genes): ", nm); next }
         message("==== ", nm, " ====")
         res = run_fgsea_one(ranks, pathways)
         res$celltype = nm
@@ -838,12 +838,12 @@ run_category_gsea <- function(rank_flat, pathways, tag){
     list(list = gsea_list, df = df)
 }
 
-## 画单张气泡图: 固定一个 mode + 一个 sex
+## Draw a single bubble plot: one fixed mode + one sex
 plot_category_bubble <- function(df, mode, sex, outfile,
                                  ct_levels = c("MG","RGC","AC","HC","BC","Cone","Rod","Microglia","RPE")){
     plot_df = df[df$mode == mode & df$sex == sex, , drop = FALSE]
     if(nrow(plot_df) == 0){
-        message("无数据, 跳过作图: ", mode, " / ", sex)
+        message("No data, skipping plot: ", mode, " / ", sex)
         return(invisible(NULL))
     }
     plot_df$neglogP = -log10(pmax(plot_df$pval, 1e-300))
@@ -870,38 +870,38 @@ plot_category_bubble <- function(df, mode, sex, outfile,
             plot.title = element_text(hjust = 0.5, face = "bold")) +
       labs(x = "", y = "", title = paste0(mode, " | ", sex))
     ggsave(outfile, plot = p, width = 6, height = 5, dpi = 300)
-    message("已保存: ", outfile)
+    message("Saved: ", outfile)
     invisible(p)
 }
 
 ######
-###### 0. 读 rank，转 symbol ######
+###### 0. Read rank, convert to symbol ######
 ######
 rank_file = file.path(pb_root, "Human_DEG_rank.rds")
 stopifnot(file.exists(rank_file))
-message("读取 rank: ", rank_file)
+message("Reading rank: ", rank_file)
 Human_DEG_rank = flatten_rank_list(readRDS(rank_file))
 Human_DEG_rank = lapply(Human_DEG_rank, convert_rank_to_symbol)
-message(sprintf("  %d 个 (celltype_sex), 例: %s",
+message(sprintf("  %d (celltype_sex), e.g.: %s",
                 length(Human_DEG_rank),
                 paste(head(names(Human_DEG_rank), 3), collapse = ", ")))
 
 ######
-###### 1. 大类 GSEA ######
+###### 1. Category GSEA ######
 ######
 out = run_category_gsea(Human_DEG_rank, category_sets, tag = "noKmeans")
 Human_GSEA_category_df = out$df
-## 列: celltype(AC_male) / category / NES / ES / pval / padj / size / sex / ct / mode
+## Columns: celltype(AC_male) / category / NES / ES / pval / padj / size / sex / ct / mode
 stopifnot(all(c("sex","ct","mode") %in% names(Human_GSEA_category_df)))
-message("sex 分布: "); print(table(Human_GSEA_category_df$sex, useNA = "ifany"))
+message("sex distribution: "); print(table(Human_GSEA_category_df$sex, useNA = "ifany"))
 write.table(Human_GSEA_category_df, file = "Human_GSEA_category.tsv",
             sep = "\t", quote = FALSE, row.names = FALSE)
-message("已保存: ", file.path(out_dir, "Human_GSEA_category.tsv"),
-        "; 行数: ", nrow(Human_GSEA_category_df),
-        "; 列: ", paste(names(Human_GSEA_category_df), collapse = ", "))
+message("Saved: ", file.path(out_dir, "Human_GSEA_category.tsv"),
+        "; rows: ", nrow(Human_GSEA_category_df),
+        "; columns: ", paste(names(Human_GSEA_category_df), collapse = ", "))
 
 ######
-###### 2. 画 2 张气泡图: male / female ######
+###### 2. Draw 2 bubble plots: male / female ######
 ######
 plot_jobs = list(
     list(mode = "noKmeans", sex = "male",   file = "Human_GSEA_category_bubble_noKmeans_male.png"),
@@ -910,24 +910,24 @@ plot_jobs = list(
 for(job in plot_jobs){
     plot_category_bubble(Human_GSEA_category_df, mode = job$mode, sex = job$sex, outfile = job$file)
 }
-message("\n已保存气泡图到 ", out_dir)
+message("\nSaved bubble plots to ", out_dir)
 message(paste(" -", sapply(plot_jobs, `[[`, "file"), collapse = "\n"))
 
 
 ######
-###### (term 级别 GSEA / heatmap 先不做；大类确认后再加) ######
+###### (term-level GSEA / heatmap not done yet; add after categories are confirmed) ######
 ######
 
 ######
-###### noKmeans 重画两张图 (male / female)
-###### 边框规则 (同一 ct × category 跨两性比较):
-######   - 两性都显著且 NES 同向 → 绿色边
-######   - 两性都显著且 NES 反向 → 红色边
-######   - 仅一性显著 → 普通灰边 (什么都不做)
-###### 主图黑框面板强制正方形 (aspect.ratio = 1)
+###### Redraw the two noKmeans plots (male / female)
+###### Border rules (same ct x category compared across sexes):
+######   - significant in both sexes with same NES direction -> green border
+######   - significant in both sexes with opposite NES direction -> red border
+######   - significant in one sex only -> default grey border (no change)
+###### Force the black-bordered main panel to be square (aspect.ratio = 1)
 ######
 
-## 若上面对象不在内存，可从文件恢复
+## If the objects above are not in memory, restore from file
 if(!exists("Human_GSEA_category_df")){
     Human_GSEA_category_df = read.delim(file.path(out_dir, "Human_GSEA_category.tsv"),
                                         stringsAsFactors = FALSE, check.names = FALSE)
@@ -937,7 +937,7 @@ df_nk = Human_GSEA_category_df[Human_GSEA_category_df$mode == "noKmeans", , drop
 df_nk$neglogP = -log10(pmax(df_nk$pval, 1e-300))
 df_nk$sig = !is.na(df_nk$pval) & df_nk$pval < 0.05
 
-## 跨性别比较: 两性都显著的 ct×category
+## Cross-sex comparison: ct x category significant in both sexes
 m_sig = df_nk[df_nk$sex == "male"   & df_nk$sig, c("ct","category","NES")]
 f_sig = df_nk[df_nk$sex == "female" & df_nk$sig, c("ct","category","NES")]
 mf = merge(m_sig, f_sig, by = c("ct","category"), suffixes = c("_m","_f"))
@@ -946,12 +946,12 @@ mf$dir = ifelse(sign(mf$NES_m) * sign(mf$NES_f) > 0, "concordant",
 conc_keys = with(mf[mf$dir == "concordant", ], paste(ct, category, sep = "||"))
 disc_keys = with(mf[mf$dir == "discordant", ], paste(ct, category, sep = "||"))
 key_nk = paste(df_nk$ct, df_nk$category, sep = "||")
-df_nk$edge = "single"   # 默认: 仅一性显著 / 未两边都显著
+df_nk$edge = "single"   # default: significant in one sex only / not significant in both
 df_nk$edge[key_nk %in% conc_keys] = "concordant"
 df_nk$edge[key_nk %in% disc_keys] = "discordant"
 df_nk$edge = factor(df_nk$edge, levels = c("single","concordant","discordant"))
 
-message(sprintf("noKmeans 边框: 同向(绿)=%d, 反向(红)=%d (ct×category)",
+message(sprintf("noKmeans borders: concordant(green)=%d, discordant(red)=%d (ct x category)",
                 length(conc_keys), length(disc_keys)))
 if(nrow(mf) > 0) print(mf[, c("ct","category","NES_m","NES_f","dir")])
 
@@ -980,7 +980,7 @@ plot_noKmeans_one_sex <- function(df, sex, outfile){
       scale_x_discrete(drop = FALSE) + scale_y_discrete(drop = FALSE) +
       guides(color = guide_legend(override.aes = list(fill = "white", size = 4, stroke = 1.5))) +
       theme_bw(base_size = 12) +
-      theme(aspect.ratio = 1,   # 黑框面板正方形
+      theme(aspect.ratio = 1,   # square black-bordered panel
             panel.grid.major = element_line(color = "grey92", linewidth = 0.3),
             panel.grid.minor = element_blank(),
             panel.border = element_rect(color = "black", fill = NA, linewidth = 0.9),
@@ -991,11 +991,11 @@ plot_noKmeans_one_sex <- function(df, sex, outfile){
             legend.position = "right") +
       labs(x = "", y = "", title = paste0("noKmeans | ", sex))
     ggsave(outfile, plot = p, width = 7, height = 7, dpi = 300)
-    message("已保存: ", outfile)
+    message("Saved: ", outfile)
     invisible(p)
 }
 
-## 单行调用，避免终端粘贴时 + 续行把函数名截断
+## Single-line calls, so pasting into the terminal does not truncate function names on + continuation lines
 plot_noKmeans_one_sex(df_nk, "male",   file.path(out_dir, "Human_GSEA_category_bubble_noKmeans_male_edge.png"))
 plot_noKmeans_one_sex(df_nk, "female", file.path(out_dir, "Human_GSEA_category_bubble_noKmeans_female_edge.png"))
 

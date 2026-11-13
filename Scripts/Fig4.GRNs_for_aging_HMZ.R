@@ -3,26 +3,24 @@
 #######
 
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate seurat4
 R
 
 
 ######## load the mouse GRNs results #######
-setwd("/zp1/data/plyu3/Aging_Clocks_Final")
+setwd("/path/to/data/Aging_Clocks_Final")
 load("Mouse_Corr_res_Sep23")
 head(Mouse_Corr_res)
 
 ######## load the zebrafish GRNs results #######
-setwd("/zp1/data/plyu3/Aging_Clocks_Final")
+setwd("/path/to/data/Aging_Clocks_Final")
 load("Fish_Corr_res_Sep23")
 head(Fish_Corr_res)
 
 
 ######## load the human GRNs results #######
-setwd("/zp1/data/plyu3/Aging_Clocks_Final")
+setwd("/path/to/data/Aging_Clocks_Final")
 load("Human_Corr_res_Sep23")
 head(Human_Corr_res)
 
@@ -31,20 +29,20 @@ head(Human_Corr_res)
 
 ######## Mouse: #######
 
-setwd("/zp1/data/plyu3/Aging_Clocks_Final/GRNs")
+setwd("/path/to/data/Aging_Clocks_Final/GRNs")
 Mouse_Trans <- readRDS("Mouse_Trans")
 Mouse_CisBP <- readRDS("Mouse_CisBP")
 
 
 ######## Zebrafish: #########
 
-setwd("/zp1/data/plyu3/Aging_Clocks_Final/GRNs")
+setwd("/path/to/data/Aging_Clocks_Final/GRNs")
 Fish_Trans <- readRDS("Fish_Trans")
 Fish_CisBP <- readRDS("Fish_CisBP")
 
 ######## Human: #########
 
-setwd("/zp1/data/plyu3/Aging_Clocks_Final/GRNs")
+setwd("/path/to/data/Aging_Clocks_Final/GRNs")
 Human_Trans <- readRDS("Human_Trans")
 Human_CisBP <- readRDS("Human_CisBP")
 
@@ -58,7 +56,7 @@ Human_CisBP <- readRDS("Human_CisBP")
 conda activate ArchR2 
 R
 library(ArchR)
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 Mouse_ATAC_project <- readRDS("Project_all_clcl_Jul2")
 
 #####
@@ -89,8 +87,8 @@ names(Mouse_Fragments_Need_List) <- Celltypes
 saveRDS(Mouse_Fragments_Need_List,file="Mouse_Fragments_Need_List_2025")
 
 
-source("/zp1/data/plyu3/All_Functions_2025/R/source_all.R")
-source_all_r("/zp1/data/plyu3/All_Functions_2025/R/")
+source("/path/to/data/All_Functions_2025/R/source_all.R")
+source_all_r("/path/to/data/All_Functions_2025/R/")
 
 Celltypes = c("AC","BC","Cone","HC","MG","RGC","Rod")
 
@@ -107,14 +105,12 @@ Convert_frag_list_to_bedpe(Mouse_Fragments_Need_List$Cone,TAG="Mouse_Cone")
 #########--------------------------------- for Zebrafish fragments !!!! --------------------------------------------------------------------------------------------------------------------------------------------
 #########
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2 
 R
 library(ArchR)
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 ##### save(Project_all_clclclcl,file="Zebrafish_ATAC_FinalFinal_2024_Jun26")
 
 load("Zebrafish_ATAC_FinalFinal_2024_Jun26")
@@ -162,7 +158,7 @@ conda activate ArchR2
 R
 library(ArchR)
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 Human_ATAC_Project <- readRDS(file="Human_ATAC_Final_Jun2024")
 
 #########
@@ -196,8 +192,8 @@ names(Human_Fragments_Need_List) <- Celltypes
 saveRDS(Human_Fragments_Need_List,file="Human_Fragments_Need_List_2025")
 
 
-source("/zp1/data/plyu3/All_Functions_2025/R/source_all.R")
-source_all_r("/zp1/data/plyu3/All_Functions_2025/R/")
+source("/path/to/data/All_Functions_2025/R/source_all.R")
+source_all_r("/path/to/data/All_Functions_2025/R/")
 
 Celltypes = c("AC","BC","Cone","HC","MG","RGC","Rod")
 
@@ -212,94 +208,65 @@ Convert_frag_list_to_bedpe(Human_Fragments_Need_List$Cone,TAG="Human_Cone")
 
 ########
 ########
-######## Output the genome size and peaks ！！ ###### 
+######## Output the genome size and peaks !! ###### 
 ########
 ########
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 
 genome_size = Mouse_ATAC_project@genomeAnnotation$chromSizes
 genome_size_tab = data.frame(chr=seqnames(genome_size),length=end(genome_size))
 write.table(genome_size_tab,file="mm10.sizes",quote=F,row.names=F,col.names=F,sep="\t")
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 
 genome_size = Zebrafish_ATAC_project@genomeAnnotation$chromSizes
 genome_size_tab = data.frame(chr=seqnames(genome_size),length=end(genome_size))
 write.table(genome_size_tab,file="danRer11.sizes",quote=F,row.names=F,col.names=F,sep="\t")
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 
 genome_size = Human_ATAC_Project@genomeAnnotation$chromSizes
 genome_size_tab = data.frame(chr=seqnames(genome_size),length=end(genome_size))
 write.table(genome_size_tab,file="hg38.sizes",quote=F,row.names=F,col.names=F,sep="\t")
 
 #######
-####### next find the peaks ！！！ #######
+####### next find the peaks !!! #######
 #######
 
 #######
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 Fish_PeakMat = readRDS("Fish_aging_PeakMat_Aug28")
 Fish_PeakMat_Peaks = data.frame(GRanges(rownames(Fish_PeakMat)))
 write.table(Fish_PeakMat_Peaks[,c(1:3)],file="Fish_PeakMat_Peaks.bed",sep="\t",quote=F,col.names=F,row.names=F)
 
 ######## on HPC #########
-cp /projects/hmz-aging/Aging_Clocks_Final/All_Peaks_GRNs_Mouse_Sep10 /home/plyu3/TRANSFER
+cp /projects/hmz-aging/Aging_Clocks_Final/All_Peaks_GRNs_Mouse_Sep10 /path/to/home/TRANSFER
 
 ######## not working !!##
-U[9C20&&
 ########
 
 
 setwd("/projects/hmz-aging/Aging_Clocks_Final")
 All_Peaks_GRNs_Mouse <- readRDS("All_Peaks_GRNs_Mouse_Sep10")
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 All_Peaks_GRNs_Mouse <- readRDS("All_Peaks_GRNs_Mouse_Sep10")
 All_Peaks_GRNs_Mouse <- data.frame(All_Peaks_GRNs_Mouse)
 write.table(All_Peaks_GRNs_Mouse[,c(1:3)],file="Mouse_PeakMat_Peaks.bed",sep="\t",quote=F,col.names=F,row.names=F)
 
 #######
-####### Next Human Peaks！！！ #######
+####### Next Human Peaks!!! #######
 #######
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 All_Peaks_GRNs_Human <- readRDS("All_Peaks_GRNs_Human_Sep10")
 All_Peaks_GRNs_Human <- data.frame(All_Peaks_GRNs_Human)
 write.table(All_Peaks_GRNs_Human[,c(1:3)],file="Human_PeakMat_Peaks.bed",sep="\t",quote=F,col.names=F,row.names=F)
 
 
 
-####### globus_env #######
-
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
-
-conda activate seurat4
-R
-
-
-
-conda create -n globus_env python=3.9 -y
-conda activate globus_env
-mamba install -c conda-forge globus-cli
-
-globus gcp create mapped "omb2_plyu3"
-
-globus endpoint create --personal "omb2_plyu3"
-
-./globusconnectpersonal -setup 8c716978-2e06-46a0-93b1-6eb3cf9f2b90
-
-conda activate globus_env
-/home/plyu3/globusconnectpersonal-3.2.6/globusconnectpersonal -start
-
-/zp1/data/ShareData
-
-globus ls fb5c6d1f-2c32-11f0-989b-02718ce60f75:/zp1/data/ShareData
-
-globus endpoint search --filter-display-name
 
 #######
 
@@ -312,12 +279,10 @@ globus endpoint search --filter-display-name
 
 ####### for Fish !!! ########
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR
 
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out
+cd /path/to/data/fish_aging_ATAC_2024May/ATAC_out
 
 for cell in Cone Rod AC HC BC RGC MG; do
   bedtools bedpetobam \
@@ -333,7 +298,7 @@ done
 
 #########------- Next for Mouse ######
 
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow
+cd /path/to/data/Aging_Mouse/Aging_arrow
 
 bedtools bedpetobam -i Mouse_Cone_fragments_cl_bamGR_pe.bed -g mm10.sizes \
   > Mouse_Cone_fragments_cl_bamGR_pe.bam \
@@ -373,7 +338,7 @@ bedtools bedpetobam -i Mouse_MG_fragments_cl_bamGR_pe.bed -g mm10.sizes \
 
 #########------- Next for Human ######
 
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq
+cd /path/to/data/Human_aging_scATACseq/Human_aging_scATACseq
 
 bedtools bedpetobam -i Human_Cone_fragments_cl_bamGR_pe.bed -g hg38.sizes \
   > Human_Cone_fragments_cl_bamGR_pe.bam \
@@ -398,8 +363,6 @@ done
 ########
 
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 ########
 conda activate ArchR
@@ -408,7 +371,7 @@ R
 TOBIAS
 mamba install bioconda::tobias
 
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq
+cd /path/to/data/Human_aging_scATACseq/Human_aging_scATACseq
 
 ####wget ftp://ftp.ensembl.org/pub/release-*/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
 ####gunzip Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
@@ -422,7 +385,7 @@ seqs <- getSeq(genome, names(genome)[1:25])
 ####
 
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 
 writeXStringSet(
   seqs,
@@ -430,9 +393,9 @@ writeXStringSet(
   format   = "fasta"
 )
 
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq
+cd /path/to/data/Human_aging_scATACseq/Human_aging_scATACseq
 
-# 循环执行 TOBIAS ATACorrect
+# Run TOBIAS ATACorrect in a loop
 for cell in Rod Cone AC BC HC RGC MG; do
   TOBIAS ATACorrect \
     --read_shift -1 -1 \
@@ -462,7 +425,7 @@ library(BSgenome.Mmusculus.UCSC.mm10)
 genome <- BSgenome.Mmusculus.UCSC.mm10
 seqs <- getSeq(genome, names(genome))
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 writeXStringSet(
   seqs,
   filepath = "Mus_musculus.mm10.primary_assembly.fa",
@@ -473,7 +436,7 @@ writeXStringSet(
 #### GRanges to bam #######
 ####
 
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow
+cd /path/to/data/Aging_Mouse/Aging_arrow
 
 
 ####
@@ -502,11 +465,11 @@ done
 
 BSgenome.Drerio.UCSC.danRer11
 library(BSgenome.Drerio.UCSC.danRer11)
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out
+cd /path/to/data/fish_aging_ATAC_2024May/ATAC_out
 genome <- BSgenome.Drerio.UCSC.danRer11
 seqs <- getSeq(genome, names(genome)[1:26])
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 writeXStringSet(
   seqs,
   filepath = "Danio_rerio.danRer11.primary_assembly.fa",
@@ -514,7 +477,7 @@ writeXStringSet(
 )
 
 ###### run #######
-cd /zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out
+cd /path/to/data/fish_aging_ATAC_2024May/ATAC_out
 
 for cell in Rod Cone AC BC HC RGC MG; do
   TOBIAS ATACorrect --read_shift -1 -1 \
@@ -528,8 +491,8 @@ done
 
 
 
-############### Test the raw signal：##################
-############### And the TOBIAS output： ###############
+############### Test the raw signal:##################
+############### And the TOBIAS output: ###############
 
 ###### load the Mouse HC fragments #######
 ######
@@ -537,7 +500,7 @@ done
 conda activate ArchR2 
 R
 library(ArchR)
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 Mouse_ATAC_project <- readRDS("Project_all_clcl_Jul2")
 
 #####
@@ -561,7 +524,7 @@ for(i in 1:length(Fragments_Need)){
 }
 
 ###### convert to bw file #######
-###### 没啥问题 ###################
+###### Looks fine ###################
 
 library(ArchR)
 chr = seqnames(all_fragments)
@@ -585,15 +548,13 @@ export(cov_mm10, "HC_mm10_test.bw", format="BigWig")
 ######----------------------------
 
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR
 R
 
 ######----------######
 
-file = "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_HC_res/Mouse_HC_fragments_cl_bamGR_pe_s_uncorrected.bw"
+file = "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_HC_res/Mouse_HC_fragments_cl_bamGR_pe_s_uncorrected.bw"
 library(rtracklayer)
 temp_bw = import.bw(file)
 summary(width(temp_bw))
@@ -605,9 +566,9 @@ saveRDS(Mouse_Rod_footprint_res,file="Mouse_Rod_footprint_res_2024")
 #####
 
 ##### for Mouse: #######---------------------------------------------------------------------------------------------------------
-cp  Mouse_total_PMWs_Res_Sep23 /zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/
+cp  Mouse_total_PMWs_Res_Sep23 /path/to/data/Aging_Mouse/Aging_arrow/
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow/")
 Mouse_total_PMWs_Res = readRDS("Mouse_total_PMWs_Res_Sep23")
 Mouse_total_PMWs_Res_unlist = unlist(Mouse_total_PMWs_Res)
 saveRDS(Mouse_total_PMWs_Res_unlist,file="Mouse_total_PMWs_Res_unlist")
@@ -616,10 +577,10 @@ saveRDS(Mouse_total_PMWs_Res_unlist,file="Mouse_total_PMWs_Res_unlist")
 
 
 ##### for Zebrafish: #######---------------------------------------------------------------------------------------------------------
-cp Fish_total_PMWs_Res_Sep23 /zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/
+cp Fish_total_PMWs_Res_Sep23 /path/to/data/fish_aging_ATAC_2024May/ATAC_out/
 
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 Fish_total_PMWs_Res = readRDS("Fish_total_PMWs_Res_Sep23")
 Fish_total_PMWs_Res_unlist = unlist(Fish_total_PMWs_Res)
 saveRDS(Fish_total_PMWs_Res_unlist,file="Fish_total_PMWs_Res_unlist")
@@ -628,13 +589,13 @@ saveRDS(Fish_total_PMWs_Res_unlist,file="Fish_total_PMWs_Res_unlist")
 ####matchtopeaks_list <- as.list(matchtopeaks_list)
 #####combined_gr <- do.call(c, matchtopeaks_list)
 
-file = "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_Rod_res/Zebrafish_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
+file = "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_Rod_res/Zebrafish_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_Rod_footprint_res = Add_score_to_the_motifs(file,matchtopeaks_list)
 saveRDS(Zebrafish_Rod_footprint_res,file="Zebrafish_Rod_footprint_res_2025")
 
 
 ####
-### Mouse_Motif_matchtopeaks <- readRDS("/zp1/data/plyu3/Old_Server_Data/plyu3/LGS_13_NEW/Mouse_Motif_matchtopeaks_Jan13.rds")
+### Mouse_Motif_matchtopeaks <- readRDS("/path/to/data/LGS_13_NEW/Mouse_Motif_matchtopeaks_Jan13.rds")
 ####
 
 #####
@@ -657,7 +618,7 @@ Check_normalized_Signal <- function(x,temp_bw){
 	temp_bw = temp_bw
 	### print(summary(width(temp_bw)))
     ### for each Hints, see the footprint score ####
-    ### 将 ATAC GRanges 转为覆盖度 (RleList) #######
+    ### Convert ATAC GRanges to coverage (RleList) #######
     ### not work ####
     ### x = x[[1]]
     ### x = x[which(x$score > 2)]
@@ -705,14 +666,12 @@ Check_normalized_Signal <- function(x,temp_bw){
 
 
 ##### for Human: #######---------------------------------------------------------------------------------------------------------
-cp Human_total_PMWs_Res_Sep23  /zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq
+cp Human_total_PMWs_Res_Sep23  /path/to/data/Human_aging_scATACseq/Human_aging_scATACseq
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR
 R
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 Human_total_PMWs_Res = readRDS("Human_total_PMWs_Res_Sep23")
 Human_total_PMWs_Res_unlist = unlist(Human_total_PMWs_Res)
 saveRDS(Human_total_PMWs_Res_unlist,file="Human_total_PMWs_Res_unlist")
@@ -725,33 +684,31 @@ saveRDS(Human_total_PMWs_Res_unlist,file="Human_total_PMWs_Res_unlist")
 ########## 
 
 #########-------- for Mouse ------####
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
 library(ArchR)
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 Mouse_ATAC_project <- readRDS("Project_all_clcl_Jul2")
 
 Mouse_Gene_Anno = Mouse_ATAC_project@geneAnnotation$genes
 All_Peaks_GRNs_Mouse <- readRDS("All_Peaks_GRNs_Mouse_Sep10")
 Mouse_Peak_to_Gene = Find_total_genes_peak_fun(Gtf=Mouse_Gene_Anno,allpeaks=All_Peaks_GRNs_Mouse)
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 saveRDS(Mouse_Peak_to_Gene,file="Mouse_Peak_to_Gene")
 
 #######------ for Zebrafish ########
 
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 ##### save(Project_all_clclclcl,file="Zebrafish_ATAC_FinalFinal_2024_Jun26")
 load("Zebrafish_ATAC_FinalFinal_2024_Jun26")
 Zebrafish_ATAC_project = Project_all_clclclcl
 
 Zebrafish_Gene_Anno = Zebrafish_ATAC_project@geneAnnotation$genes
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 Fish_PeakMat = readRDS("Fish_aging_PeakMat_Aug28")
 All_Peaks_GRNs_Fish = GRanges(rownames(Fish_PeakMat))
 Fish_Peak_to_Gene = Find_total_genes_peak_fun(Gtf=Zebrafish_Gene_Anno,allpeaks=All_Peaks_GRNs_Fish)
@@ -762,7 +719,7 @@ saveRDS(Fish_Peak_to_Gene,file="Fish_Peak_to_Gene")
 
 #######------ for Human ########
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 Human_ATAC_Project <- readRDS(file="Human_ATAC_Final_Jun2024")
 Human_Gene_Anno = Human_ATAC_Project@geneAnnotation$genes
 All_Peaks_GRNs_Human <- readRDS("All_Peaks_GRNs_Human_Sep10")
@@ -855,29 +812,27 @@ Find_one_genes_peak_fun = function(genename,Gtf,allpeaks){
 
 ######-------- for Zebrafish #############
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
 library(ArchR)
 
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 Fish_Peak_to_Gene = readRDS("Fish_Peak_to_Gene")
 Fish_Peak_to_Gene = do.call("rbind",Fish_Peak_to_Gene)
-Fish_PtoG = readRDS("/home/plyu3/data/Fish_PtoG_Ann_Aug29")
+Fish_PtoG = readRDS("/path/to/home/data/Fish_PtoG_Ann_Aug29")
 ### Peak_to_Gene_merge = Fish_Peak_to_Gene ###
 ### PtoG = Fish_PtoG
 #####
 #####
 #####
-Fish_network = readRDS("/home/plyu3/data/Fish_Network_cl_Sep26")
-Fish_motif = readRDS("/home/plyu3/data/Fish_short_motif_Sep25")
+Fish_network = readRDS("/path/to/home/data/Fish_Network_cl_Sep26")
+Fish_motif = readRDS("/path/to/home/data/Fish_short_motif_Sep25")
 
 #####
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 Fish_total_PMWs_Res_unlist = readRDS("Fish_total_PMWs_Res_unlist")
 ### PMWs_Res_unlist = Fish_total_PMWs_Res_unlist
 Fish_total_PMWs_Res_unlist_cl = Filter_PMWs_regions(Fish_total_PMWs_Res_unlist,Fish_network,Fish_motif,Fish_PtoG)
@@ -910,35 +865,35 @@ Filter_PMWs_regions <- function(PMWs_Res_unlist,Fish_network,Fish_motif,Fish_Pto
 ###### Let see the speed of footprint !!! #########
 ######
 
-file = "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_Rod_res/Zebrafish_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
+file = "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_Rod_res/Zebrafish_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_Rod_footprint_res = Add_score_to_the_motifs(file,Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_Rod_footprint_res,file="Zebrafish_Rod_footprint_res_2025")
 
-file = "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_Cone_res/Zebrafish_Cone_fragments_cl_bamGR_pe_s_corrected.bw"
+file = "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_Cone_res/Zebrafish_Cone_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_Cone_footprint_res = Add_score_to_the_motifs(file,Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_Cone_footprint_res,file="Zebrafish_Cone_footprint_res_2025")
 
-file = "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_AC_res/Zebrafish_AC_fragments_cl_bamGR_pe_s_corrected.bw"
+file = "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_AC_res/Zebrafish_AC_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_AC_footprint_res = Add_score_to_the_motifs(file,Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_AC_footprint_res,file="Zebrafish_AC_footprint_res_2025")
 
 # RGC
-file_RGC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_RGC_res/Zebrafish_RGC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_RGC <- "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_RGC_res/Zebrafish_RGC_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_RGC_footprint_res <- Add_score_to_the_motifs(file_RGC, Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_RGC_footprint_res, file = "Zebrafish_RGC_footprint_res_2025.rds")
 
 # HC
-file_HC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_HC_res/Zebrafish_HC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_HC <- "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_HC_res/Zebrafish_HC_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_HC_footprint_res <- Add_score_to_the_motifs(file_HC, Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_HC_footprint_res, file = "Zebrafish_HC_footprint_res_2025.rds")
 
 # MG
-file_MG <- "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_MG_res/Zebrafish_MG_fragments_cl_bamGR_pe_s_corrected.bw"
+file_MG <- "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_MG_res/Zebrafish_MG_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_MG_footprint_res <- Add_score_to_the_motifs(file_MG, Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_MG_footprint_res, file = "Zebrafish_MG_footprint_res_2025.rds")
 
 # BC
-file_BC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_BC_res/Zebrafish_BC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_BC <- "/path/to/data/fish_aging_ATAC_2024May/ATAC_out/Zebrafish_BC_res/Zebrafish_BC_fragments_cl_bamGR_pe_s_corrected.bw"
 Zebrafish_BC_footprint_res <- Add_score_to_the_motifs(file_BC, Fish_total_PMWs_Res_unlist_cl)
 saveRDS(Zebrafish_BC_footprint_res, file = "Zebrafish_BC_footprint_res_2025.rds")
 
@@ -946,12 +901,12 @@ saveRDS(Zebrafish_BC_footprint_res, file = "Zebrafish_BC_footprint_res_2025.rds"
 ######
 ###### Let us the mouse footprint !!! #######
 ######
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 Mouse_Peak_to_Gene = readRDS("Mouse_Peak_to_Gene")
 Mouse_Peak_to_Gene = do.call("rbind",Mouse_Peak_to_Gene)
-Mouse_PtoG = readRDS("/home/plyu3/data/Mouse_PtoG_Ann_Sep10")
-Mouse_network = readRDS("/home/plyu3/data/Mouse_Network_cl_Sep26")
-Mouse_motif = readRDS("/home/plyu3/data/Mouse_short_motif_Sep25")
+Mouse_PtoG = readRDS("/path/to/home/data/Mouse_PtoG_Ann_Sep10")
+Mouse_network = readRDS("/path/to/home/data/Mouse_Network_cl_Sep26")
+Mouse_motif = readRDS("/path/to/home/data/Mouse_short_motif_Sep25")
 Mouse_total_PMWs_Res_unlist = readRDS("Mouse_total_PMWs_Res_unlist")
 Mouse_total_PMWs_Res_unlist = unlist(Mouse_total_PMWs_Res_unlist)
 
@@ -962,37 +917,37 @@ Mouse_total_PMWs_Res_unlist_cl <- readRDS("Mouse_total_PMWs_Res_unlist_cl")
 #######
 
 # RGC
-file_RGC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_RGC_res/Mouse_RGC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_RGC <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_RGC_res/Mouse_RGC_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_RGC_footprint_res <- Add_score_to_the_motifs(file_RGC, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_RGC_footprint_res, file = "Mouse_RGC_footprint_res_2025.rds")
 
 # AC
-file_AC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_AC_res/Mouse_AC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_AC <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_AC_res/Mouse_AC_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_AC_footprint_res <- Add_score_to_the_motifs(file_AC, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_AC_footprint_res, file = "Mouse_AC_footprint_res_2025.rds")
 
 # HC
-file_HC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_HC_res/Mouse_HC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_HC <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_HC_res/Mouse_HC_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_HC_footprint_res <- Add_score_to_the_motifs(file_HC, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_HC_footprint_res, file = "Mouse_HC_footprint_res_2025.rds")
 
 # Rod
-file_Rod <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_Rod_res/Mouse_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
+file_Rod <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_Rod_res/Mouse_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_Rod_footprint_res <- Add_score_to_the_motifs(file_Rod, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_Rod_footprint_res, file = "Mouse_Rod_footprint_res_2025.rds")
 
 # Cone
-file_Cone <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_Cone_res/Mouse_Cone_fragments_cl_bamGR_pe_s_corrected.bw"
+file_Cone <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_Cone_res/Mouse_Cone_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_Cone_footprint_res <- Add_score_to_the_motifs(file_Cone, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_Cone_footprint_res, file = "Mouse_Cone_footprint_res_2025.rds")
 
 # MG
-file_MG <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_MG_res/Mouse_MG_fragments_cl_bamGR_pe_s_corrected.bw"
+file_MG <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_MG_res/Mouse_MG_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_MG_footprint_res <- Add_score_to_the_motifs(file_MG, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_MG_footprint_res, file = "Mouse_MG_footprint_res_2025.rds")
 
 # BC
-file_BC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow/Mouse_BC_res/Mouse_BC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_BC <- "/path/to/data/Aging_Mouse/Aging_arrow/Mouse_BC_res/Mouse_BC_fragments_cl_bamGR_pe_s_corrected.bw"
 Mouse_BC_footprint_res <- Add_score_to_the_motifs(file_BC, Mouse_total_PMWs_Res_unlist_cl)
 saveRDS(Mouse_BC_footprint_res, file = "Mouse_BC_footprint_res_2025.rds")
 
@@ -1004,12 +959,12 @@ saveRDS(Mouse_BC_footprint_res, file = "Mouse_BC_footprint_res_2025.rds")
 ######
 
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 Human_Peak_to_Gene = readRDS("Human_Peak_to_Gene")
 Human_Peak_to_Gene = do.call("rbind",Human_Peak_to_Gene)
-Human_PtoG = readRDS("/home/plyu3/data/Human_PtoG_Ann_Sep10")
-Human_network = readRDS("/home/plyu3/data/Human_Network_cl_Sep26")
-Human_motif = readRDS("/home/plyu3/data/Human_short_motif_Sep25")
+Human_PtoG = readRDS("/path/to/home/data/Human_PtoG_Ann_Sep10")
+Human_network = readRDS("/path/to/home/data/Human_Network_cl_Sep26")
+Human_motif = readRDS("/path/to/home/data/Human_short_motif_Sep25")
 Human_total_PMWs_Res_unlist = readRDS("Human_total_PMWs_Res_unlist")
 
 Human_total_PMWs_Res_unlist = unlist(Human_total_PMWs_Res_unlist)
@@ -1025,14 +980,12 @@ length(Human_total_PMWs_Res_unlist_cl)
 ########
 
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
 library(ArchR)
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 Human_total_PMWs_Res_unlist_cl <- readRDS("Human_total_PMWs_Res_unlist_cl")
 
 #######
@@ -1040,37 +993,37 @@ Human_total_PMWs_Res_unlist_cl <- readRDS("Human_total_PMWs_Res_unlist_cl")
 #######
 
 # Rod
-file = "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_Rod_res/Human_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
+file = "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_Rod_res/Human_Rod_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_Rod_footprint_res = Add_score_to_the_motifs(file,Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_Rod_footprint_res,file="Human_Rod_footprint_res_2025")
 
 # Cone
-file_Cone <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_Cone_res/Human_Cone_fragments_cl_bamGR_pe_s_corrected.bw"
+file_Cone <- "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_Cone_res/Human_Cone_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_Cone_footprint_res <- Add_score_to_the_motifs(file_Cone, Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_Cone_footprint_res, file = "Human_Cone_footprint_res_2025.rds")
 
 # AC
-file_AC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_AC_res/Human_AC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_AC <- "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_AC_res/Human_AC_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_AC_footprint_res <- Add_score_to_the_motifs(file_AC, Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_AC_footprint_res, file = "Human_AC_footprint_res_2025.rds")
 
 # BC
-file_BC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_BC_res/Human_BC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_BC <- "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_BC_res/Human_BC_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_BC_footprint_res <- Add_score_to_the_motifs(file_BC, Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_BC_footprint_res, file = "Human_BC_footprint_res_2025.rds")
 
 # HC
-file_HC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_HC_res/Human_HC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_HC <- "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_HC_res/Human_HC_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_HC_footprint_res <- Add_score_to_the_motifs(file_HC, Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_HC_footprint_res, file = "Human_HC_footprint_res_2025.rds")
 
 # RGC
-file_RGC <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_RGC_res/Human_RGC_fragments_cl_bamGR_pe_s_corrected.bw"
+file_RGC <- "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_RGC_res/Human_RGC_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_RGC_footprint_res <- Add_score_to_the_motifs(file_RGC, Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_RGC_footprint_res, file = "Human_RGC_footprint_res_2025.rds")
 
 # MG
-file_MG <- "/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq/Human_MG_res/Human_MG_fragments_cl_bamGR_pe_s_corrected.bw"
+file_MG <- "/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq/Human_MG_res/Human_MG_fragments_cl_bamGR_pe_s_corrected.bw"
 Human_MG_footprint_res <- Add_score_to_the_motifs(file_MG, Human_total_PMWs_Res_unlist_cl)
 saveRDS(Human_MG_footprint_res, file = "Human_MG_footprint_res_2025.rds")
 
@@ -1113,9 +1066,9 @@ Get_TSSandEnhancer_From_PtoG <- function(Peak_to_Gene_merge,PtoG){
     ###############
     PtoG$index = paste(PtoG$Gene,PtoG$Peak)
     Peak_to_Gene_merge$index = paste(Peak_to_Gene_merge$gene,Peak_to_Gene_merge$peaks)
-    ############### 这一步其实不需要 ###########
+    ############### This step is not actually needed ###########
     Peak_to_Gene_merge_cl = Peak_to_Gene_merge
-    ############### 不完全match也没事 ####
+    ############### Partial matches are fine ####
     k = which(PtoG$Peak %in% Peak_to_Gene_merge_cl$peaks == T)
     print(length(k))
     print(dim(PtoG))
@@ -1138,13 +1091,11 @@ Get_TSSandEnhancer_From_PtoG <- function(Peak_to_Gene_merge,PtoG){
 
 ########------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ###########
-########### 组装一下 GRNs ########----------------------------------------------------------------------------------------------------------------------------------------------------------------
+########### Assemble GRNs ########----------------------------------------------------------------------------------------------------------------------------------------------------------------
 ###########
 ########------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
@@ -1152,15 +1103,15 @@ library(ArchR)
 
 ####
 #### 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 
 Fish_total_PMWs_Res_unlist_cl = readRDS("Fish_total_PMWs_Res_unlist_cl")
 footprint = readRDS("Zebrafish_MG_footprint_res_2025.rds")
 names(footprint) = names(Fish_total_PMWs_Res_unlist_cl)
-Peak_to_Gene_add = readRDS("/home/plyu3/data/Fish_PtoG_Ann_Aug29")
-motif_tf_table = readRDS("/home/plyu3/data/Fish_short_motif_Sep25")
-total_GRNs_add = readRDS("/home/plyu3/data/Fish_Network_cl_Sep26")
-Avg_Mat = readRDS("/home/plyu3/data/Zebrafish_celltype_exp_G_Sep26")
+Peak_to_Gene_add = readRDS("/path/to/home/data/Fish_PtoG_Ann_Aug29")
+motif_tf_table = readRDS("/path/to/home/data/Fish_short_motif_Sep25")
+total_GRNs_add = readRDS("/path/to/home/data/Fish_Network_cl_Sep26")
+Avg_Mat = readRDS("/path/to/home/data/Zebrafish_celltype_exp_G_Sep26")
 TAG = "MG"
 
 #####
@@ -1228,7 +1179,7 @@ for(i in 1:length(Zebrafish_GRNs_list)){
     print(dim(tmptmp))
 }
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 saveRDS(Zebrafish_GRNs_list,file="Zebrafish_GRNs_list")
 
 Zebrafish_GRNs_list <- readRDS("Zebrafish_GRNs_list")
@@ -1238,23 +1189,21 @@ Zebrafish_GRNs_list <- readRDS("Zebrafish_GRNs_list")
 #### for Human ############--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ############
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
 library(ArchR)
 
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 
 Human_total_PMWs_Res_unlist_cl = readRDS("Human_total_PMWs_Res_unlist_cl")
 footprint = readRDS("Human_MG_footprint_res_2025.rds")
 names(footprint) = names(Human_total_PMWs_Res_unlist_cl)
-Peak_to_Gene_add = readRDS("/home/plyu3/data/Human_PtoG_Ann_Sep10")
-motif_tf_table = readRDS("/home/plyu3/data/Human_short_motif_Sep25")
-total_GRNs_add = readRDS("/home/plyu3/data/Human_Network_cl_Sep26")
-Avg_Mat = readRDS("/home/plyu3/data/Human_celltype_exp_G_Sep26")
+Peak_to_Gene_add = readRDS("/path/to/home/data/Human_PtoG_Ann_Sep10")
+motif_tf_table = readRDS("/path/to/home/data/Human_short_motif_Sep25")
+total_GRNs_add = readRDS("/path/to/home/data/Human_Network_cl_Sep26")
+Avg_Mat = readRDS("/path/to/home/data/Human_celltype_exp_G_Sep26")
 TAG = "MG"
 
 ######
@@ -1318,7 +1267,7 @@ for(i in 1:length(Human_GRNs_list)){
     print(dim(tmptmp))
 }
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 saveRDS(Human_GRNs_list,file="Human_GRNs_list")
 
 Human_GRNs_list = readRDS("Human_GRNs_list")
@@ -1327,22 +1276,20 @@ Human_GRNs_list = readRDS("Human_GRNs_list")
 #### for Mouse ############--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ############
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
 library(ArchR)
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 
 Mouse_total_PMWs_Res_unlist_cl = readRDS("Mouse_total_PMWs_Res_unlist_cl")
 footprint = readRDS("Mouse_MG_footprint_res_2025.rds")
 names(footprint) = names(Mouse_total_PMWs_Res_unlist_cl)
-Peak_to_Gene_add = readRDS("/home/plyu3/data/Mouse_PtoG_Ann_Sep10")
-motif_tf_table = readRDS("/home/plyu3/data/Mouse_short_motif_Sep25")
-total_GRNs_add = readRDS("/home/plyu3/data/Mouse_Network_cl_Sep26")
-Avg_Mat = readRDS("/home/plyu3/data/Mouse_celltype_exp_G_Sep26")
+Peak_to_Gene_add = readRDS("/path/to/home/data/Mouse_PtoG_Ann_Sep10")
+motif_tf_table = readRDS("/path/to/home/data/Mouse_short_motif_Sep25")
+total_GRNs_add = readRDS("/path/to/home/data/Mouse_Network_cl_Sep26")
+Avg_Mat = readRDS("/path/to/home/data/Mouse_celltype_exp_G_Sep26")
 TAG = "MG"
 
 #######
@@ -1380,7 +1327,7 @@ for(i in 1:length(Mouse_GRNs_list)){
 }
 
 #######
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 saveRDS(Mouse_GRNs_list,file="Mouse_GRNs_list")
 
 Mouse_GRNs_list = readRDS("Mouse_GRNs_list")
@@ -1479,8 +1426,6 @@ Add_foot_print_to_peak <- function(footprint,TAG,Peak_to_Gene_add,motif_tf_table
 ########--------------filter GRNs #####------------------------------------------------------------------------------------------------
 ########--------------filter GRNs #####------------------------------------------------------------------------------------------------
 
-ssh plyu3@omb2.onc.jhmi.edu
-U[9C20&&
 
 conda activate ArchR2
 R
@@ -1488,13 +1433,13 @@ library(ArchR)
 
 ########-----for Human samples------###
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Human_aging_scATACseq/Human_aging_scATACseq")
+setwd("/path/to/data/Human_aging_scATACseq/Human_aging_scATACseq")
 Human_GRNs_list = readRDS("Human_GRNs_list")
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/Aging_Mouse/Aging_arrow")
+setwd("/path/to/data/Aging_Mouse/Aging_arrow")
 Mouse_GRNs_list = readRDS("Mouse_GRNs_list")
 
-setwd("/zp1/data/plyu3/Old_Server_Data/plyu3/fish_aging_ATAC_2024May/ATAC_out")
+setwd("/path/to/data/fish_aging_ATAC_2024May/ATAC_out")
 Zebrafish_GRNs_list <- readRDS("Zebrafish_GRNs_list")
 
 
@@ -1548,20 +1493,20 @@ files_Avg_Name = gsub("_Avg_2025","",files_Avg_Name)
 files_Avg_Name = gsub("_clcl2","",files_Avg_Name)
 
 load_object <- function(file) {
-  # 检查文件存在
+  # Check that the file exists
   if (!file.exists(file)) {
-    stop("文件不存在：", file)
+    stop("File does not exist: ", file)
   }
-  # 新建临时环境，不污染全局
+  # Create a temporary environment to avoid polluting the global one
   tmp <- new.env()
-  # load 返回载入的对象名向量
+  # load returns a vector of loaded object names
   objs <- load(file, envir = tmp)
   
-  # 如果只有一个对象，直接返回该对象
+  # If there is only one object, return it directly
   if (length(objs) == 1) {
     return(tmp[[objs]])
   }
-  # 否则返回一个列表，名字对应各个对象
+  # Otherwise return a list named by object
   result <- mget(objs, envir = tmp)
   return(result)
 }
@@ -1580,7 +1525,7 @@ names(Human_pseudo_count) = files_Avg_Name
 Human_expressed = Identify_expressed_TF(Human_pseudo_count)
 cell_types <- unique(sub("_[FM]$", "", names(Human_expressed)))
 
-# 对每个细胞类型，合并 F 和 M 两个元素
+# For each cell type, merge the F and M elements
 Human_expressed_combined <- setNames(
   lapply(cell_types, function(ct) {
     c(Human_expressed[[paste0(ct, "_F")]],
@@ -1615,12 +1560,12 @@ Identify_expressed_TF <- function(count_list){
     return(out_list)
 }
 
-setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+setwd("/path/to/data/Aging_2025_Mouse_Final")
 Mouse_pseudo_count <- readRDS("Mouse_pseudo_count_2025")
 Mouse_expressed = Identify_expressed_TF(Mouse_pseudo_count)
 Mouse_GRNs_list_cl = Filter_GRNs(Mouse_GRNs_list,Mouse_expressed)
 
-setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+setwd("/path/to/data/Aging_2025_Zebrafish_Final")
 Zebrafish_pseudo_count <- readRDS("Zebrafish_pseudo_count_2025")
 Zebrafish_expressed = Identify_expressed_TF(Zebrafish_pseudo_count)
 Zebrafish_GRNs_list_cl = Filter_GRNs(Zebrafish_GRNs_list,Zebrafish_expressed)
@@ -1640,7 +1585,7 @@ names(Zebrafish_GRNs_list)
 ######## load the Zebrafish aging DEGs ########------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ########
 
-setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+setwd("/path/to/data/Aging_2025_Zebrafish_Final")
 load("Zebrafish_DEGs_Plot_Kmeans_order")
 
 kc = Zebrafish_DEGs_Plot_Kmeans_order
@@ -1665,7 +1610,7 @@ Zebrafish_Young_DEGs = split(Zebrafish_DOWN$Gene,Zebrafish_DOWN$CT)
 ######## load the Mouse aging DEGs 
 ########
 
-setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+setwd("/path/to/data/Aging_2025_Mouse_Final")
 load("Mouse_DEGs_Plot_Kmeans_order")
 
 kc = Mouse_DEGs_Plot_Kmeans_order
@@ -1720,7 +1665,7 @@ Human_DOWN = kc[which(kc$Class=="DOWN"),]
 Human_Old_DEGs = split(Human_UP$Gene,Human_UP$CT)
 Human_Young_DEGs = split(Human_DOWN$Gene,Human_DOWN$CT)
 
-setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+setwd("/path/to/data/Aging_2025_Mouse_Final")
 save(Human_Old_DEGs,file="Human_Old_DEGs")
 save(Human_Young_DEGs,file="Human_Young_DEGs")
 save(Mouse_Old_DEGs,file="Mouse_Old_DEGs")
@@ -1736,7 +1681,7 @@ save(Zebrafish_Young_DEGs,file="Zebrafish_Young_DEGs")
 
 
 ###### for Mouse ####------------------------------------------------------------------------------------------------------------------------
-setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+setwd("/path/to/data/Aging_2025_Mouse_Final")
 load("Mouse_MG_model")
 load("Mouse_RGC_model")
 load("Mouse_AC_model")
@@ -1782,7 +1727,7 @@ Mouse_Young_Clock = split(G,CT)
 ###### for Zebrafish ####------------------------------------------------------------------------------------------------------------------------
 
 
-setwd("/zp1/data/plyu3/Aging_2025_Zebrafish_Final")
+setwd("/path/to/data/Aging_2025_Zebrafish_Final")
 
 load("Zebrafish_MG_model")
 load("Zebrafish_RGC_model")
@@ -1894,7 +1839,7 @@ Human_Young_Clock = split(G,CT)
 ######
 
 
-setwd("/zp1/data/plyu3/Aging_2025_Mouse_Final")
+setwd("/path/to/data/Aging_2025_Mouse_Final")
 save(Human_Old_Clock,file="Human_Old_Clock")
 save(Human_Young_Clock,file="Human_Young_Clock")
 save(Mouse_Old_Clock,file="Mouse_Old_Clock")

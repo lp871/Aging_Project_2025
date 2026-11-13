@@ -1,42 +1,42 @@
 #!/usr/bin/env Rscript
 ########################################################################
 # Zebrafish Injury — Aging Clock Prediction (2026)
-# 用 2026 final aging clock 模型预测 zebrafish NMDA injury 数据的衰老评分
+# Predict aging scores for zebrafish NMDA injury data using the 2026 final aging clock models
 # celltypes: MG, Rod, Cone
-# 流程（与 final model 训练完全一致，无 calibration）:
-#   raw counts -> 按 sample KNN smoothing -> 去 ambient -> depth norm(1e4)+log2
-#   -> 按 genes_used 对齐 -> 用训练存的 means/sds 做 Z-score -> predict
-# HPC 用法: Rscript Run_Zebrafish_Injury_AgingClock_2026.R
+# Pipeline (identical to final model training, no calibration):
+#   raw counts -> per-sample KNN smoothing -> remove ambient -> depth norm(1e4)+log2
+#   -> align to genes_used -> Z-score with stored training means/sds -> predict
+# HPC usage: Rscript Run_Zebrafish_Injury_AgingClock_2026.R
 ########################################################################
 
 suppressMessages({
     library(Seurat)
     library(Matrix)
     library(FNN)
-    library(glmnet)     # 必须: 否则 predict 找不到 predict.glmnet
+    library(glmnet)     # required: otherwise predict cannot find predict.glmnet
     library(ggplot2)
 })
 
-## 路径配置 ------------------------------------------------------------
+## Path configuration ------------------------------------------------------------
 injury_dir <- "/projects/hmz-aging/Injury_Datasets"
-model_dir  <- "/projects/hmz-aging/Zebrafish_New_Datasets"   # 模型: <CT>/<CT>_final_aging_clock_model_2026.rds
+model_dir  <- "/projects/hmz-aging/Zebrafish_New_Datasets"   # models: <CT>/<CT>_final_aging_clock_model_2026.rds
 clock_celltypes <- c("MG", "Rod", "Cone")
 control_sample  <- "Control_2"
 
 
 ########################################################################
-# 1) 读入 zebrafish injury 数据，提取 NMDA 样本，整理 celltype (MG/Rod/Cone)
+# 1) Load zebrafish injury data, extract NMDA samples, and assign celltypes (MG/Rod/Cone)
 ########################################################################
 setwd(injury_dir)
 Injury_merge_seurat_all_2023Dec <- readRDS("Injury_merge_seurat_all_2023Dec(1)")
 
 all_samples <- names(table(Injury_merge_seurat_all_2023Dec$sample))
-# NMDA 相关样本（第 1 与 8:13 个；含 Control_2）
+# NMDA-related samples (1st and 8th-13th; includes Control_2)
 NMDA_samples_seurat <- Injury_merge_seurat_all_2023Dec[
     , which(Injury_merge_seurat_all_2023Dec$sample %in% all_samples[c(1, 8:13)])]
 message("NMDA samples:"); print(table(NMDA_samples_seurat$sample))
 
-# RestMG / ActivateMG 合并为 MG
+# Merge RestMG / ActivateMG into MG
 NMDA_samples_seurat$celltype2 <- NMDA_samples_seurat$new_celltype
 NMDA_samples_seurat$celltype2[NMDA_samples_seurat$celltype2 %in% c("RestMG")] <- "MG"
 
@@ -46,7 +46,7 @@ NMDA_samples_seurat_cl_sp <- SplitObject(NMDA_samples_seurat_cl, split.by = "cel
 
 
 ########################################################################
-# 2) 按 nFeature_RNA 的 10%–90% 分位过滤细胞
+# 2) Filter cells by the 10%–90% quantiles of nFeature_RNA
 ########################################################################
 Clean_the_cells_by_counts <- function(obj_list) {
     out <- list()
@@ -54,7 +54,7 @@ Clean_the_cells_by_counts <- function(obj_list) {
         tmp <- obj_list[[i]]
         lo <- quantile(tmp$nFeature_RNA, 0.1); hi <- quantile(tmp$nFeature_RNA, 0.9)
         tmp <- tmp[, which(tmp$nFeature_RNA > lo & tmp$nFeature_RNA < hi)]
-        message(sprintf("  %s: 保留 %d cells (nFeature %g–%g)", names(obj_list)[i], ncol(tmp), lo, hi))
+        message(sprintf("  %s: kept %d cells (nFeature %g–%g)", names(obj_list)[i], ncol(tmp), lo, hi))
         out[[names(obj_list)[i]]] <- tmp
     }
     out
@@ -63,7 +63,7 @@ NMDA_sel <- Clean_the_cells_by_counts(NMDA_samples_seurat_cl_sp)
 
 
 ########################################################################
-# 3) 基因名整理：取 "~~" 后的 gene symbol，合并重复 symbol 的 raw counts
+# 3) Clean gene names: take the gene symbol after "~~" and sum raw counts of duplicated symbols
 ########################################################################
 for (ct in names(NMDA_sel)) {
     seu <- NMDA_sel[[ct]]
@@ -73,7 +73,7 @@ for (ct in names(NMDA_sel)) {
         parts <- strsplit(x, "~~")[[1]]; if (length(parts) >= 2) parts[2] else x
     }, USE.NAMES = FALSE)
     dup_symbols <- unique(new_names[duplicated(new_names)])
-    message(sprintf("  %s: 总基因 %d, 重复 symbol %d", ct, length(new_names), length(dup_symbols)))
+    message(sprintf("  %s: total genes %d, duplicated symbols %d", ct, length(new_names), length(dup_symbols)))
     if (length(dup_symbols) > 0) {
         uniq_idx <- which(!new_names %in% dup_symbols)
         uniq_counts <- counts[uniq_idx, , drop = FALSE]; rownames(uniq_counts) <- new_names[uniq_idx]
@@ -88,7 +88,7 @@ for (ct in names(NMDA_sel)) {
 
 
 ########################################################################
-# 4) KNN smoothing（按 sample；与 aging clock 训练预处理一致）
+# 4) KNN smoothing (per sample; same preprocessing as aging clock training)
 ########################################################################
 NormalizeAndPCA <- function(seu, scale.factor = 1e4, nfeatures = 2000, npcs = 30) {
     seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = scale.factor, verbose = FALSE)
@@ -96,7 +96,7 @@ NormalizeAndPCA <- function(seu, scale.factor = 1e4, nfeatures = 2000, npcs = 30
     seu <- ScaleData(seu, features = rownames(seu), verbose = FALSE)
     max_npcs <- min(nrow(seu), ncol(seu)) - 1
     if (npcs > max_npcs) npcs <- max(1, max_npcs)
-    if (npcs < 1) stop(sprintf("细胞数太少 (n_cells=%d)，无法 PCA", ncol(seu)))
+    if (npcs < 1) stop(sprintf("Too few cells (n_cells=%d) to run PCA", ncol(seu)))
     RunPCA(seu, features = VariableFeatures(seu), npcs = npcs, verbose = FALSE)
 }
 
@@ -111,23 +111,23 @@ PseudoBulkByKNN_fast <- function(seu, k = 15, dims = 1:30, assay = "RNA", reduct
     CreateSeuratObject(counts = pseudo_counts, meta.data = seu@meta.data, assay = assay)
 }
 
-# 对 celltype list 中每个 celltype 按 sample 列 KNN smooth（含动态调参）
+# KNN-smooth each celltype in the list by the sample column (with adaptive parameters)
 smooth_injury_list <- function(seurat_list, sample_col = "sample", species_label = "Zebrafish") {
     smoothed <- list()
     for (ct in names(seurat_list)) {
         message(sprintf("\n========== %s - %s ==========", species_label, ct))
         tmp_sp <- SplitObject(seurat_list[[ct]], split.by = sample_col)
         nc <- sapply(tmp_sp, ncol)
-        if (any(nc < 2)) { message("  去掉 <2 细胞样本: ", paste(names(nc)[nc < 2], collapse = ", ")); tmp_sp <- tmp_sp[nc >= 2] }
-        if (length(tmp_sp) == 0) { message("  ", ct, ": 所有样本被过滤，跳过"); next }
-        # 每个 celltype 的 K / npcs（与训练一致）
+        if (any(nc < 2)) { message("  Removing samples with <2 cells: ", paste(names(nc)[nc < 2], collapse = ", ")); tmp_sp <- tmp_sp[nc >= 2] }
+        if (length(tmp_sp) == 0) { message("  ", ct, ": all samples filtered out, skipping"); next }
+        # K / npcs per celltype (same as training)
         if (ct %in% c("Rod", "Cone", "RGC", "AC", "HC", "BC")) { k <- 15; npcs <- 25 }
         else if (ct == "MG") { k <- 5; npcs <- 5 }
         else { k <- 2; npcs <- 5 }
         min_ncells <- min(sapply(tmp_sp, ncol))
         message(sprintf("  min cells/sample=%d, K=%d, npcs=%d", min_ncells, k, npcs))
         if (min_ncells < 5) {
-            message("  最小样本细胞数 <5，跳过 smooth 直接 merge")
+            message("  Smallest sample has <5 cells; skipping smoothing and merging directly")
             smoothed[[ct]] <- if (length(tmp_sp) == 1) tmp_sp[[1]] else merge(tmp_sp[[1]], tmp_sp[-1], add.cell.ids = names(tmp_sp))
             next
         }
@@ -136,7 +136,7 @@ smooth_injury_list <- function(seurat_list, sample_col = "sample", species_label
         tmp_pca    <- sapply(tmp_sp, NormalizeAndPCA, npcs = npcs)
         tmp_smooth <- sapply(tmp_pca, PseudoBulkByKNN_fast, k = k, dims = 1:npcs)
         smoothed[[ct]] <- if (length(tmp_smooth) == 1) tmp_smooth[[1]] else merge(tmp_smooth[[1]], tmp_smooth[-1], add.cell.ids = names(tmp_smooth))
-        message(sprintf("  完成: %d pseudo-cells", ncol(smoothed[[ct]])))
+        message(sprintf("  Done: %d pseudo-cells", ncol(smoothed[[ct]])))
     }
     smoothed
 }
@@ -144,16 +144,16 @@ smooth_injury_list <- function(seurat_list, sample_col = "sample", species_label
 Zebrafish_injury_smoothed <- smooth_injury_list(NMDA_sel, sample_col = "sample", species_label = "Zebrafish")
 setwd(injury_dir)
 saveRDS(Zebrafish_injury_smoothed, file = "Zebrafish_injury_smoothed.rds")
-message("已保存: Zebrafish_injury_smoothed.rds")
+message("Saved: Zebrafish_injury_smoothed.rds")
 
 
 ########################################################################
-# 5) 载入 ambient 基因 + 2026 final 模型，逐 celltype 预测（无 calibration）
+# 5) Load ambient genes + 2026 final models and predict per celltype (no calibration)
 ########################################################################
 setwd(model_dir)
 load("Zebrafish_ambient_genes_Top50.rda")   # -> Z_ambient_genes_Top50
 
-# 预测流程 = 训练流程；2026 无校准
+# Prediction pipeline = training pipeline; no calibration in 2026
 predict_final_clock <- function(final_model_obj, seu_ct, ambient_genes = NULL) {
     counts <- GetAssayData(seu_ct, assay = "RNA", layer = "counts")
     if (!is.null(ambient_genes)) {
@@ -185,9 +185,9 @@ predict_final_clock <- function(final_model_obj, seu_ct, ambient_genes = NULL) {
 
 Zebrafish_injury_predictions <- list()
 for (ct in clock_celltypes) {
-    if (!ct %in% names(Zebrafish_injury_smoothed)) { message(ct, ": 无 smoothed 数据，跳过"); next }
+    if (!ct %in% names(Zebrafish_injury_smoothed)) { message(ct, ": no smoothed data, skipping"); next }
     model_file <- file.path(model_dir, ct, sprintf("%s_final_aging_clock_model_2026.rds", ct))
-    if (!file.exists(model_file)) { message(ct, ": 2026 模型不存在，跳过 -> ", model_file); next }
+    if (!file.exists(model_file)) { message(ct, ": 2026 model not found, skipping -> ", model_file); next }
     final_model <- readRDS(model_file)
     seu <- Zebrafish_injury_smoothed[[ct]]
     if (length(Layers(seu)) > 1) seu <- JoinLayers(seu)
@@ -196,25 +196,25 @@ for (ct in clock_celltypes) {
         cell                 = names(res$pred),
         sample               = as.character(seu@meta.data[["sample"]]),
         predicted            = res$pred,
-        predicted_calibrated = res$pred,   # 2026 无校准: 别名
+        predicted_calibrated = res$pred,   # no calibration in 2026: alias
         celltype             = ct,
         stringsAsFactors = FALSE
     )
     sample_pred <- aggregate(cbind(predicted, predicted_calibrated) ~ sample, data = cell_pred, FUN = mean)
     sample_pred$celltype <- ct
     Zebrafish_injury_predictions[[ct]] <- list(cell_predictions = cell_pred, sample_predictions = sample_pred)
-    message(sprintf("%s: %d cells, %d samples (缺失基因 %d/%d)",
+    message(sprintf("%s: %d cells, %d samples (missing genes %d/%d)",
                     ct, nrow(cell_pred), nrow(sample_pred), res$n_missing_genes, res$n_genes))
     print(sample_pred)
 }
 
 setwd(injury_dir)
 saveRDS(Zebrafish_injury_predictions, file = "Zebrafish_injury_predictions_2026.rds")
-message("已保存: Zebrafish_injury_predictions_2026.rds")
+message("Saved: Zebrafish_injury_predictions_2026.rds")
 
 
 ########################################################################
-# 6) Delta aging：以 Control_2 的均值归一化（injury vs control）
+# 6) Delta aging: normalize to the Control_2 mean (injury vs control)
 ########################################################################
 compute_delta_aging <- function(predictions_list, control_sample, species_label = "Zebrafish") {
     all_delta <- list()
@@ -236,11 +236,11 @@ for (ct in names(Zebrafish_injury_predictions))
     message(sprintf("  %s: %s", ct, paste(unique(Zebrafish_injury_predictions[[ct]]$cell_predictions$sample), collapse = ", ")))
 
 Zebrafish_delta <- compute_delta_aging(Zebrafish_injury_predictions, control_sample = control_sample)
-# Control_2 即 0 小时对照，展示时重命名为 NMDA_0hr（delta 已相对 Control_2 计算）
+# Control_2 is the 0 h control; renamed to NMDA_0hr for display (delta already computed relative to Control_2)
 Zebrafish_delta$sample[Zebrafish_delta$sample == "Control_2"] <- "NMDA_0hr"
 saveRDS(Zebrafish_delta, file = "Zebrafish_injury_delta_aging_2026.rds")
 
-# sample 级汇总
+# Sample-level summary
 zf_sample_delta <- aggregate(cbind(predicted, delta_aging) ~ sample + group + celltype,
                              data = Zebrafish_delta, FUN = mean)
 zf_sample_delta <- zf_sample_delta[order(zf_sample_delta$celltype, zf_sample_delta$group), ]
@@ -249,9 +249,9 @@ write.csv(zf_sample_delta, "Zebrafish_injury_sample_delta_aging_2026.csv", row.n
 
 
 ########################################################################
-# 7) 画图：delta by celltype + 时间点分面
+# 7) Plots: delta by celltype + faceted by timepoint
 ########################################################################
-# (a) 每个 celltype: Control vs Injury 的 delta boxplot
+# (a) Per celltype: delta boxplot of Control vs Injury
 plot_delta_boxplot <- function(delta_df, species_label = "Zebrafish") {
     ct_order <- clock_celltypes[clock_celltypes %in% delta_df$celltype]
     delta_df$celltype <- factor(delta_df$celltype, levels = ct_order)
@@ -269,10 +269,10 @@ plot_delta_boxplot <- function(delta_df, species_label = "Zebrafish") {
 }
 ggsave("Zebrafish_Injury_Delta_Aging_Boxplot_2026.png",
        plot_delta_boxplot(Zebrafish_delta), width = 5, height = 4, dpi = 300)
-message("已保存: Zebrafish_Injury_Delta_Aging_Boxplot_2026.png")
+message("Saved: Zebrafish_Injury_Delta_Aging_Boxplot_2026.png")
 
-# (b) 时间点分面：每个 celltype 一行，x = injury 时间点（Nature/NPG 配色）
-# Nature(NPG) 调色板
+# (b) Timepoint facets: one row per celltype, x = injury timepoint (Nature/NPG palette)
+# Nature (NPG) palette
 npg_cols <- c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F",
               "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85")
 
@@ -296,39 +296,39 @@ plot_timepoint_facet <- function(delta_df, sample_order, ct_order, species_label
               strip.background = element_rect(color = "black", fill = "white"),
               legend.position = "none")
 }
-# x 轴顺序（按图片给定）
+# x-axis order (as specified in the figure)
 zf_sample_order <- c("NMDA_0hr", "NMDA_36hr", "NMDA_54hr", "NMDA_72hr", "NMDA_96hr", "NMDA_7D", "NMDA_14D")
 zf_ct_order     <- c("MG", "Rod", "Cone")
 ggsave("Zebrafish_Injury_Timepoint_Boxplot_2026.png",
        plot_timepoint_facet(Zebrafish_delta, zf_sample_order, zf_ct_order),
        width = 4.5, height = length(zf_ct_order) * 2.6 + 1, dpi = 300)
-message("已保存: Zebrafish_Injury_Timepoint_Boxplot_2026.png")
+message("Saved: Zebrafish_Injury_Timepoint_Boxplot_2026.png")
 
-message("\n=== Zebrafish injury aging clock (2026) 全部完成 ===")
+message("\n=== Zebrafish injury aging clock (2026) all done ===")
 
 
 #######
-####### 接下来参考 Aging_Clocks_injury2026 ######
-####### 计算和 aging 相关的 injury genes #########
+####### Next, following Aging_Clocks_injury2026 ######
+####### identify aging-related injury genes #########
 #######
 ########################################################################
-# 8) aging 相关的 injury genes:
-#    (a) 每个时间点 vs Control_2 找 injury DEGs (MG/Rod/Cone)  —— 用未 smooth 的原始 counts
-#    (b) 合并 aging clock 基因权重
-#    (c) injury DEG 且是 clock gene = aging 相关 injury genes
+# 8) Aging-related injury genes:
+#    (a) Injury DEGs for each timepoint vs Control_2 (MG/Rod/Cone)  —— using unsmoothed raw counts
+#    (b) Merge aging clock gene weights
+#    (c) Injury DEG that is also a clock gene = aging-related injury gene
 ########################################################################
 library(Seurat)
 library(Matrix)
 setwd(injury_dir)
-# DEGs 在未 smooth 的原始对象 NMDA_sel 上计算（细胞相互独立，统计更严谨）
+# DEGs are computed on the unsmoothed raw object NMDA_sel (cells are independent, statistically more rigorous)
 
-# (a) injury DEGs：每个时间点 vs Control_2（p_val_adj<0.01, |log2FC|>0.2）
+# (a) Injury DEGs: each timepoint vs Control_2 (p_val_adj<0.01, |log2FC|>0.2)
 find_injury_degs <- function(seurat_list, control_sample) {
     all_degs <- list()
     for (ct in names(seurat_list)) {
         message(sprintf("\n========== Zebrafish - %s ==========", ct))
         seu <- seurat_list[[ct]]
-        # 仅 v5 Assay5 且多 layer 时才 JoinLayers（v4 Assay 不支持）
+        # JoinLayers only for v5 Assay5 with multiple layers (not supported by v4 Assay)
         if (inherits(seu[[DefaultAssay(seu)]], "Assay5") && length(Layers(seu)) > 1)
             seu <- JoinLayers(seu)
         seu <- NormalizeData(seu, verbose = FALSE)
@@ -339,11 +339,11 @@ find_injury_degs <- function(seurat_list, control_sample) {
             markers <- tryCatch(
                 FindMarkers(seu, ident.1 = tp, ident.2 = control_sample,
                             min.pct = 0.05, logfc.threshold = 0.2, test.use = "wilcox"),
-                error = function(e) { message("    FindMarkers 出错: ", e$message); NULL })
+                error = function(e) { message("    FindMarkers error: ", e$message); NULL })
             if (is.null(markers) || nrow(markers) == 0) next
             sig <- markers[markers$p_val_adj < 0.01, , drop = FALSE]
             if (nrow(sig) == 0) next
-            # 归一基因名到纯 symbol（去掉 "ENSDARG...~~" 前缀），以便和 clock 权重对齐
+            # Normalize gene names to plain symbols (strip "ENSDARG...~~" prefix) to match clock weights
             sig$gene <- sub(".*~~", "", rownames(sig)); sig$timepoint <- tp; sig$celltype <- ct
             sig$direction <- ifelse(sig$avg_log2FC > 0, "up", "down")
             ct_degs[[tp]] <- sig
@@ -355,17 +355,17 @@ find_injury_degs <- function(seurat_list, control_sample) {
 }
 
 Zebrafish_injury_degs <- find_injury_degs(NMDA_samples_seurat_cl_sp, control_sample = control_sample)
-# 把 DEG 基因名归一到纯 symbol（去掉 "ENSDARG...~~" 前缀），以便和 clock 权重对齐
+# Normalize DEG gene names to plain symbols (strip "ENSDARG...~~" prefix) to match clock weights
 for (ct in names(Zebrafish_injury_degs))
     Zebrafish_injury_degs[[ct]]$gene <- sub(".*~~", "", Zebrafish_injury_degs[[ct]]$gene)
 saveRDS(Zebrafish_injury_degs, file = "Zebrafish_injury_degs_list_2026.rds")
 
-# (b) 只做 MG：载入之前预测用的 MG final aging clock 权重（从 final 模型 $coefs 提取）
+# (b) MG only: load the MG final aging clock weights used for prediction (extracted from final model $coefs)
 zf_gene_weights <- list()
 {
     ct <- "MG"
     mf <- file.path(model_dir, ct, sprintf("%s_final_aging_clock_model_2026.rds", ct))
-    if (!file.exists(mf)) stop("缺少 MG final 模型: ", mf)
+    if (!file.exists(mf)) stop("Missing MG final model: ", mf)
     cf <- readRDS(mf)$coefs                                   # gene, coef
     cf <- cf[cf$gene != "(Intercept)" & cf$coef != 0, , drop = FALSE]
     df <- data.frame(gene              = cf$gene,
@@ -378,7 +378,7 @@ zf_gene_weights <- list()
     message(sprintf("  %s: %d clock genes", ct, nrow(df)))
 }
 
-# (c) DEGs 合并 clock weights，标注 is_clock_gene
+# (c) Merge DEGs with clock weights and flag is_clock_gene
 merge_degs_with_weights <- function(degs_list, weights_list) {
     out <- list()
     for (ct in names(degs_list)) {
@@ -411,28 +411,28 @@ zf_deg_table <- do.call(rbind, Zebrafish_injury_degs_table); rownames(zf_deg_tab
 write.csv(zf_deg_table, "Zebrafish_injury_DEGs_with_clock_weights_2026.csv", row.names = FALSE)
 saveRDS(Zebrafish_injury_degs_table, file = "Zebrafish_injury_degs_table_2026.rds")
 
-# aging 相关 injury genes = injury DEG 且是 clock gene
+# Aging-related injury genes = injury DEGs that are also clock genes
 zf_aging_injury_genes <- zf_deg_table[zf_deg_table$is_clock_gene %in% TRUE, , drop = FALSE]
 write.csv(zf_aging_injury_genes, "Zebrafish_aging_related_injury_genes_2026.csv", row.names = FALSE)
-message(sprintf("\naging 相关 injury genes: %d 行, %d unique genes",
+message(sprintf("\nAging-related injury genes: %d rows, %d unique genes",
                 nrow(zf_aging_injury_genes), length(unique(zf_aging_injury_genes$gene))))
 
 
 
 
 ##############
-############## 接下来，我们要把 这些 zf_aging_injury_genes 按照 weights 分为 两类 #####
-############## 一类是 大于 0 的，一类是 小于 0 的 ###
+############## Next, split zf_aging_injury_genes into two groups by weight #####
+############## one with weights > 0 and one with weights < 0 ###
 ##############
-############## 用 kmeans 聚类，聚类矩阵 是个 拼接矩阵，左边是 z-score 后的 每个 时间点的 pseudobulk，右边是 aging 时间点的 pseudobulk ###
-############## 先参考下 之前的 代码 构建 矩阵 ###
+############## kmeans clustering on a concatenated matrix: left = z-scored pseudobulk per injury timepoint, right = pseudobulk per aging timepoint ###
+############## Build the matrix following the earlier code ###
 ########################################################################
-# 9) 构建拼接矩阵 (injury z-score | aging/training z-score) + 按权重正负分两类 + kmeans
+# 9) Build concatenated matrix (injury z-score | aging/training z-score) + split by weight sign + kmeans
 ########################################################################
 library(Matrix)
-ct_use <- "MG"      # 聚类/heatmap 聚焦的 celltype
+ct_use <- "MG"      # celltype used for clustering/heatmap
 
-# pseudobulk: 每个 sample 求 raw counts 之和 -> depth norm 1e4 -> log2(1+x)
+# pseudobulk: sum raw counts per sample -> depth norm 1e4 -> log2(1+x)
 Make_Pseudobulk_Matrix <- function(seurat_obj, ambient_genes = NULL, sample_col = "sample") {
     if (inherits(seurat_obj[[DefaultAssay(seurat_obj)]], "Assay5") && length(Layers(seurat_obj)) > 1)
         seurat_obj <- JoinLayers(seurat_obj)
@@ -448,7 +448,7 @@ Make_Pseudobulk_Matrix <- function(seurat_obj, ambient_genes = NULL, sample_col 
 }
 zscore_rows <- function(m) { r <- t(scale(t(m))); r[is.na(r)] <- 0; r }
 
-# --- (a) injury pseudobulk（smoothed；列按时间点排序）---
+# --- (a) Injury pseudobulk (smoothed; columns ordered by timepoint) ---
 setwd(model_dir)
 load("Zebrafish_ambient_genes_Top50.rda")   # -> Z_ambient_genes_Top50
 inj_pb <- Make_Pseudobulk_Matrix(Zebrafish_injury_smoothed[[ct_use]], Z_ambient_genes_Top50, "sample")
@@ -456,11 +456,11 @@ rownames(inj_pb) <- sub(".*~~", "", rownames(inj_pb))
 zf_injury_col_order <- c("Control_2", "NMDA_36hr", "NMDA_54hr", "NMDA_72hr", "NMDA_96hr", "NMDA_7D")
 inj_pb <- inj_pb[, zf_injury_col_order[zf_injury_col_order %in% colnames(inj_pb)], drop = FALSE]
 
-# --- (b) aging/training pseudobulk（clock 训练数据；合并 replicates 与 28/30，按 age 排序）---
+# --- (b) Aging/training pseudobulk (clock training data; merge replicates and 28/30, ordered by age) ---
 Zebrafish_seurat_knn_pseudobulk <- readRDS("Zebrafish_seurat_knn_pseudobulk_2025")
 merge_zf_training_replicates <- function(pb) {
     cn <- colnames(pb)
-    pb <- pb[, !cn %in% c("3_Rep2", "6_Rep3", "24_Rep1"), drop = FALSE]   # 去掉异常 replicate
+    pb <- pb[, !cn %in% c("3_Rep2", "6_Rep3", "24_Rep1"), drop = FALSE]   # remove outlier replicates
     grp <- gsub("_Rep[0-9]+$", "", colnames(pb)); grp[grp %in% c("28", "30")] <- "28-30"
     ug <- unique(grp)
     merged <- sapply(ug, function(g) { idx <- which(grp == g); if (length(idx) == 1) pb[, idx] else rowMeans(pb[, idx, drop = FALSE]) })
@@ -472,7 +472,7 @@ trn_pb <- merge_zf_training_replicates(trn_pb)
 col_nums <- as.numeric(gsub("-.*", "", gsub("[^0-9-]", "", colnames(trn_pb))))
 trn_pb <- trn_pb[, order(col_nums), drop = FALSE]
 
-# --- (c) aging 相关 injury genes 按 clock 权重正负分两类 ---
+# --- (c) Split aging-related injury genes into two groups by clock weight sign ---
 genes_ct  <- zf_aging_injury_genes[zf_aging_injury_genes$celltype == ct_use, ]
 genes_ct  <- genes_ct[!duplicated(genes_ct$gene), ]
 genes_pos <- genes_ct$gene[genes_ct$clock_coefficient > 0]
@@ -481,64 +481,64 @@ message(sprintf("%s: aging injury genes = %d (pos %d / neg %d)",
                 ct_use, nrow(genes_ct), length(genes_pos), length(genes_neg)))
 
 ######
-###### 我们 筛选下这些基因，在 正的 weights 里面的 基因 ，我们计算下它的 z-score 和 每个 时间点 predicted aging 的 Spearman 相关系数 ##
-###### 然后 设置一个 cutoff，选出 相关基因 ##
-###### 在 负的 weights 里面，就选出 相关性 负的最低的 基因 ###
-###### 选完之后只用这些基因 画 heatmaps #####
+###### Filter these genes: for positive-weight genes, compute the Spearman correlation between their z-score and the predicted aging at each timepoint ##
+###### then apply a cutoff to select correlated genes ##
+###### for negative-weight genes, select those with the most negative correlations ###
+###### After selection, draw heatmaps using only these genes #####
 ######
 ########################################################################
-# 10) 基于 Spearman 相关性筛选基因 -> ComplexHeatmap（pos / neg 各一个 PNG）
+# 10) Spearman correlation-based gene filtering -> ComplexHeatmap (one PNG each for pos / neg)
 ########################################################################
 library(ComplexHeatmap)
 library(circlize)
 
 coef_lookup <- setNames(genes_ct$clock_coefficient, genes_ct$gene)
 
-# --- (d) 每个 injury 时间点的 predicted aging 向量（MG），与 inj_pb 列对齐 ---
+# --- (d) Predicted aging vector for each injury timepoint (MG), aligned to inj_pb columns ---
 mg_delta <- zf_sample_delta[zf_sample_delta$celltype == ct_use, ]
 pred_map <- setNames(mg_delta$predicted, mg_delta$sample)
 inj_key  <- ifelse(colnames(inj_pb) == "Control_2", "NMDA_0hr", colnames(inj_pb))  # Control_2 = NMDA_0hr
 pred_vec <- pred_map[inj_key]
-message("predicted aging（按 injury 时间点）: ",
+message("Predicted aging (by injury timepoint): ",
         paste(sprintf("%s=%.1f", colnames(inj_pb), pred_vec), collapse = ", "))
 
-# --- (e) 每个基因 injury z-score 与 predicted aging 的 Spearman 相关系数 ---
+# --- (e) Spearman correlation between each gene's injury z-score and predicted aging ---
 inj_z_all <- zscore_rows(inj_pb)
 spearman_vs_pred <- function(genes) {
     g <- intersect(genes, rownames(inj_z_all))
     setNames(sapply(g, function(gene)
         suppressWarnings(cor(inj_z_all[gene, ], pred_vec, method = "spearman"))), g)
 }
-cor_pos <- spearman_vs_pred(genes_pos)   # 正权重基因
-cor_neg <- spearman_vs_pred(genes_neg)   # 负权重基因
+cor_pos <- spearman_vs_pred(genes_pos)   # positive-weight genes
+cor_neg <- spearman_vs_pred(genes_neg)   # negative-weight genes
 
-# --- (f) 设 cutoff：正权重取相关性最高(>cutoff)，负权重取相关性最低(<-cutoff) ---
+# --- (f) Cutoff: positive weights keep highest correlations (>cutoff), negative weights keep lowest (<-cutoff) ---
 cor_cutoff <- 0.25
 sel_pos <- names(cor_pos)[!is.na(cor_pos) & cor_pos >  cor_cutoff]
 sel_neg <- names(cor_neg)[!is.na(cor_neg) & cor_neg < -cor_cutoff]
-sel_pos <- sel_pos[order(-cor_pos[sel_pos])]   # 相关性从高到低
-sel_neg <- sel_neg[order( cor_neg[sel_neg])]   # 相关性从低到高（最负在上）
-message(sprintf("正权重: %d/%d 通过 (cor > %.2f); 负权重: %d/%d 通过 (cor < %.2f)",
+sel_pos <- sel_pos[order(-cor_pos[sel_pos])]   # correlation from high to low
+sel_neg <- sel_neg[order( cor_neg[sel_neg])]   # correlation from low to high (most negative on top)
+message(sprintf("Positive weights: %d/%d passed (cor > %.2f); negative weights: %d/%d passed (cor < %.2f)",
                 length(sel_pos), length(cor_pos), cor_cutoff,
                 length(sel_neg), length(cor_neg), -cor_cutoff))
 
-# --- (g) 合并 heatmap：上 pos / 下 neg；左 Injury / 右 Aging（配色不同）；最右 clock weight ---
+# --- (g) Combined heatmap: pos on top / neg below; Injury left / Aging right (different palettes); clock weight at far right ---
 sel_genes <- c(sel_pos, sel_neg)
 if (length(sel_genes) < 2) {
-    message("筛选基因太少，跳过 heatmap")
+    message("Too few selected genes, skipping heatmap")
 } else {
-    # 仅保留两边矩阵都有的基因；组内按 clock weight 从大到小
+    # Keep only genes present in both matrices; within each group, order by clock weight (descending)
     sel_genes <- Reduce(intersect, list(sel_genes, rownames(inj_pb), rownames(trn_pb)))
     sel_pos   <- intersect(sel_pos, sel_genes)
     sel_neg   <- intersect(sel_neg, sel_genes)
-    sel_pos   <- sel_pos[order(-coef_lookup[sel_pos])]   # 权重大 → 小
-    sel_neg   <- sel_neg[order(-coef_lookup[sel_neg])]   # 权重大 → 小（负值里越接近 0 越靠上）
-    sel_genes <- c(sel_pos, sel_neg)                     # 上 pos，下 neg
+    sel_pos   <- sel_pos[order(-coef_lookup[sel_pos])]   # weight high → low
+    sel_neg   <- sel_neg[order(-coef_lookup[sel_neg])]   # weight high → low (among negatives, closer to 0 is higher)
+    sel_genes <- c(sel_pos, sel_neg)                     # pos on top, neg below
 
     inj_z <- zscore_rows(inj_pb[sel_genes, , drop = FALSE])
     trn_z <- zscore_rows(trn_pb[sel_genes, , drop = FALSE])
 
-    # 左边列名与 boxplot 一致：Control_2 -> NMDA_0hr
+    # Left column names match the boxplot: Control_2 -> NMDA_0hr
     colnames(inj_z) <- ifelse(colnames(inj_z) == "Control_2", "NMDA_0hr", colnames(inj_z))
 
     row_split <- factor(
@@ -551,9 +551,9 @@ if (length(sel_genes) < 2) {
     weight_fill <- ifelse(coef_disp > 0, "#E64B35", "#3C5488")
     weight_fill[coef_disp == 0] <- "grey70"
 
-    gap_mm <- 6   # 上下间隔 = 左右间隔
+    gap_mm <- 6   # vertical gap = horizontal gap
     row_ha <- rowAnnotation(
-        spacer = anno_empty(border = FALSE, width = unit(5, "mm")),  # 与 heatmap 拉开距离
+        spacer = anno_empty(border = FALSE, width = unit(5, "mm")),  # spacing from the heatmap
         Clock_Weight = anno_barplot(
             coef_disp, baseline = 0,
             gp = gpar(fill = weight_fill, col = NA),
@@ -566,7 +566,7 @@ if (length(sel_genes) < 2) {
         show_annotation_name = c(spacer = FALSE, Clock_Weight = TRUE)
     )
 
-    # Nature/NPG：左 Injury 蓝-白-红；右 Aging 青绿-白-橙（左右颜色不同）
+    # Nature/NPG: left Injury blue-white-red; right Aging teal-white-orange (different palettes)
     inj_col_fun <- colorRamp2(c(-2, 0, 2), c("#3C5488", "#F7F7F7", "#E64B35"))
     age_col_fun <- colorRamp2(c(-2, 0, 2), c("#00A087", "#F7F7F7", "#F39B7F"))
 
@@ -606,10 +606,10 @@ if (length(sel_genes) < 2) {
          column_title_gp = gpar(fontsize = 18, fontface = "bold"),
          ht_gap = unit(gap_mm, "mm"))
     dev.off()
-    message(sprintf("已保存: %s (pos=%d, neg=%d)", file.path(injury_dir, out_file), length(sel_pos), length(sel_neg)))
+    message(sprintf("Saved: %s (pos=%d, neg=%d)", file.path(injury_dir, out_file), length(sel_pos), length(sel_neg)))
 }
 
-# 保存筛选结果（统一写到 injury_dir）
+# Save selection results (all written to injury_dir)
 setwd(injury_dir)
 sel_df <- rbind(
     data.frame(gene = sel_pos, spearman = cor_pos[sel_pos],
@@ -618,11 +618,11 @@ sel_df <- rbind(
                clock_coefficient = coef_lookup[sel_neg], group = "negWeight_negCorr")
 )
 write.csv(sel_df, "Zebrafish_MG_aging_injury_selected_genes_2026.csv", row.names = FALSE)
-message("已保存: ", file.path(injury_dir, "Zebrafish_MG_aging_injury_selected_genes_2026.csv"))
+message("Saved: ", file.path(injury_dir, "Zebrafish_MG_aging_injury_selected_genes_2026.csv"))
 
 ########################################################################
-# 11) Zebrafish MG → Human ortholog → enrichGO BP（无 KEGG；不 simplify；取 top 10）
-# 新终端: conda activate clusterProfiler ，从本段开始跑
+# 11) Zebrafish MG → Human ortholog → enrichGO BP (no KEGG; no simplify; top 10)
+# New terminal: conda activate clusterProfiler, then run from this section
 ########################################################################
 if (!exists("injury_dir")) injury_dir <- "/projects/hmz-aging/Injury_Datasets"
 if (!exists("model_dir"))  model_dir  <- "/projects/hmz-aging/Zebrafish_New_Datasets"
@@ -635,7 +635,7 @@ suppressMessages({
 
 setwd(injury_dir)
 
-# --- 始终从 Zebrafish CSV 读入（勿复用同会话里其他物种的 sel_pos/sel_neg）---
+# --- Always read from the Zebrafish CSV (do not reuse sel_pos/sel_neg from other species in the same session) ---
 sel_csv_candidates <- c(
     file.path(injury_dir, "Zebrafish_MG_aging_injury_selected_genes_2026.csv"),
     file.path(model_dir,  "Zebrafish_MG_aging_injury_selected_genes_2026.csv"),
@@ -643,15 +643,15 @@ sel_csv_candidates <- c(
 )
 sel_csv <- sel_csv_candidates[file.exists(sel_csv_candidates)][1]
 if (is.na(sel_csv) || !nzchar(sel_csv))
-    stop("找不到 Zebrafish_MG_aging_injury_selected_genes_2026.csv，请先跑完筛选段")
+    stop("Zebrafish_MG_aging_injury_selected_genes_2026.csv not found; run the gene selection section first")
 zf_sel_df <- read.csv(sel_csv, stringsAsFactors = FALSE)
 zf_sel_pos <- unique(zf_sel_df$gene[zf_sel_df$group == "posWeight_posCorr"])
 zf_sel_neg <- unique(zf_sel_df$gene[zf_sel_df$group == "negWeight_negCorr"])
 zf_sel_pos <- zf_sel_pos[!is.na(zf_sel_pos) & zf_sel_pos != ""]
 zf_sel_neg <- zf_sel_neg[!is.na(zf_sel_neg) & zf_sel_neg != ""]
-message(sprintf("从 CSV 读入 Zebrafish 基因: %s (pos=%d, neg=%d)",
+message(sprintf("Loaded Zebrafish genes from CSV: %s (pos=%d, neg=%d)",
                 sel_csv, length(zf_sel_pos), length(zf_sel_neg)))
-message("  示例 pos: ", paste(head(zf_sel_pos, 5), collapse = ", "))
+message("  Example pos: ", paste(head(zf_sel_pos, 5), collapse = ", "))
 
 zf_gene_groups <- list(
     posWeight = zf_sel_pos,
@@ -679,7 +679,7 @@ load_hz_ortholog <- function() {
     }
     hz <- hz[!is.na(hz$human) & !is.na(hz$zebrafish) & hz$human != "" & hz$zebrafish != "", ]
     hz <- hz[!duplicated(hz$zebrafish), ]
-    message("已读入 ortholog: ", fp, " (HZ pairs=", nrow(hz), ")")
+    message("Loaded ortholog: ", fp, " (HZ pairs=", nrow(hz), ")")
     hz
 }
 
@@ -731,14 +731,14 @@ parse_ratio <- function(r) {
     parts[1] / parts[2]
 }
 
-# enrichGO BP；按 p.adjust 取 top 10（不 simplify）
+# enrichGO BP; take top 10 by p.adjust (no simplify)
 run_go_human <- function(zf_genes, group_name, p_cut = 0.05, q_cut = 0.2, top_n = 10) {
     message(sprintf("\n========== %s: zebrafish genes=%d ==========", group_name, length(zf_genes)))
     map_df <- zebrafish_to_human(zf_genes)
     human_genes <- unique(map_df$human)
     message(sprintf("  mapped to human: %d / %d", length(human_genes),
                     length(unique(sub(".*~~", "", zf_genes)))))
-    if (length(human_genes) < 5) { message("  human 基因太少，跳过"); return(NULL) }
+    if (length(human_genes) < 5) { message("  Too few human genes, skipping"); return(NULL) }
 
     entrez <- na.omit(AnnotationDbi::mapIds(
         org.Hs.eg.db, keys = human_genes, column = "ENTREZID",
@@ -746,7 +746,7 @@ run_go_human <- function(zf_genes, group_name, p_cut = 0.05, q_cut = 0.2, top_n 
     ))
     entrez <- unique(as.character(entrez))
     message(sprintf("  human EntrezID: %d", length(entrez)))
-    if (length(entrez) < 5) { message("  Entrez 太少，跳过"); return(NULL) }
+    if (length(entrez) < 5) { message("  Too few Entrez IDs, skipping"); return(NULL) }
 
     ego <- enrichGO(
         gene          = entrez,
@@ -759,11 +759,11 @@ run_go_human <- function(zf_genes, group_name, p_cut = 0.05, q_cut = 0.2, top_n 
         readable      = TRUE
     )
     if (is.null(ego) || nrow(as.data.frame(ego)) == 0) {
-        message("  无 GO BP 结果"); return(NULL)
+        message("  No GO BP results"); return(NULL)
     }
     d <- as.data.frame(ego)
     d <- d[d$pvalue < p_cut, , drop = FALSE]
-    if (nrow(d) == 0) { message("  无显著 GO"); return(NULL) }
+    if (nrow(d) == 0) { message("  No significant GO terms"); return(NULL) }
 
     d$GeneRatio_val  <- vapply(d$GeneRatio, parse_ratio, numeric(1))
     d$BgRatio_val    <- vapply(d$BgRatio, parse_ratio, numeric(1))
@@ -772,7 +772,7 @@ run_go_human <- function(zf_genes, group_name, p_cut = 0.05, q_cut = 0.2, top_n 
     d$Database <- "GO:BP"
     d$group <- group_name
     d <- d[order(d$p.adjust, d$pvalue), ]
-    message(sprintf("  GO BP sig: %d (画图取 top %d)", nrow(d), top_n))
+    message(sprintf("  GO BP sig: %d (plotting top %d)", nrow(d), top_n))
 
     list(
         ego = ego,
@@ -808,20 +808,20 @@ for (nm in names(zf_enrich_hs)) {
 if (length(all_tabs) > 0) {
     write.csv(do.call(rbind, all_tabs),
               "Zebrafish_MG_aging_injury_GO_humanOrtholog_2026.csv", row.names = FALSE)
-    message("已保存: Zebrafish_MG_aging_injury_GO_humanOrtholog_2026.csv")
+    message("Saved: Zebrafish_MG_aging_injury_GO_humanOrtholog_2026.csv")
 }
 if (length(map_tabs) > 0) {
     write.csv(do.call(rbind, map_tabs),
               "Zebrafish_MG_aging_injury_zf2human_map_2026.csv", row.names = FALSE)
-    message("已保存: Zebrafish_MG_aging_injury_zf2human_map_2026.csv")
+    message("Saved: Zebrafish_MG_aging_injury_zf2human_map_2026.csv")
 }
 
-message("\n=== 第 11 段完成（Human ortholog GO BP, top 10）===")
-message("下一步: 跑第 12 段画 Dotplot")
+message("\n=== Section 11 done (Human ortholog GO BP, top 10) ===")
+message("Next step: run Section 12 to draw the dotplot")
 
 
 ########################################################################
-# 12) 发表级 Dotplot：前 10 个 GO BP（pos / neg 各一张；Nature/NPG 配色）
+# 12) Publication-quality dotplot: top 10 GO BP terms (one each for pos / neg; Nature/NPG palette)
 #     x = GeneRatio, size = Count, color = p.adjust
 ########################################################################
 if (!exists("injury_dir")) injury_dir <- "/projects/hmz-aging/Injury_Datasets"
@@ -831,14 +831,14 @@ suppressMessages(library(ggplot2))
 
 enrich_rds <- "Zebrafish_MG_aging_injury_GO_humanOrtholog_2026.rds"
 if (!exists("zf_enrich_hs") || is.null(zf_enrich_hs)) {
-    if (!file.exists(enrich_rds)) stop("找不到 ", enrich_rds, "，请先跑第 11 段")
+    if (!file.exists(enrich_rds)) stop(enrich_rds, " not found; run Section 11 first")
     zf_enrich_hs <- readRDS(enrich_rds)
-    message("已读入: ", enrich_rds)
+    message("Loaded: ", enrich_rds)
 }
 
 top_n_plot <- 10
 wrap_term <- function(x, width = 40) paste(strwrap(x, width = width), collapse = "\n")
-# Nature/NPG：显著(小 padj)=红，不显著(大 padj)=蓝
+# Nature/NPG: significant (small padj) = red, non-significant (large padj) = blue
 npg_lo <- "#E64B35"
 npg_hi <- "#3C5488"
 grp_title <- c(
@@ -849,7 +849,7 @@ grp_title <- c(
 for (nm in names(zf_enrich_hs)) {
     x <- zf_enrich_hs[[nm]]
     if (is.null(x) || is.null(x$GO) || nrow(x$GO) == 0) {
-        message(nm, ": 无 GO 可画"); next
+        message(nm, ": no GO terms to plot"); next
     }
     df <- head(x$GO[order(x$GO$p.adjust, x$GO$pvalue), ], top_n_plot)
     if (!"GeneRatio_val" %in% colnames(df)) {
@@ -882,7 +882,7 @@ for (nm in names(zf_enrich_hs)) {
             plot.title    = element_text(size = 13, face = "bold", color = "black", hjust = 0),
             plot.subtitle = element_text(size = 10, color = "grey35", margin = margin(b = 6)),
             axis.text.y   = element_text(size = 13, color = "black", lineheight = 0.95),
-            axis.text.x   = element_text(size = 9, color = "black"),   # GeneRatio 刻度缩小，避免重合
+            axis.text.x   = element_text(size = 9, color = "black"),   # smaller GeneRatio tick labels to avoid overlap
             axis.title.x  = element_text(size = 12, face = "bold", margin = margin(t = 6)),
             axis.line     = element_blank(),
             axis.ticks    = element_line(linewidth = 0.5, color = "black"),
@@ -900,7 +900,7 @@ for (nm in names(zf_enrich_hs)) {
     ggsave(out_png, p,
            width = 5.8, height = max(3.5, 0.35 * nrow(df) + 1.3),
            dpi = 600, bg = "white")
-    message("已保存: ", out_png, " (600 dpi)")
+    message("Saved: ", out_png, " (600 dpi)")
 }
 
-message("\n=== Zebrafish GO Dotplot (human ortholog, top 10) 完成 ===")
+message("\n=== Zebrafish GO Dotplot (human ortholog, top 10) done ===")

@@ -2,27 +2,27 @@
 ########################################################################
 # Re-run aging GSEA (fgsea) and SAVE leadingEdge genes (2026)
 #
-# 参数与之前 DEGs_revised_and_Rank* 完全一致:
+# Parameters identical to the earlier DEGs_revised_and_Rank*:
 #   category: minSize=5, maxSize=5000, set.seed(123), eps=0
 #   term:     minSize=5, maxSize=2000
 #   gene sets: human_aging_catalog$category_unions / $pathways
 #
-# 物种:
-#   Mouse / Zebrafish: 用已映射的 human-symbol ranks
-#   Human:             Human_DEG_rank.rds (按 celltype_sex；ENSG->symbol)
+# Species:
+#   Mouse / Zebrafish: use ranks already mapped to human symbols
+#   Human:             Human_DEG_rank.rds (by celltype_sex; ENSG->symbol)
 #
-# 输出（各物种目录下）:
-#   *_GSEA_withLE_2026.xlsx                  # 多 tab Excel（主输出）
-#   *_GSEA_category_withLE_2026.tsv          # 统计量 + leadingEdge(分号拼接)
-#   *_GSEA_category_leadingEdge_long_2026.tsv# 长表: 一行一个 LE 基因
-#   *_GSEA_category_fgsea_2026.rds           # 完整 fgsea list（含 LE）
+# Outputs (in each species directory):
+#   *_GSEA_withLE_2026.xlsx                  # multi-tab Excel (main output)
+#   *_GSEA_category_withLE_2026.tsv          # statistics + leadingEdge (semicolon-joined)
+#   *_GSEA_category_leadingEdge_long_2026.tsv# long table: one LE gene per row
+#   *_GSEA_category_fgsea_2026.rds           # full fgsea list (with LE)
 #   *_GSEA_term_withLE_2026.tsv / _leadingEdge_long / _fgsea.rds
 #
 # Excel tabs:
 #   Contents | category_summary | category_LE_long
 #            | term_summary | term_LE_long
 #            | category_sig_p05 | term_sig_p05
-#            | LE_<celltype> (各大类 LE 按 celltype 分 tab)
+#            | LE_<celltype> (LE per category, one tab per celltype)
 #
 # HPC:
 #   conda activate clusterProfiler
@@ -334,7 +334,7 @@ write_species_gsea_excel <- function(species, out_dir, category_out = NULL, term
 ########################################################################
 # load catalog
 ########################################################################
-if (!file.exists(catalog_path)) stop("找不到 catalog: ", catalog_path)
+if (!file.exists(catalog_path)) stop("Cannot find catalog: ", catalog_path)
 load(catalog_path)   # -> human_aging_catalog
 stopifnot(exists("human_aging_catalog"))
 category_sets <- human_aging_catalog$category_unions
@@ -353,7 +353,7 @@ load_mouse_ranks <- function() {
         file.path(mouse_dir, "Mouse_DEG_rank_human")
     )
     hit <- cand[file.exists(cand)]
-    if (length(hit) == 0) stop("找不到 Mouse_DEG_rank_human(.rds)")
+    if (length(hit) == 0) stop("Cannot find Mouse_DEG_rank_human(.rds)")
     fp <- hit[[1]]
     message("[Mouse] load ranks: ", fp)
     if (grepl("\\.rds$", fp, ignore.case = TRUE)) {
@@ -365,7 +365,7 @@ load_mouse_ranks <- function() {
             obj <- get("Mouse_DEG_rank_human", envir = env)
         } else {
             objs <- ls(envir = env)
-            if (length(objs) != 1) stop("RData 中对象不唯一: ", paste(objs, collapse = ","))
+            if (length(objs) != 1) stop("RData contains more than one object: ", paste(objs, collapse = ","))
             obj <- get(objs[[1]], envir = env)
         }
     }
@@ -376,7 +376,7 @@ load_fish_ranks <- function() {
     fp <- file.path(fish_dir, "Zebrafish_DEG_rank_human.rds")
     if (!file.exists(fp)) {
         alt <- file.path(fish_dir, "Zebrafish_DEG_rank_human")
-        if (file.exists(alt)) fp <- alt else stop("找不到 Zebrafish_DEG_rank_human.rds")
+        if (file.exists(alt)) fp <- alt else stop("Cannot find Zebrafish_DEG_rank_human.rds")
     }
     message("[Zebrafish] load ranks: ", fp)
     if (grepl("\\.rds$", fp, ignore.case = TRUE)) {
@@ -394,7 +394,7 @@ load_fish_ranks <- function() {
 
 load_human_ranks <- function() {
     fp <- file.path(pb_root, "Human_DEG_rank.rds")
-    if (!file.exists(fp)) stop("找不到 Human_DEG_rank.rds: ", fp)
+    if (!file.exists(fp)) stop("Cannot find Human_DEG_rank.rds: ", fp)
     message("[Human] load ranks: ", fp)
     x <- readRDS(fp)
 
@@ -410,7 +410,7 @@ load_human_ranks <- function() {
     }
     x <- flatten_rank_list(x)
 
-    ## ENSG -> SYMBOL（与旧脚本一致）
+    ## ENSG -> SYMBOL (same as the old script)
     if (requireNamespace("org.Hs.eg.db", quietly = TRUE)) {
         suppressMessages(library(org.Hs.eg.db))
         convert_rank_to_symbol <- function(rank_vec) {
@@ -432,7 +432,7 @@ load_human_ranks <- function() {
         }
         x <- lapply(x, convert_rank_to_symbol)
     } else {
-        message("[Human] org.Hs.eg.db 不可用；若 rank 已是 symbol 可继续")
+        message("[Human] org.Hs.eg.db unavailable; can continue if ranks are already symbols")
     }
     x
 }
@@ -504,7 +504,7 @@ if ("Human" %in% species_run) {
         gcat <- run_gsea_on_ranks(ranks, category_sets, 5, 5000, "Human-category")
         human_cat <- write_gsea_outputs(gcat, file.path(human_dir, "Human_GSEA_category"),
                                         pathway_name = "category")
-        ## 补 sex / ct / mode（与旧表兼容）
+        ## Add sex / ct / mode (compatible with old tables)
         if (!is.null(human_cat$df)) {
             df <- human_cat$df
             df$sex  <- sub(".*_(male|female)$", "\\1", df$celltype)
@@ -552,8 +552,8 @@ if ("Human" %in% species_run) {
 }
 
 message("\n=== Done: GSEA with leadingEdge ===")
-message("主输出 Excel:")
+message("Main output Excel:")
 message("  /projects/hmz-aging/Mouse_New_Datasets/Mouse_GSEA_withLE_2026.xlsx")
 message("  /projects/hmz-aging/Zebrafish_New_Datasets/Zebrafish_GSEA_withLE_2026.xlsx")
 message("  /projects/hmz-aging/Human_New_Datasets/Human_GSEA_withLE_2026.xlsx")
-message("tsv/rds 仍会写出；Excel 含 Contents + 多 tab")
+message("tsv/rds are still written; Excel contains Contents + multiple tabs")

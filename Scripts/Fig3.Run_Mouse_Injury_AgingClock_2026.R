@@ -1,34 +1,34 @@
 #!/usr/bin/env Rscript
 ########################################################################
 # Mouse Injury — Aging Clock Prediction (2026)
-# 用 2026 final aging clock 模型预测 mouse NMDA injury 数据的衰老评分
-# celltypes: MG (仅 Resting MG), Rod, Cone
-# 流程（与 final model 训练完全一致，无 calibration）:
-#   ENSMUSG->symbol -> nFeature 过滤 -> 按 Condition KNN smoothing
-#   -> 去 ambient -> depth norm(1e4)+log2 -> 按 genes_used 对齐
-#   -> 用训练存的 means/sds 做 Z-score -> predict
-# HPC 用法: Rscript Run_Mouse_Injury_AgingClock_2026.R
+# Predict aging scores for mouse NMDA injury data using the 2026 final aging clock models
+# celltypes: MG (Resting MG only), Rod, Cone
+# Pipeline (identical to final model training, no calibration):
+#   ENSMUSG->symbol -> nFeature filtering -> per-Condition KNN smoothing
+#   -> remove ambient -> depth norm(1e4)+log2 -> align to genes_used
+#   -> Z-score with stored training means/sds -> predict
+# HPC usage: Rscript Run_Mouse_Injury_AgingClock_2026.R
 ########################################################################
 
 suppressMessages({
     library(Seurat)
     library(Matrix)
     library(FNN)
-    library(glmnet)     # 必须: 否则 predict 找不到 predict.glmnet
+    library(glmnet)     # required: otherwise predict cannot find predict.glmnet
     library(ggplot2)
 })
 
-## 路径配置 ------------------------------------------------------------
-mouse_dir  <- "/projects/hmz-aging/Mouse_New_Datasets"     # 原始 injury 数据 + 模型 + ambient
-injury_dir <- "/projects/hmz-aging/Injury_Datasets"        # gene features + 输出
-model_dir  <- mouse_dir                                     # 模型: <CT>/<CT>_final_aging_clock_model_2026.rds
+## Path configuration ------------------------------------------------------------
+mouse_dir  <- "/projects/hmz-aging/Mouse_New_Datasets"     # raw injury data + models + ambient
+injury_dir <- "/projects/hmz-aging/Injury_Datasets"        # gene features + outputs
+model_dir  <- mouse_dir                                     # models: <CT>/<CT>_final_aging_clock_model_2026.rds
 clock_celltypes <- c("MG", "Rod", "Cone")
 control_sample  <- "mmP60"
 sample_col      <- "Condition"
 
 
 ########################################################################
-# 1) 读入 mouse NMDA injury 数据，加 celltype 并映射为 MG/Rod/Cone 等
+# 1) Load mouse NMDA injury data, add celltypes and map them to MG/Rod/Cone etc.
 ########################################################################
 setwd(mouse_dir)
 load("Mouse_NMDA_pbmc_seurat.RData")     # -> pbmc
@@ -38,7 +38,7 @@ cells_meta <- read.table("Mouse_NMDA_cell_features.tsv", sep = "\t")
 m <- match(colnames(Mouse_NMDA), cells_meta$V1)
 Mouse_NMDA$celltype <- cells_meta$V3[m]
 
-# 细粒度 celltype -> clock celltype
+# Fine-grained celltype -> clock celltype
 map_list <- list(
     MG   = c("Resting MG"),
     Cone = c("Cones"),
@@ -56,7 +56,7 @@ Mouse_NMDA_list <- SplitObject(Mouse_NMDA_cl, split.by = "celltype2")
 
 
 ########################################################################
-# 2) ENSMUSG ID -> gene symbol，合并重复 symbol 的 raw counts
+# 2) ENSMUSG ID -> gene symbol; sum raw counts of duplicated symbols
 ########################################################################
 Genes_meta <- read.table(file.path(injury_dir, "Mouse_gene_features.tsv"), sep = "\t")
 
@@ -70,7 +70,7 @@ convert_ensmusg_to_symbol <- function(seurat_list, genes_meta) {
         matched <- id_to_symbol[old_genes]
         new_names <- ifelse(!is.na(matched), matched, old_genes)
         dup_symbols <- unique(new_names[duplicated(new_names)])
-        message(sprintf("  %s: 基因 %d, 匹配 symbol %d, 重复 %d",
+        message(sprintf("  %s: genes %d, matched symbols %d, duplicated %d",
                         ct, length(old_genes), sum(!is.na(matched)), length(dup_symbols)))
         if (length(dup_symbols) > 0) {
             uniq_idx <- which(!new_names %in% dup_symbols)
@@ -89,7 +89,7 @@ Mouse_injury_symbol <- convert_ensmusg_to_symbol(Mouse_NMDA_list, Genes_meta)
 
 
 ########################################################################
-# 3) nFeature_RNA 过滤 + 只保留 MG/Rod/Cone
+# 3) nFeature_RNA filtering + keep only MG/Rod/Cone
 ########################################################################
 Mouse_injury_cl <- list()
 for (ct in names(Mouse_injury_symbol)) {
@@ -103,7 +103,7 @@ Mouse_injury_sel <- Mouse_injury_cl[keep_cts]
 
 
 ########################################################################
-# 4) KNN smoothing（按 Condition；与 aging clock 训练预处理一致）
+# 4) KNN smoothing (per Condition; same preprocessing as aging clock training)
 ########################################################################
 NormalizeAndPCA <- function(seu, scale.factor = 1e4, nfeatures = 2000, npcs = 30) {
     seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = scale.factor, verbose = FALSE)
@@ -111,7 +111,7 @@ NormalizeAndPCA <- function(seu, scale.factor = 1e4, nfeatures = 2000, npcs = 30
     seu <- ScaleData(seu, features = rownames(seu), verbose = FALSE)
     max_npcs <- min(nrow(seu), ncol(seu)) - 1
     if (npcs > max_npcs) npcs <- max(1, max_npcs)
-    if (npcs < 1) stop(sprintf("细胞数太少 (n_cells=%d)，无法 PCA", ncol(seu)))
+    if (npcs < 1) stop(sprintf("Too few cells (n_cells=%d) to run PCA", ncol(seu)))
     RunPCA(seu, features = VariableFeatures(seu), npcs = npcs, verbose = FALSE)
 }
 
@@ -132,15 +132,15 @@ smooth_injury_list <- function(seurat_list, sample_col = "Condition", species_la
         message(sprintf("\n========== %s - %s ==========", species_label, ct))
         tmp_sp <- SplitObject(seurat_list[[ct]], split.by = sample_col)
         nc <- sapply(tmp_sp, ncol)
-        if (any(nc < 2)) { message("  去掉 <2 细胞样本: ", paste(names(nc)[nc < 2], collapse = ", ")); tmp_sp <- tmp_sp[nc >= 2] }
-        if (length(tmp_sp) == 0) { message("  ", ct, ": 所有样本被过滤，跳过"); next }
+        if (any(nc < 2)) { message("  Removing samples with <2 cells: ", paste(names(nc)[nc < 2], collapse = ", ")); tmp_sp <- tmp_sp[nc >= 2] }
+        if (length(tmp_sp) == 0) { message("  ", ct, ": all samples filtered out, skipping"); next }
         if (ct %in% c("Rod", "Cone", "RGC", "AC", "HC", "BC")) { k <- 15; npcs <- 25 }
         else if (ct == "MG") { k <- 5; npcs <- 5 }
         else { k <- 2; npcs <- 5 }
         min_ncells <- min(sapply(tmp_sp, ncol))
         message(sprintf("  min cells/sample=%d, K=%d, npcs=%d", min_ncells, k, npcs))
         if (min_ncells < 5) {
-            message("  最小样本细胞数 <5，跳过 smooth 直接 merge")
+            message("  Smallest sample has <5 cells; skipping smoothing and merging directly")
             smoothed[[ct]] <- if (length(tmp_sp) == 1) tmp_sp[[1]] else merge(tmp_sp[[1]], tmp_sp[-1], add.cell.ids = names(tmp_sp))
             next
         }
@@ -149,27 +149,27 @@ smooth_injury_list <- function(seurat_list, sample_col = "Condition", species_la
         tmp_pca    <- sapply(tmp_sp, NormalizeAndPCA, npcs = npcs)
         tmp_smooth <- sapply(tmp_pca, PseudoBulkByKNN_fast, k = k, dims = 1:npcs)
         smoothed[[ct]] <- if (length(tmp_smooth) == 1) tmp_smooth[[1]] else merge(tmp_smooth[[1]], tmp_smooth[-1], add.cell.ids = names(tmp_smooth))
-        message(sprintf("  完成: %d pseudo-cells", ncol(smoothed[[ct]])))
+        message(sprintf("  Done: %d pseudo-cells", ncol(smoothed[[ct]])))
     }
     smoothed
 }
 
 Mouse_injury_smoothed <- smooth_injury_list(Mouse_injury_sel, sample_col = sample_col, species_label = "Mouse")
 
-# 统一 sample 列 = Condition；MG 只保留 Resting MG（与之前一致：smooth 后再取中心为 Resting MG 的 pseudo-cell）
+# Unify sample column = Condition; keep only Resting MG for MG (as before: after smoothing, keep pseudo-cells centered on Resting MG)
 for (ct in names(Mouse_injury_smoothed)) Mouse_injury_smoothed[[ct]]$sample <- as.character(Mouse_injury_smoothed[[ct]][[sample_col]][, 1])
 if ("MG" %in% names(Mouse_injury_smoothed)) {
     Mouse_injury_smoothed$MG <- Mouse_injury_smoothed$MG[, which(Mouse_injury_smoothed$MG$celltype == "Resting MG")]
-    message(sprintf("MG 仅保留 Resting MG: %d pseudo-cells", ncol(Mouse_injury_smoothed$MG)))
+    message(sprintf("MG restricted to Resting MG: %d pseudo-cells", ncol(Mouse_injury_smoothed$MG)))
 }
 
 setwd(injury_dir)
 saveRDS(Mouse_injury_smoothed, file = "Mouse_injury_smoothed.rds")
-message("已保存: Mouse_injury_smoothed.rds")
+message("Saved: Mouse_injury_smoothed.rds")
 
 
 ########################################################################
-# 5) 载入 ambient 基因 + 2026 final 模型，逐 celltype 预测（无 calibration）
+# 5) Load ambient genes + 2026 final models and predict per celltype (no calibration)
 ########################################################################
 setwd(mouse_dir)
 load("Mouse_ambient_genes_Top50.rda")    # -> M_ambient_genes_Top50
@@ -205,9 +205,9 @@ predict_final_clock <- function(final_model_obj, seu_ct, ambient_genes = NULL) {
 
 Mouse_injury_predictions <- list()
 for (ct in clock_celltypes) {
-    if (!ct %in% names(Mouse_injury_smoothed)) { message(ct, ": 无 smoothed 数据，跳过"); next }
+    if (!ct %in% names(Mouse_injury_smoothed)) { message(ct, ": no smoothed data, skipping"); next }
     model_file <- file.path(model_dir, ct, sprintf("%s_final_aging_clock_model_2026.rds", ct))
-    if (!file.exists(model_file)) { message(ct, ": 2026 模型不存在，跳过 -> ", model_file); next }
+    if (!file.exists(model_file)) { message(ct, ": 2026 model not found, skipping -> ", model_file); next }
     final_model <- readRDS(model_file)
     seu <- Mouse_injury_smoothed[[ct]]
     if (length(Layers(seu)) > 1) seu <- JoinLayers(seu)
@@ -223,21 +223,21 @@ for (ct in clock_celltypes) {
     sample_pred <- aggregate(cbind(predicted, predicted_calibrated) ~ sample, data = cell_pred, FUN = mean)
     sample_pred$celltype <- ct
     Mouse_injury_predictions[[ct]] <- list(cell_predictions = cell_pred, sample_predictions = sample_pred)
-    message(sprintf("%s: %d cells, %d samples (缺失基因 %d/%d)",
+    message(sprintf("%s: %d cells, %d samples (missing genes %d/%d)",
                     ct, nrow(cell_pred), nrow(sample_pred), res$n_missing_genes, res$n_genes))
     print(sample_pred)
 }
 
 setwd(injury_dir)
 saveRDS(Mouse_injury_predictions, file = "Mouse_injury_predictions_2026.rds")
-message("已保存: Mouse_injury_predictions_2026.rds")
+message("Saved: Mouse_injury_predictions_2026.rds")
 
 
 
 #
 
 ########################################################################
-# 6) Delta aging：以 mmP60 的均值归一化（injury vs control）
+# 6) Delta aging: normalize to the mmP60 mean (injury vs control)
 ########################################################################
 compute_delta_aging <- function(predictions_list, control_sample, species_label = "Mouse") {
     all_delta <- list()
@@ -259,7 +259,7 @@ for (ct in names(Mouse_injury_predictions))
     message(sprintf("  %s: %s", ct, paste(unique(Mouse_injury_predictions[[ct]]$cell_predictions$sample), collapse = ", ")))
 
 Mouse_delta <- compute_delta_aging(Mouse_injury_predictions, control_sample = control_sample)
-# 展示重命名: mmP60 -> NMDA_0h; mmNMDA03 -> NMDA_03 ...（delta 已相对 mmP60 计算）
+# Rename for display: mmP60 -> NMDA_0h; mmNMDA03 -> NMDA_03 ... (delta already computed relative to mmP60)
 Mouse_delta$sample[Mouse_delta$sample == "mmP60"] <- "NMDA_0h"
 Mouse_delta$sample <- sub("^mmNMDA(.*)$", "NMDA_\\1h", Mouse_delta$sample)
 saveRDS(Mouse_delta, file = "Mouse_injury_delta_aging_2026.rds")
@@ -272,12 +272,12 @@ write.csv(mouse_sample_delta, "Mouse_injury_sample_delta_aging_2026.csv", row.na
 
 
 ########################################################################
-# 7) 画图：delta by celltype + 时间点分面（Nature/NPG 配色，大字）
+# 7) Plots: delta by celltype + faceted by timepoint (Nature/NPG palette, large fonts)
 ########################################################################
 npg_cols <- c("#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F",
               "#8491B4", "#91D1C2", "#DC0000", "#7E6148", "#B09C85")
 
-# (a) 每个 celltype: Control vs Injury 的 delta boxplot
+# (a) Per celltype: delta boxplot of Control vs Injury
 plot_delta_boxplot <- function(delta_df, species_label = "Mouse") {
     ct_order <- clock_celltypes[clock_celltypes %in% delta_df$celltype]
     delta_df$celltype <- factor(delta_df$celltype, levels = ct_order)
@@ -293,9 +293,9 @@ plot_delta_boxplot <- function(delta_df, species_label = "Mouse") {
 }
 ggsave("Mouse_Injury_Delta_Aging_Boxplot_2026.png",
        plot_delta_boxplot(Mouse_delta), width = 5, height = 4, dpi = 300)
-message("已保存: Mouse_Injury_Delta_Aging_Boxplot_2026.png")
+message("Saved: Mouse_Injury_Delta_Aging_Boxplot_2026.png")
 
-# (b) 时间点分面：每个 celltype 一行，x = injury 时间点
+# (b) Timepoint facets: one row per celltype, x = injury timepoint
 plot_timepoint_facet <- function(delta_df, sample_order, ct_order, species_label = "Mouse") {
     delta_df <- delta_df[delta_df$sample %in% sample_order & delta_df$celltype %in% ct_order, ]
     delta_df$sample   <- factor(delta_df$sample, levels = sample_order)
@@ -316,32 +316,32 @@ plot_timepoint_facet <- function(delta_df, sample_order, ct_order, species_label
               strip.background = element_rect(color = "black", fill = "white"),
               legend.position = "none")
 }
-# 画图时把 6h–36h（06/12/24/36h）的细胞合并成一个组 NMDA_6-36h
+# For plotting, pool cells from 6h–36h (06/12/24/36h) into a single group NMDA_6-36h
 Mouse_delta_plot <- Mouse_delta
 Mouse_delta_plot$sample[Mouse_delta_plot$sample %in%
     c("NMDA_06h", "NMDA_12h", "NMDA_24h", "NMDA_36h")] <- "NMDA_6-36h"
 
-# x 轴顺序（NMDA_0h 为对照；6-36h 合并；mmNMDA48FI 不画）
+# x-axis order (NMDA_0h is the control; 6-36h pooled; mmNMDA48FI not plotted)
 mouse_sample_order <- c("NMDA_0h", "NMDA_03h", "NMDA_6-36h", "NMDA_48h", "NMDA_72h")
 mouse_ct_order     <- c("MG", "Rod", "Cone")
 ggsave("Mouse_Injury_Timepoint_Boxplot_2026.png",
        plot_timepoint_facet(Mouse_delta_plot, mouse_sample_order, mouse_ct_order),
        width = 4.5, height = length(mouse_ct_order) * 3 + 1, dpi = 300)
-message("已保存: Mouse_Injury_Timepoint_Boxplot_2026.png")
+message("Saved: Mouse_Injury_Timepoint_Boxplot_2026.png")
 
-message("\n=== Mouse injury aging clock (2026) 全部完成 ===")
+message("\n=== Mouse injury aging clock (2026) all done ===")
 
 
 
 ####### 
 setwd(injury_dir)
 saveRDS(Mouse_injury_predictions, file = "Mouse_injury_predictions_2026.rds")
-message("已保存: Mouse_injury_predictions_2026.rds")
+message("Saved: Mouse_injury_predictions_2026.rds")
 
 
 ########################################################################
-# 8) 比较 48h (mmNMDA48) vs 48FIh (mmNMDA48FI) 的 predicted age
-#    boxplot + Nature/NPG 配色 + Wilcoxon p 值
+# 8) Compare predicted age between 48h (mmNMDA48) and 48FIh (mmNMDA48FI)
+#    boxplot + Nature/NPG palette + Wilcoxon p-value
 ########################################################################
 library(ggplot2)
 setwd(injury_dir)
@@ -355,7 +355,7 @@ d$grp <- factor(ifelse(d$sample == "mmNMDA48", "NMDA_48h", "NMDA_48FIh"),
 ct_order <- c("MG", "Rod", "Cone")
 d$celltype <- factor(d$celltype, levels = ct_order[ct_order %in% unique(d$celltype)])
 
-# 每个 celltype 的 Wilcoxon p（48h vs 48FIh）
+# Wilcoxon p per celltype (48h vs 48FIh)
 fmt_p <- function(p) if (is.na(p)) "NA" else if (p < 2.2e-16) "p < 2.2e-16" else sprintf("p = %.2g", p)
 pdat <- do.call(rbind, lapply(levels(d$celltype), function(ct) {
     dd <- d[d$celltype == ct, ]
@@ -385,31 +385,31 @@ p_cmp <- ggplot(d, aes(x = grp, y = predicted, fill = grp)) +
 
 ggsave("Mouse_Injury_48h_vs_48FIh_boxplot_2026.png", p_cmp,
        width = 2.6 * nlevels(d$celltype) + 1, height = 4.2, dpi = 300)
-message("已保存: Mouse_Injury_48h_vs_48FIh_boxplot_2026.png")
+message("Saved: Mouse_Injury_48h_vs_48FIh_boxplot_2026.png")
 
 
 #####
-##### 和 zebraFish 一样，先 计算 injury DEGs，NMDA_6-36h 合在一起计算 DEGs #####
+##### As in zebrafish, first compute injury DEGs, with NMDA_6-36h pooled for DEG calculation #####
 #####
 ########################################################################
-# 9) aging 相关的 injury genes (Mouse):
-#    (a) 在未 smooth 的原始 counts (Mouse_injury_sel) 上找 injury DEGs
-#        - MG 仅 Resting MG；mmNMDA06/12/24/36 合并为 mmNMDA6-36h；排除 mmNMDA48FI
-#    (b) 从 2026 final model 提取 clock 基因权重
-#    (c) injury DEG 且是 clock gene = aging 相关 injury genes
+# 9) Aging-related injury genes (Mouse):
+#    (a) Find injury DEGs on unsmoothed raw counts (Mouse_injury_sel)
+#        - MG restricted to Resting MG; mmNMDA06/12/24/36 pooled as mmNMDA6-36h; mmNMDA48FI excluded
+#    (b) Extract clock gene weights from the 2026 final models
+#    (c) Injury DEG that is also a clock gene = aging-related injury gene
 ########################################################################
 library(Seurat)
 library(Matrix)
 
-# 原始未 smooth 对象: Mouse_injury_sel（第 3 段生成）；统一 sample=Condition
+# Unsmoothed raw object: Mouse_injury_sel (generated in Section 3); unify sample=Condition
 mouse_deg_input <- Mouse_injury_sel
 for (ct in names(mouse_deg_input)) mouse_deg_input[[ct]]$sample <- as.character(mouse_deg_input[[ct]]$Condition)
-# MG 仅保留 Resting MG（与 clock/heatmap 口径一致）
+# Keep only Resting MG for MG (consistent with clock/heatmap definition)
 if ("MG" %in% names(mouse_deg_input)) {
     mg <- mouse_deg_input$MG
     mouse_deg_input$MG <- mg[, which(mg$celltype == "Resting MG")]
 }
-# 合并 6-36h（mmNMDA06/12/24/36 -> mmNMDA6-36h），排除 mmNMDA48FI
+# Pool 6-36h (mmNMDA06/12/24/36 -> mmNMDA6-36h) and exclude mmNMDA48FI
 merge6_36 <- c("mmNMDA06", "mmNMDA12", "mmNMDA24", "mmNMDA36")
 for (ct in names(mouse_deg_input)) {
     s <- mouse_deg_input[[ct]]$sample
@@ -418,7 +418,7 @@ for (ct in names(mouse_deg_input)) {
     mouse_deg_input[[ct]] <- mouse_deg_input[[ct]][, s != "mmNMDA48FI"]
 }
 
-# (a) injury DEGs：每个时间点 vs mmP60（p_val_adj<0.01, |log2FC|>0.2）
+# (a) Injury DEGs: each timepoint vs mmP60 (p_val_adj<0.01, |log2FC|>0.2)
 find_injury_degs <- function(seurat_list, control_sample) {
     all_degs <- list()
     for (ct in names(seurat_list)) {
@@ -434,7 +434,7 @@ find_injury_degs <- function(seurat_list, control_sample) {
             markers <- tryCatch(
                 FindMarkers(seu, ident.1 = tp, ident.2 = control_sample,
                             min.pct = 0.05, logfc.threshold = 0.2, test.use = "wilcox"),
-                error = function(e) { message("    FindMarkers 出错: ", e$message); NULL })
+                error = function(e) { message("    FindMarkers error: ", e$message); NULL })
             if (is.null(markers) || nrow(markers) == 0) next
             sig <- markers[markers$p_val_adj < 0.01, , drop = FALSE]
             if (nrow(sig) == 0) next
@@ -452,7 +452,7 @@ Mouse_injury_degs <- find_injury_degs(mouse_deg_input, control_sample = control_
 setwd(injury_dir)
 saveRDS(Mouse_injury_degs, file = "Mouse_injury_degs_list_2026.rds")
 
-# (b) 从 2026 final model 提取 clock 基因权重（MG/Rod/Cone）
+# (b) Extract clock gene weights from the 2026 final models (MG/Rod/Cone)
 mouse_gene_weights <- list()
 for (ct in clock_celltypes) {
     mf <- file.path(model_dir, ct, sprintf("%s_final_aging_clock_model_2026.rds", ct))
@@ -469,7 +469,7 @@ for (ct in clock_celltypes) {
     message(sprintf("  Mouse %s: %d clock genes", ct, nrow(wt_df)))
 }
 
-# (c) DEGs 合并 clock weights，标注 is_clock_gene
+# (c) Merge DEGs with clock weights and flag is_clock_gene
 merge_degs_with_weights <- function(degs_list, weights_list) {
     out <- list()
     for (ct in names(degs_list)) {
@@ -494,19 +494,19 @@ mouse_deg_table <- do.call(rbind, Mouse_injury_degs_table); rownames(mouse_deg_t
 write.csv(mouse_deg_table, "Mouse_injury_DEGs_with_clock_weights_2026.csv", row.names = FALSE)
 saveRDS(Mouse_injury_degs_table, file = "Mouse_injury_degs_table_2026.rds")
 
-# aging 相关 injury genes = injury DEG 且是 clock gene
+# Aging-related injury genes = injury DEGs that are also clock genes
 mouse_aging_injury_genes <- mouse_deg_table[mouse_deg_table$is_clock_gene %in% TRUE, , drop = FALSE]
 write.csv(mouse_aging_injury_genes, "Mouse_aging_related_injury_genes_2026.csv", row.names = FALSE)
-message(sprintf("\naging 相关 injury genes: %d 行, %d unique genes",
+message(sprintf("\nAging-related injury genes: %d rows, %d unique genes",
                 nrow(mouse_aging_injury_genes), length(unique(mouse_aging_injury_genes$gene))))
 
 
 ##############
-############## 接下来，把 mouse_aging_injury_genes 按 weights 分为正/负两类 #####
-############## 用 injury z-score 与各时间点 predicted aging 的 Spearman 相关筛选 #####
-############## 只做 MG；heatmap 左 Injury | 右 Aging；上 pos / 下 neg #####
+############## Next, split mouse_aging_injury_genes into positive/negative groups by weight #####
+############## Filter by Spearman correlation between injury z-score and predicted aging at each timepoint #####
+############## MG only; heatmap Injury left | Aging right; pos on top / neg below #####
 ########################################################################
-# 10) MG: 构建 injury/aging pseudobulk + Spearman 筛选 + ComplexHeatmap
+# 10) MG: build injury/aging pseudobulk + Spearman filtering + ComplexHeatmap
 ########################################################################
 library(Matrix)
 library(ComplexHeatmap)
@@ -514,7 +514,7 @@ library(circlize)
 
 ct_use <- "MG"
 
-# pseudobulk: raw counts 之和 -> depth norm 1e4 -> log2(1+x)
+# pseudobulk: sum of raw counts -> depth norm 1e4 -> log2(1+x)
 Make_Pseudobulk_Matrix <- function(seurat_obj, ambient_genes = NULL, sample_col = "sample") {
     if (inherits(seurat_obj[[DefaultAssay(seurat_obj)]], "Assay5") && length(Layers(seurat_obj)) > 1)
         seurat_obj <- JoinLayers(seurat_obj)
@@ -530,19 +530,19 @@ Make_Pseudobulk_Matrix <- function(seurat_obj, ambient_genes = NULL, sample_col 
 }
 zscore_rows <- function(m) { r <- t(scale(t(m))); r[is.na(r)] <- 0; r }
 
-# --- (a) injury pseudobulk（smoothed MG；合并 6-36h；排除 48FI；列名与 boxplot 一致）---
-# 用 KNN smoothed 后的 injury 数据做 pb（与预测一致）；若不在内存则读 RDS
+# --- (a) Injury pseudobulk (smoothed MG; 6-36h pooled; 48FI excluded; column names match the boxplot) ---
+# Build pb from KNN-smoothed injury data (same as prediction); read RDS if not in memory
 setwd(injury_dir)
 if (!exists("Mouse_injury_smoothed")) {
     Mouse_injury_smoothed <- readRDS("Mouse_injury_smoothed.rds")
-    message("已读入: Mouse_injury_smoothed.rds")
+    message("Loaded: Mouse_injury_smoothed.rds")
 }
 setwd(mouse_dir)
 load("Mouse_ambient_genes_Top50.rda")   # -> M_ambient_genes_Top50
 inj_pb <- Make_Pseudobulk_Matrix(Mouse_injury_smoothed[[ct_use]], M_ambient_genes_Top50, "sample")
-# 去掉 48FI
+# Remove 48FI
 inj_pb <- inj_pb[, colnames(inj_pb) != "mmNMDA48FI", drop = FALSE]
-# 合并 6-36h
+# Pool 6-36h
 merge6_36 <- c("mmNMDA06", "mmNMDA12", "mmNMDA24", "mmNMDA36")
 present6  <- intersect(merge6_36, colnames(inj_pb))
 if (length(present6) > 0) {
@@ -550,7 +550,7 @@ if (length(present6) > 0) {
     keep_cols  <- setdiff(colnames(inj_pb), merge6_36)
     inj_pb     <- cbind(inj_pb[, keep_cols, drop = FALSE], `mmNMDA6-36h` = merged_col)
 }
-# 重命名为 boxplot 标注
+# Rename to the boxplot labels
 rename_inj <- c(mmP60 = "NMDA_0h", mmNMDA03 = "NMDA_03h", `mmNMDA6-36h` = "NMDA_6-36h",
                 mmNMDA48 = "NMDA_48h", mmNMDA72 = "NMDA_72h")
 cn <- colnames(inj_pb)
@@ -559,7 +559,7 @@ colnames(inj_pb) <- cn
 mouse_injury_col_order <- c("NMDA_0h", "NMDA_03h", "NMDA_6-36h", "NMDA_48h", "NMDA_72h")
 inj_pb <- inj_pb[, mouse_injury_col_order[mouse_injury_col_order %in% colnames(inj_pb)], drop = FALSE]
 
-# --- (b) aging/training pseudobulk（clock 训练数据；合并 replicates / Wk106-108）---
+# --- (b) Aging/training pseudobulk (clock training data; merge replicates / Wk106-108) ---
 Mouse_seurat_knn_pseudobulk <- readRDS("Mouse_seurat_knn_pseudobulk_2025")
 merge_mouse_training_replicates <- function(pb) {
     grp <- gsub("_Rep[0-9]+$", "", colnames(pb))
@@ -577,12 +577,12 @@ trn_pb <- merge_mouse_training_replicates(trn_pb)
 mouse_training_col_order <- c("Wk5", "Wk12", "Wk17", "Wk32", "Wk49", "Wk68", "Wk91", "Wk106-108", "Wk120")
 trn_pb <- trn_pb[, mouse_training_col_order[mouse_training_col_order %in% colnames(trn_pb)], drop = FALSE]
 
-# --- (c) aging 相关 injury genes 按 clock 权重正负分两类（仅 MG）---
+# --- (c) Split aging-related injury genes into two groups by clock weight sign (MG only) ---
 if (!exists("mouse_aging_injury_genes")) {
     setwd(injury_dir)
     mouse_aging_injury_genes <- read.csv("Mouse_aging_related_injury_genes_2026.csv",
                                          stringsAsFactors = FALSE)
-    message("已读入: Mouse_aging_related_injury_genes_2026.csv")
+    message("Loaded: Mouse_aging_related_injury_genes_2026.csv")
 }
 genes_ct  <- mouse_aging_injury_genes[mouse_aging_injury_genes$celltype == ct_use, ]
 genes_ct  <- genes_ct[!duplicated(genes_ct$gene), ]
@@ -593,11 +593,11 @@ message(sprintf("%s: aging injury genes = %d (pos %d / neg %d)",
 
 coef_lookup <- setNames(genes_ct$clock_coefficient, genes_ct$gene)
 
-# --- (d) 每个 injury 时间点的 predicted aging（MG），与 inj_pb 列对齐（含 6-36h 合并）---
+# --- (d) Predicted aging for each injury timepoint (MG), aligned to inj_pb columns (with 6-36h pooled) ---
 if (!exists("Mouse_delta")) {
     setwd(injury_dir)
     Mouse_delta <- readRDS("Mouse_injury_delta_aging_2026.rds")
-    message("已读入: Mouse_injury_delta_aging_2026.rds")
+    message("Loaded: Mouse_injury_delta_aging_2026.rds")
 }
 md <- Mouse_delta[Mouse_delta$celltype == ct_use, ]
 md$sample[md$sample %in% c("NMDA_06h", "NMDA_12h", "NMDA_24h", "NMDA_36h")] <- "NMDA_6-36h"
@@ -605,10 +605,10 @@ md <- md[!md$sample %in% "NMDA_48FIh", ]
 pred_map <- setNames(aggregate(predicted ~ sample, md, mean)$predicted,
                      aggregate(predicted ~ sample, md, mean)$sample)
 pred_vec <- pred_map[colnames(inj_pb)]
-message("predicted aging（按 injury 时间点）: ",
+message("Predicted aging (by injury timepoint): ",
         paste(sprintf("%s=%.1f", colnames(inj_pb), pred_vec), collapse = ", "))
 
-# --- (e) Spearman：基因 injury z-score vs predicted aging ---
+# --- (e) Spearman: gene injury z-score vs predicted aging ---
 inj_z_all <- zscore_rows(inj_pb)
 spearman_vs_pred <- function(genes) {
     g <- intersect(genes, rownames(inj_z_all))
@@ -618,21 +618,21 @@ spearman_vs_pred <- function(genes) {
 cor_pos <- spearman_vs_pred(genes_pos)
 cor_neg <- spearman_vs_pred(genes_neg)
 
-# --- (f) cutoff 筛选 ---
+# --- (f) Cutoff filtering ---
 cor_cutoff <- 0.25
 sel_pos <- names(cor_pos)[!is.na(cor_pos) & cor_pos >  cor_cutoff]
 sel_neg <- names(cor_neg)[!is.na(cor_neg) & cor_neg < -cor_cutoff]
 sel_pos <- sel_pos[order(-cor_pos[sel_pos])]
 sel_neg <- sel_neg[order( cor_neg[sel_neg])]
-message(sprintf("正权重: %d/%d 通过 (cor > %.2f); 负权重: %d/%d 通过 (cor < %.2f)",
+message(sprintf("Positive weights: %d/%d passed (cor > %.2f); negative weights: %d/%d passed (cor < %.2f)",
                 length(sel_pos), length(cor_pos), cor_cutoff,
                 length(sel_neg), length(cor_neg), -cor_cutoff))
 
-# --- (g) 合并 heatmap：上 pos / 下 neg；左 Injury / 右 Aging；最右 clock weight ---
+# --- (g) Combined heatmap: pos on top / neg below; Injury left / Aging right; clock weight at far right ---
 setwd(injury_dir)
 sel_genes <- c(sel_pos, sel_neg)
 if (length(sel_genes) < 2) {
-    message("筛选基因太少，跳过 heatmap")
+    message("Too few selected genes, skipping heatmap")
 } else {
     sel_genes <- Reduce(intersect, list(sel_genes, rownames(inj_pb), rownames(trn_pb)))
     sel_pos   <- intersect(sel_pos, sel_genes)
@@ -643,7 +643,7 @@ if (length(sel_genes) < 2) {
 
     inj_z <- zscore_rows(inj_pb[sel_genes, , drop = FALSE])
     trn_z <- zscore_rows(trn_pb[sel_genes, , drop = FALSE])
-    # 右边 Aging 列名：只显示周龄数字；Wk106-108 -> 108
+    # Right-side Aging column names: show age in weeks only; Wk106-108 -> 108
     cn_age <- colnames(trn_z)
     cn_age <- sub("^Wk", "", cn_age)
     cn_age[cn_age == "106-108"] <- "108"
@@ -660,7 +660,7 @@ if (length(sel_genes) < 2) {
     weight_fill[coef_disp == 0] <- "grey70"
 
     gap_mm <- 6
-    # 与斑马鱼一致：anno_barplot
+    # Same as zebrafish: anno_barplot
     row_ha <- rowAnnotation(
         spacer = anno_empty(border = FALSE, width = unit(5, "mm")),
         Clock_Weight = anno_barplot(
@@ -678,7 +678,7 @@ if (length(sel_genes) < 2) {
     inj_col_fun <- colorRamp2(c(-2, 0, 2), c("#3C5488", "#F7F7F7", "#E64B35"))
     age_col_fun <- colorRamp2(c(-2, 0, 2), c("#00A087", "#F7F7F7", "#F39B7F"))
 
-    # 尺寸与斑马鱼一致
+    # Sizes matched to zebrafish
     show_rn <- length(sel_genes) <= 100
     ht_inj <- Heatmap(
         inj_z, name = "Injury Z", col = inj_col_fun,
@@ -714,7 +714,7 @@ if (length(sel_genes) < 2) {
          column_title_gp = gpar(fontsize = 18, fontface = "bold"),
          ht_gap = unit(gap_mm, "mm"))
     dev.off()
-    message(sprintf("已保存: %s (pos=%d, neg=%d)", out_file, length(sel_pos), length(sel_neg)))
+    message(sprintf("Saved: %s (pos=%d, neg=%d)", out_file, length(sel_pos), length(sel_neg)))
 }
 
 setwd(injury_dir)
@@ -725,11 +725,11 @@ sel_df <- rbind(
                clock_coefficient = coef_lookup[sel_neg], group = "negWeight_negCorr")
 )
 write.csv(sel_df, "Mouse_MG_aging_injury_selected_genes_2026.csv", row.names = FALSE)
-message("已保存: ", file.path(injury_dir, "Mouse_MG_aging_injury_selected_genes_2026.csv"))
+message("Saved: ", file.path(injury_dir, "Mouse_MG_aging_injury_selected_genes_2026.csv"))
 
 ########################################################################
-# 11) Mouse MG → Human ortholog → enrichGO BP（无 KEGG；取 top 10）
-# 流程对齐 Zebrafish；新终端: conda activate clusterProfiler
+# 11) Mouse MG → Human ortholog → enrichGO BP (no KEGG; top 10)
+# Pipeline matches Zebrafish; new terminal: conda activate clusterProfiler
 ########################################################################
 if (!exists("injury_dir")) injury_dir <- "/projects/hmz-aging/Injury_Datasets"
 if (!exists("mouse_dir"))  mouse_dir  <- "/projects/hmz-aging/Mouse_New_Datasets"
@@ -742,7 +742,7 @@ suppressMessages({
 
 setwd(injury_dir)
 
-# --- 始终从 Mouse CSV 读入（勿复用同会话里 Zebrafish 的 sel_pos/sel_neg）---
+# --- Always read from the Mouse CSV (do not reuse Zebrafish sel_pos/sel_neg from the same session) ---
 sel_csv_candidates <- c(
     file.path(injury_dir, "Mouse_MG_aging_injury_selected_genes_2026.csv"),
     file.path(mouse_dir,  "Mouse_MG_aging_injury_selected_genes_2026.csv"),
@@ -750,15 +750,15 @@ sel_csv_candidates <- c(
 )
 sel_csv <- sel_csv_candidates[file.exists(sel_csv_candidates)][1]
 if (is.na(sel_csv) || !nzchar(sel_csv))
-    stop("找不到 Mouse_MG_aging_injury_selected_genes_2026.csv，请先跑完筛选段")
+    stop("Mouse_MG_aging_injury_selected_genes_2026.csv not found; run the gene selection section first")
 mouse_sel_df <- read.csv(sel_csv, stringsAsFactors = FALSE)
 mouse_sel_pos <- unique(mouse_sel_df$gene[mouse_sel_df$group == "posWeight_posCorr"])
 mouse_sel_neg <- unique(mouse_sel_df$gene[mouse_sel_df$group == "negWeight_negCorr"])
 mouse_sel_pos <- mouse_sel_pos[!is.na(mouse_sel_pos) & mouse_sel_pos != ""]
 mouse_sel_neg <- mouse_sel_neg[!is.na(mouse_sel_neg) & mouse_sel_neg != ""]
-message(sprintf("从 CSV 读入 Mouse 基因: %s (pos=%d, neg=%d)",
+message(sprintf("Loaded Mouse genes from CSV: %s (pos=%d, neg=%d)",
                 sel_csv, length(mouse_sel_pos), length(mouse_sel_neg)))
-message("  示例 pos: ", paste(head(mouse_sel_pos, 5), collapse = ", "))
+message("  Example pos: ", paste(head(mouse_sel_pos, 5), collapse = ", "))
 
 mouse_gene_groups <- list(
     posWeight = mouse_sel_pos,
@@ -786,7 +786,7 @@ load_hm_ortholog <- function() {
     }
     hm <- hm[!is.na(hm$human) & !is.na(hm$mouse) & hm$human != "" & hm$mouse != "", ]
     hm <- hm[!duplicated(hm$mouse), ]
-    message("已读入 ortholog: ", fp, " (HM pairs=", nrow(hm), ")")
+    message("Loaded ortholog: ", fp, " (HM pairs=", nrow(hm), ")")
     hm
 }
 
@@ -837,13 +837,13 @@ parse_ratio <- function(r) {
     parts[1] / parts[2]
 }
 
-# enrichGO BP；按 p.adjust 取 top 10
+# enrichGO BP; take top 10 by p.adjust
 run_go_human <- function(mouse_genes, group_name, p_cut = 0.05, q_cut = 0.2, top_n = 10) {
     message(sprintf("\n========== %s: mouse genes=%d ==========", group_name, length(mouse_genes)))
     map_df <- mouse_to_human(mouse_genes)
     human_genes <- unique(map_df$human)
     message(sprintf("  mapped to human: %d / %d", length(human_genes), length(unique(mouse_genes))))
-    if (length(human_genes) < 5) { message("  human 基因太少，跳过"); return(NULL) }
+    if (length(human_genes) < 5) { message("  Too few human genes, skipping"); return(NULL) }
 
     entrez <- na.omit(AnnotationDbi::mapIds(
         org.Hs.eg.db, keys = human_genes, column = "ENTREZID",
@@ -851,7 +851,7 @@ run_go_human <- function(mouse_genes, group_name, p_cut = 0.05, q_cut = 0.2, top
     ))
     entrez <- unique(as.character(entrez))
     message(sprintf("  human EntrezID: %d", length(entrez)))
-    if (length(entrez) < 5) { message("  Entrez 太少，跳过"); return(NULL) }
+    if (length(entrez) < 5) { message("  Too few Entrez IDs, skipping"); return(NULL) }
 
     ego <- enrichGO(
         gene          = entrez,
@@ -864,11 +864,11 @@ run_go_human <- function(mouse_genes, group_name, p_cut = 0.05, q_cut = 0.2, top
         readable      = TRUE
     )
     if (is.null(ego) || nrow(as.data.frame(ego)) == 0) {
-        message("  无 GO BP 结果"); return(NULL)
+        message("  No GO BP results"); return(NULL)
     }
     d <- as.data.frame(ego)
     d <- d[d$pvalue < p_cut, , drop = FALSE]
-    if (nrow(d) == 0) { message("  无显著 GO"); return(NULL) }
+    if (nrow(d) == 0) { message("  No significant GO terms"); return(NULL) }
 
     d$GeneRatio_val  <- vapply(d$GeneRatio, parse_ratio, numeric(1))
     d$BgRatio_val    <- vapply(d$BgRatio, parse_ratio, numeric(1))
@@ -877,7 +877,7 @@ run_go_human <- function(mouse_genes, group_name, p_cut = 0.05, q_cut = 0.2, top
     d$Database <- "GO:BP"
     d$group <- group_name
     d <- d[order(d$p.adjust, d$pvalue), ]
-    message(sprintf("  GO BP sig: %d (画图取 top %d)", nrow(d), top_n))
+    message(sprintf("  GO BP sig: %d (plotting top %d)", nrow(d), top_n))
 
     list(
         ego = ego,
@@ -913,21 +913,21 @@ for (nm in names(mouse_enrich_hs)) {
 if (length(all_tabs) > 0) {
     write.csv(do.call(rbind, all_tabs),
               "Mouse_MG_aging_injury_GO_humanOrtholog_2026.csv", row.names = FALSE)
-    message("已保存: Mouse_MG_aging_injury_GO_humanOrtholog_2026.csv")
+    message("Saved: Mouse_MG_aging_injury_GO_humanOrtholog_2026.csv")
 }
 if (length(map_tabs) > 0) {
     write.csv(do.call(rbind, map_tabs),
               "Mouse_MG_aging_injury_mouse2human_map_2026.csv", row.names = FALSE)
-    message("已保存: Mouse_MG_aging_injury_mouse2human_map_2026.csv")
+    message("Saved: Mouse_MG_aging_injury_mouse2human_map_2026.csv")
 }
 
-message("\n=== 第 11 段完成（Mouse→Human GO BP, top 10）===")
-message("下一步: 跑第 12 段画 Dotplot")
+message("\n=== Section 11 done (Mouse→Human GO BP, top 10) ===")
+message("Next step: run Section 12 to draw the dotplot")
 
 
 ########################################################################
-# 12) 发表级 Dotplot：前 10 个 GO BP（pos / neg 各一张；Nature/NPG 配色）
-#     x = GeneRatio, size = Count, color = p.adjust（与 Zebrafish 一致）
+# 12) Publication-quality dotplot: top 10 GO BP terms (one each for pos / neg; Nature/NPG palette)
+#     x = GeneRatio, size = Count, color = p.adjust (same as Zebrafish)
 ########################################################################
 if (!exists("injury_dir")) injury_dir <- "/projects/hmz-aging/Injury_Datasets"
 setwd(injury_dir)
@@ -936,9 +936,9 @@ suppressMessages(library(ggplot2))
 
 enrich_rds <- "Mouse_MG_aging_injury_GO_humanOrtholog_2026.rds"
 if (!exists("mouse_enrich_hs") || is.null(mouse_enrich_hs)) {
-    if (!file.exists(enrich_rds)) stop("找不到 ", enrich_rds, "，请先跑第 11 段")
+    if (!file.exists(enrich_rds)) stop(enrich_rds, " not found; run Section 11 first")
     mouse_enrich_hs <- readRDS(enrich_rds)
-    message("已读入: ", enrich_rds)
+    message("Loaded: ", enrich_rds)
 }
 
 top_n_plot <- 10
@@ -953,7 +953,7 @@ grp_title <- c(
 for (nm in names(mouse_enrich_hs)) {
     x <- mouse_enrich_hs[[nm]]
     if (is.null(x) || is.null(x$GO) || nrow(x$GO) == 0) {
-        message(nm, ": 无 GO 可画"); next
+        message(nm, ": no GO terms to plot"); next
     }
     df <- head(x$GO[order(x$GO$p.adjust, x$GO$pvalue), ], top_n_plot)
     if (!"GeneRatio_val" %in% colnames(df)) {
@@ -1004,7 +1004,7 @@ for (nm in names(mouse_enrich_hs)) {
     ggsave(out_png, p,
            width = 5.8, height = max(3.5, 0.35 * nrow(df) + 1.3),
            dpi = 600, bg = "white")
-    message("已保存: ", out_png, " (600 dpi)")
+    message("Saved: ", out_png, " (600 dpi)")
 }
 
-message("\n=== Mouse GO Dotplot (human ortholog, top 10) 完成 ===")
+message("\n=== Mouse GO Dotplot (human ortholog, top 10) done ===")

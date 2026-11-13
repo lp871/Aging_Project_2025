@@ -218,8 +218,8 @@ ggplot(circul_plot_mouse) +
 ## 1.2 Mouse RPE
 
 ```{r}
-load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_Mouse_May_RPE_rep1.RData")
-load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_Mouse_May_RPE_rep2.RData")
+load("/path/to/Aging_Retina/Tempout_final/Downstream_all/DownStream_Mouse_May_RPE_rep1.RData")
+load("/path/to/Aging_Retina/Tempout_final/Downstream_all/DownStream_Mouse_May_RPE_rep2.RData")
 
 ## Prepare data for Old vs Young
 # Summarised expression of LR pairs that passed the cut-off (0.5)
@@ -406,7 +406,7 @@ LRscore_wilcox_sig_mouse_RPE <- LRscore_wilcox_data_mouse_sig%>%
 ## 2.1 LRLoop analysis major celltypes
 
 ```{r}
-load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_zebrafish_Final_OldYoungOnly_20240817.RData")
+load("/path/to/Aging_Retina/Tempout_final/Downstream_all/DownStream_zebrafish_Final_OldYoungOnly_20240817.RData")
 
 ## Prepare for DEA 
 L1R1score_filtered_sum <- list()
@@ -908,7 +908,7 @@ ggplot(circul_plot_human) +
 ## 3.2 RPE
 
 ```{r}
-load("~/Library/CloudStorage/OneDrive-JohnsHopkins/Personal_data/Post-doc/Qian Lab JHU/Aging_Retina_Seth/Aging_Retina_Seth/Tempout_final/Downstream_all/DownStream_newHumandata_RPE_20250507.RData")
+load("/path/to/Aging_Retina/Tempout_final/Downstream_all/DownStream_newHumandata_RPE_20250507.RData")
 
 ## Prepare data for Old vs Young
 # Summarised expression of LR pairs that passed the cut-off (0.5)

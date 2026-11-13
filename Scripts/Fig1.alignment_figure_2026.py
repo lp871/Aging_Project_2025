@@ -56,7 +56,7 @@ ms_hu_counts = pd.DataFrame(ms_to_hu).groupby(["ms_ct", "hu_ct"]).size().reset_i
 print("\nMouse -> Human alignment:")
 print(ms_hu_counts.to_string(index=False))
 
-##### 保存为 CSV，供 R ggplot2 画冲击图 #####
+##### Save as CSV for alluvial plots in R ggplot2 #####
 ms_zf_out = ms_zf_counts.copy()
 ms_zf_out.columns = ["Mouse", "Zebrafish", "count"]
 ms_zf_out["pair"] = "Mouse_Zebrafish"
@@ -69,7 +69,7 @@ ms_hu_out.to_csv("alignment_mouse_human.csv", index=False)
 print("\nsaved: alignment_mouse_zebrafish.csv")
 print("saved: alignment_mouse_human.csv")
 
-# 也保存一个合并的长格式表 (用于 ggalluvial)
+# Also save a combined long-format table (for ggalluvial)
 long_df = []
 for _, row in ms_zf_counts.iterrows():
     for _ in range(row["count"]): long_df.append({"Zebrafish": row["zf_ct"], "Mouse": row["ms_ct"]})

@@ -655,7 +655,7 @@ all_cats <- names(human_aging_catalog$category_unions)
 cat_num  <- as.numeric(sub("^C([0-9]+)_.*", "\\1", all_cats))
 aging_category_order <- all_cats[order(cat_num)]
 
-## Human-readable labels (大类); covers C1-C10
+## Human-readable labels (main categories); covers C1-C10
 aging_category_labels <- tibble::tribble(
   ~category, ~category_label,
   "C1_Genome_epigenome",             "Genome and epigenome maintenance",
@@ -670,7 +670,7 @@ aging_category_labels <- tibble::tribble(
   "C10_Cellular_senescence",         "Curated cellular senescence signatures"
 )
 
-## Subcategories (小类) from the catalog annotation
+## Subcategories from the catalog annotation
 ann_tbl <- human_aging_catalog$annotation |>
   dplyr::distinct(category, subcategory)
 
@@ -690,7 +690,7 @@ if (length(missing_cats) > 0) {
   ann_tbl <- dplyr::bind_rows(ann_tbl, fb)
 }
 
-## Build a tidy table: category label (大类) + subcategory (小类)
+## Build a tidy table: category label (main category) + subcategory
 category_subcategory_tbl <- ann_tbl |>
   dplyr::left_join(aging_category_labels, by = "category") |>
   dplyr::mutate(
@@ -699,8 +699,8 @@ category_subcategory_tbl <- ann_tbl |>
   dplyr::arrange(category, subcategory) |>
   dplyr::transmute(
     category_id    = as.character(category),
-    category_label = category_label,   # 大类
-    subcategory    = subcategory        # 小类
+    category_label = category_label,   # main category
+    subcategory    = subcategory        # subcategory
   )
 
 out_xlsx <- "/projects/hmz-aging/HMZ_GO_terms_Final/Aging_category_subcategory.xlsx"

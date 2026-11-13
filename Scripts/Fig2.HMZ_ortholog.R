@@ -2,32 +2,32 @@
 
 library(biomaRt)
 
-#' 拉取并拆分三物种同源基因对
+#' Retrieve and split ortholog gene pairs across three species
 #'
-#' @return 一个含 4 个 data.frame 的 list
+#' @return A list of 4 data.frames
 getOrthologListsHuman <- function() {
-  # 1. 连接 human Mart
+  # 1. Connect to the human Mart
   hs <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
   
-  # 2. 定义要拉取的属性：human symbol、mouse 同源 symbol、zebrafish 同源 symbol
+  # 2. Define attributes to retrieve: human symbol, mouse ortholog symbol, zebrafish ortholog symbol
   attrs <- c(
-    "external_gene_name",                   # human 符号
-    "mmusculus_homolog_associated_gene_name", # mouse 同源 symbol
-    "drerio_homolog_associated_gene_name"   # zebrafish 同源 symbol
+    "external_gene_name",                   # human symbol
+    "mmusculus_homolog_associated_gene_name", # mouse ortholog symbol
+    "drerio_homolog_associated_gene_name"   # zebrafish ortholog symbol
   )
   df <- getBM(attributes = attrs, mart = hs)
   colnames(df) <- c("human", "mouse", "zebrafish")
   
-  # 3. 去重
+  # 3. Remove duplicates
   df <- unique(df)
   
-  # 4. 按需提取各组同源对
+  # 4. Extract each set of ortholog pairs
   human_mouse     <- subset(df, mouse != "", select = c("human", "mouse"))
   human_zebrafish <- subset(df, zebrafish != "", select = c("human", "zebrafish"))
   mouse_zebrafish <- subset(df, mouse != "" & zebrafish != "", select = c("mouse", "zebrafish"))
   triple          <- subset(df, mouse != "" & zebrafish != "", select = c("human", "mouse", "zebrafish"))
   
-  # 5. 返回一个列表
+  # 5. Return a list
   list(
     human_mouse     = human_mouse,
     human_zebrafish = human_zebrafish,
@@ -42,29 +42,29 @@ getOrthologListsHuman <- function() {
 
 
 getOrthologListsMouse <- function() {
-  # 1. 连接 mouse Mart
+  # 1. Connect to the mouse Mart
   mm <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
   
-  # 2. 定义要拉取的属性：mouse symbol、human 同源 symbol、zebrafish 同源 symbol
+  # 2. Define attributes to retrieve: mouse symbol, human ortholog symbol, zebrafish ortholog symbol
   attrs <- c(
-    "external_gene_name",                    # mouse 符号
-    "hsapiens_homolog_associated_gene_name",# human 同源 symbol
-    "drerio_homolog_associated_gene_name"   # zebrafish 同源 symbol
+    "external_gene_name",                    # mouse symbol
+    "hsapiens_homolog_associated_gene_name",# human ortholog symbol
+    "drerio_homolog_associated_gene_name"   # zebrafish ortholog symbol
   )
   df <- getBM(attributes = attrs, mart = mm)
   colnames(df) <- c("mouse", "human", "zebrafish")
   
-  # 3. 去重
+  # 3. Remove duplicates
   df <- unique(df)
   
-  # 4. 按需提取各组同源对
+  # 4. Extract each set of ortholog pairs
   human_mouse     <- subset(df, human != "" & mouse != "", select = c("human", "mouse"))
   human_zebrafish <- subset(df, human != "" & zebrafish != "", select = c("human", "zebrafish"))
   mouse_zebrafish <- subset(df, mouse != "" & zebrafish != "", select = c("mouse", "zebrafish"))
   triple          <- subset(df, mouse != "" & human != "" & zebrafish != "",
                              select = c("human", "mouse", "zebrafish"))
   
-  # 5. 返回一个列表
+  # 5. Return a list
   list(
     human_mouse     = human_mouse,
     human_zebrafish = human_zebrafish,
@@ -77,29 +77,29 @@ getOrthologListsMouse <- function() {
 
 
 getOrthologListsZebrafish <- function() {
-  # 1. 连接 zebrafish Mart
+  # 1. Connect to the zebrafish Mart
   dr <- useMart("ensembl", dataset = "drerio_gene_ensembl")
   
-  # 2. 定义要拉取的属性：zebrafish 符号、human 同源 symbol、mouse 同源 symbol
+  # 2. Define attributes to retrieve: zebrafish symbol, human ortholog symbol, mouse ortholog symbol
   attrs <- c(
-    "external_gene_name",                      # zebrafish 符号
-    "hsapiens_homolog_associated_gene_name",  # human 同源 symbol
-    "mmusculus_homolog_associated_gene_name"  # mouse 同源 symbol
+    "external_gene_name",                      # zebrafish symbol
+    "hsapiens_homolog_associated_gene_name",  # human ortholog symbol
+    "mmusculus_homolog_associated_gene_name"  # mouse ortholog symbol
   )
   df <- getBM(attributes = attrs, mart = dr)
   colnames(df) <- c("zebrafish", "human", "mouse")
   
-  # 3. 去重
+  # 3. Remove duplicates
   df <- unique(df)
   
-  # 4. 按需提取各组同源对
+  # 4. Extract each set of ortholog pairs
   human_mouse     <- subset(df, human != "" & mouse != "", select = c("human", "mouse"))
   human_zebrafish <- subset(df, human != "" & zebrafish != "", select = c("human", "zebrafish"))
   mouse_zebrafish <- subset(df, mouse != "" & zebrafish != "", select = c("mouse", "zebrafish"))
   triple          <- subset(df, mouse != "" & human != "" & zebrafish != "",
                              select = c("human", "mouse", "zebrafish"))
   
-  # 5. 返回一个列表
+  # 5. Return a list
   list(
     human_mouse     = human_mouse,
     human_zebrafish = human_zebrafish,

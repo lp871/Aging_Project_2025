@@ -1,15 +1,15 @@
 ########
-######## 之前人的 aging clocks 是怎么处理的 ？？？ ####
+######## How were the human aging clocks processed previously??? ####
 ########
 
 ########
-######## Human 预处理（基于 clean5）########
-######## clean5: X = raw counts；基因已跨 celltype 对齐；obs 列: sex, donor_id, sampleid, age, celltype ########
-######## 流程：clean5 -> 每个 sampleid 内 KNN smoothing -> 加 subtype -> 导出 mtx -> R 建 Seurat ########
+######## Human preprocessing (based on clean5) ########
+######## clean5: X = raw counts; genes aligned across celltypes; obs columns: sex, donor_id, sampleid, age, celltype ########
+######## Workflow: clean5 -> KNN smoothing within each sampleid -> add subtype -> export mtx -> build Seurat in R ########
 ########
 
 ########################################################################
-######## Python (scanpy): 每个 sampleid 内 KNN smoothing ########
+######## Python (scanpy): KNN smoothing within each sampleid ########
 ########################################################################
 conda activate scprint
 python
@@ -37,7 +37,7 @@ except ImportError:
 
 
 def _smooth_one_sample(adata, sid, sample_col, max_k, n_pcs, min_cells, max_cells_per_sample, random_state, X_src, is_sparse):
-    """处理单个 sample：KNN 用该 sample 内全部细胞，输出最多 max_cells_per_sample 个细胞（不放回抽样）。"""
+    """Process a single sample: KNN uses all cells in the sample; output at most max_cells_per_sample cells (sampling without replacement)."""
     cell_mask = adata.obs[sample_col] == sid
     cell_indices = np.where(cell_mask)[0]
     n_cells = len(cell_indices)
@@ -83,11 +83,11 @@ def _smooth_one_sample(adata, sid, sample_col, max_k, n_pcs, min_cells, max_cell
 
 def knn_smooth_by_sample(adata, sample_col='sampleid', n_neighbors=15, n_pcs=30, min_cells=50, progress_desc="", max_cells_per_sample=None, n_jobs=1, random_state=42):
     """
-    对 adata 内的每个 sample 分别进行 KNN smoothing。
-    KNN 始终在该 sample 内全部细胞上计算；若设 max_cells_per_sample，则每个 sample 最多保留该数量细胞（不放回抽样）。
+    Perform KNN smoothing separately for each sample in adata.
+    KNN is always computed on all cells within the sample; if max_cells_per_sample is set, at most that many cells are kept per sample (sampling without replacement).
     - adata.X: smoothed counts
-    - adata.layers['raw']: 原始 raw counts
-    - adata.layers['smoothed_counts']: smoothed counts (同 X)
+    - adata.layers['raw']: original raw counts
+    - adata.layers['smoothed_counts']: smoothed counts (same as X)
     """
     print("="*70)
     print("KNN Smoothing by Sample")
@@ -97,7 +97,7 @@ def knn_smooth_by_sample(adata, sample_col='sampleid', n_neighbors=15, n_pcs=30,
     max_k = int(n_neighbors)
     print(f"max_k: {max_k}, n_pcs: {n_pcs}, min_cells: {min_cells}")
     if max_cells_per_sample is not None:
-        print(f"max_cells_per_sample: {max_cells_per_sample} (不放回抽样)")
+        print(f"max_cells_per_sample: {max_cells_per_sample} (sampling without replacement)")
         print(f"n_jobs: {n_jobs}")
     X_src = adata.X
     is_sparse = sparse.issparse(X_src)
@@ -129,7 +129,7 @@ def knn_smooth_by_sample(adata, sample_col='sampleid', n_neighbors=15, n_pcs=30,
         adata_smoothed.layers['smoothed_counts'] = adata_smoothed.X
         print(f"\nOutput adata: {adata_smoothed.shape[0]} cells x {adata_smoothed.shape[1]} genes (after max_cells_per_sample)")
         return adata_smoothed
-    # 串行分支（不抽样 / n_jobs=1）
+    # Serial branch (no subsampling / n_jobs=1)
     if is_sparse:
         smoothed_X = sparse.lil_matrix(adata.X.shape, dtype=np.float32)
     else:
@@ -198,10 +198,10 @@ def knn_smooth_by_sample(adata, sample_col='sampleid', n_neighbors=15, n_pcs=30,
 
 
 ########################################################################
-######## 批量处理所有 celltype 的 clean5 -> smoothed ########
+######## Batch-process clean5 -> smoothed for all celltypes ########
 ########################################################################
 def smooth_all_celltypes(h5ad_dir, celltypes, sample_col='sampleid', n_neighbors=15, n_pcs=30, min_cells=50, max_cells_per_sample=None, n_jobs=1, random_state=42):
-    """批量对所有 celltype 的 clean5 进行 KNN smoothing，输出 *_clean5_smoothed.h5ad。"""
+    """Batch KNN smoothing of clean5 for all celltypes; outputs *_clean5_smoothed.h5ad."""
     for ct in celltypes:
         clean5_file = os.path.join(h5ad_dir, f"{ct}_clean5.h5ad")
         if not os.path.exists(clean5_file):
@@ -209,7 +209,7 @@ def smooth_all_celltypes(h5ad_dir, celltypes, sample_col='sampleid', n_neighbors
             continue
         print(f"\n{'='*70}\nProcessing: {ct}\n{'='*70}")
         adata = sc.read_h5ad(clean5_file)
-        adata.obs['celltype'] = ct  # 用文件名统一 celltype
+        adata.obs['celltype'] = ct  # set celltype uniformly from the file name
         adata_smoothed = knn_smooth_by_sample(adata, sample_col=sample_col, n_neighbors=n_neighbors, n_pcs=n_pcs, min_cells=min_cells, progress_desc=ct, max_cells_per_sample=max_cells_per_sample, n_jobs=n_jobs, random_state=random_state)
         output_file = os.path.join(h5ad_dir, f"{ct}_clean5_smoothed.h5ad")
         adata_smoothed.write_h5ad(output_file)
@@ -222,15 +222,15 @@ def smooth_all_celltypes(h5ad_dir, celltypes, sample_col='sampleid', n_neighbors
 h5ad_dir = "/projects/hmz-aging/Human_New_Datasets/celltype_h5ad"
 celltypes = ['AC', 'BC', 'RGC', 'Rod', 'Cone', 'HC', 'MG', 'Microglia', 'RPE']
 
-# 每 sample 内 KNN(k=15, n_pcs=30, min_cells=50) 平滑，每 sample 最多保留 100 细胞（不放回），5 核并行
+# KNN smoothing within each sample (k=15, n_pcs=30, min_cells=50), keep at most 100 cells per sample (without replacement), 5 cores in parallel
 smooth_all_celltypes(h5ad_dir, celltypes, sample_col='sampleid', n_neighbors=15, n_pcs=30, min_cells=50, max_cells_per_sample=100, n_jobs=5)
 
 
 ########################################################################
-######## 验证：smooth 后每个细胞的 total counts >= smooth 前（抽 3 个 celltype）########
+######## Check: per-cell total counts after smoothing >= before smoothing (3 sampled celltypes) ########
 ########################################################################
 def check_smooth_total_counts(h5ad_dir, celltypes_to_check=None):
-    """检查 smooth 后 adata.X 的 total counts（按细胞求和）是否 >= layers['raw'] 的 total counts。"""
+    """Check whether the per-cell total counts of adata.X after smoothing are >= those of layers['raw']."""
     if celltypes_to_check is None:
         celltypes_to_check = ['AC', 'Microglia', 'RPE']
     for ct in celltypes_to_check:
@@ -250,7 +250,7 @@ def check_smooth_total_counts(h5ad_dir, celltypes_to_check=None):
         print(f"\n=== {ct} (n_cells={n_cells}) ===")
         print(f"  total_smooth >= total_raw: {n_ge}/{n_cells} cells")
         if n_lt > 0:
-            print(f"  total_smooth <  total_raw: {n_lt}/{n_cells} cells  <-- 异常")
+            print(f"  total_smooth <  total_raw: {n_lt}/{n_cells} cells  <-- abnormal")
         print(f"  total_raw   : min={total_raw.min():.0f}, max={total_raw.max():.0f}, mean={total_raw.mean():.0f}")
         print(f"  total_smooth: min={total_smooth.min():.0f}, max={total_smooth.max():.0f}, mean={total_smooth.mean():.0f}")
         print(f"  ratio (smooth/raw) mean: {(total_smooth / (total_raw + 1e-10)).mean():.2f}")
@@ -260,10 +260,10 @@ check_smooth_total_counts(h5ad_dir, celltypes_to_check=['AC', 'Microglia', 'RPE'
 
 
 ########################################################################
-######## Python: 将 smoothed adata 导出为 mtx + barcodes + genes + metadata ########
+######## Python: export smoothed adata as mtx + barcodes + genes + metadata ########
 ########################################################################
 def export_smoothed_adata_to_mtx(h5ad_dir, output_base=None, celltypes=None):
-    """将每个 celltype 的 *_clean5_smoothed.h5ad 导出为 mtx、barcodes.tsv、features.tsv、metadata.tsv，供 R 读入建 Seurat。"""
+    """Export each celltype's *_clean5_smoothed.h5ad as mtx, barcodes.tsv, features.tsv, and metadata.tsv for building Seurat objects in R."""
     from scipy.io import mmwrite
     if output_base is None:
         output_base = os.path.join(os.path.dirname(h5ad_dir), "smoothed_mtx_clean5")
@@ -285,13 +285,13 @@ def export_smoothed_adata_to_mtx(h5ad_dir, output_base=None, celltypes=None):
         pd.DataFrame(adata.var_names, columns=["gene"]).to_csv(os.path.join(out_dir, "features.tsv"), sep="\t", index=False, header=False)
         adata.obs.to_csv(os.path.join(out_dir, "metadata.tsv"), sep="\t", index=True)
         print(f"  {ct}: {out_dir}  (cells={adata.n_obs}, genes={adata.n_vars})")
-    print(f"\nExport done. MTX 目录: {output_base}")
+    print(f"\nExport done. MTX directory: {output_base}")
 
 export_smoothed_adata_to_mtx(h5ad_dir, output_base="/projects/hmz-aging/Human_New_Datasets/smoothed_mtx_clean5")
 
 
 ########################################################################
-######## R: 读 mtx 建 Seurat 并保存 Rds（供后续 elastic regression）########
+######## R: read mtx, build Seurat, and save Rds (for downstream elastic net regression) ########
 ########################################################################
 conda activate ArchR
 R
@@ -352,9 +352,9 @@ Microglia_clean5_smoothed.rds
 RPE_clean5_smoothed.rds
 
 ########################################################################
-######## Human Leave-One-Donor-Out (LODO)：折内计算 IPF 权重 ########
-######## 平衡 donor + 10岁 age_interval + sex ########
-######## interval 之间均衡优先：某 interval 只有单一 sex 时，该 sex 拿满整档权重 ########
+######## Human Leave-One-Donor-Out (LODO): compute IPF weights within each fold ########
+######## Balance donor + 10-year age_interval + sex ########
+######## Balance across intervals takes priority: if an interval has only one sex, that sex receives the full interval weight ########
 ########################################################################
 conda activate ArchR
 R
@@ -365,12 +365,12 @@ library(glmnet)
 library(parallel)
 
 setwd("/projects/hmz-aging/Human_New_Datasets")
-source("Aging_Clocks_Functions.R")   # 复用 age interval / 老年 donor 下采样等辅助函数
+source("Aging_Clocks_Functions.R")   # reuse helpers for age intervals, old-donor downsampling, etc.
 
 
 ######################################################################
-######## 折内 IPF 权重：平衡 donor / age_interval / sex ########
-######## 单性别 interval：该性别拿满 target_per_interval（interval 之间均衡优先）########
+######## Within-fold IPF weights: balance donor / age_interval / sex ########
+######## Single-sex interval: that sex receives the full target_per_interval (balance across intervals takes priority) ########
 ######################################################################
 compute_balance_weights_ipf <- function(donor, sex, aint,
                                          target_per_donor = 1,
@@ -383,19 +383,19 @@ compute_balance_weights_ipf <- function(donor, sex, aint,
     w[!valid] <- 0
     uniq_aint <- unique(aint[valid])
     for (iter in 1:max_iter) {
-        # (a) 每个 donor 权重和 -> target_per_donor
+        # (a) Per-donor weight sum -> target_per_donor
         s_donor <- tapply(w, donor, sum, na.rm = TRUE)
         for (d in names(s_donor)) if (!is.na(s_donor[d]) && s_donor[d] > 0) w[donor == d] <- w[donor == d] * (target_per_donor / s_donor[d])
-        # (b) 每个 interval 内：按“实际存在的 sex 数”平分 target_per_interval
+        # (b) Within each interval: split target_per_interval equally by the number of sexes actually present
         for (iv in uniq_aint) {
             idx <- aint == iv
             s_sex <- tapply(w[idx], sex[idx], sum, na.rm = TRUE)
             s_sex <- s_sex[!is.na(s_sex) & s_sex > 0]
             if (length(s_sex) == 0) next
-            share <- target_per_interval / length(s_sex)   # 单性别 -> 全额 1.0；双性别 -> 各 0.5
+            share <- target_per_interval / length(s_sex)   # single sex -> full 1.0; both sexes -> 0.5 each
             for (s in names(s_sex)) w[idx & sex == s] <- w[idx & sex == s] * (share / s_sex[s])
         }
-        # 收敛检查：donor 边际 ~ target_per_donor 且 interval 边际 ~ target_per_interval
+        # Convergence check: donor margins ~ target_per_donor and interval margins ~ target_per_interval
         sd_new <- tapply(w, donor, sum, na.rm = TRUE)
         si_new <- tapply(w, aint, sum, na.rm = TRUE)
         si_new <- si_new[names(si_new) %in% uniq_aint]
@@ -408,8 +408,8 @@ compute_balance_weights_ipf <- function(donor, sex, aint,
 
 
 ######################################################################
-######## 折内加权的 Elastic Net LODO ########
-######## 每折只用训练集细胞现算权重，留出的 donor 完全不参与权重估计（无泄漏）########
+######## Elastic Net LODO with within-fold weighting ########
+######## Weights are computed per fold from training cells only; the held-out donor is excluded from weight estimation (no leakage) ########
 ######################################################################
 elastic_net_LODO_perfold <- function(seu, donor_col = "donor_id", sex_col = "sex",
                                       age_col = "age", age_interval_col = "age_interval_10yr",
@@ -418,7 +418,7 @@ elastic_net_LODO_perfold <- function(seu, donor_col = "donor_id", sex_col = "sex
     meta <- seu@meta.data
     if (any(is.na(meta$Age_numeric))) warning("Some ages could not be parsed to numeric")
 
-    # 基因过滤 + depth normalization + log1p（与原 elastic_net_LODO 一致）
+    # Gene filtering + depth normalization + log1p (same as the original elastic_net_LODO)
     counts <- GetAssayData(seu, layer = "counts")
     if (is.null(counts)) counts <- GetAssayData(seu, layer = "counts", assay = "RNA")
     mt_genes <- grep("^MT-|^mt-", rownames(counts), value = TRUE)
@@ -441,7 +441,7 @@ elastic_net_LODO_perfold <- function(seu, donor_col = "donor_id", sex_col = "sex
         idx_test  <- which(donors == test_donor)
         idx_train <- which(donors != test_donor)
 
-        # —— 折内 IPF：只用训练集细胞现算权重 ——
+        # -- Within-fold IPF: compute weights from training cells only --
         weights_train <- compute_balance_weights_ipf(donors[idx_train], sexes[idx_train], aints[idx_train])
 
         train_donors <- unique(donors[idx_train])
@@ -510,7 +510,7 @@ elastic_net_LODO_perfold <- function(seu, donor_col = "donor_id", sex_col = "sex
 
 
 ######################################################################
-######## 主循环：对每个 celltype 跑折内加权 LODO 并保存 ########
+######## Main loop: run within-fold weighted LODO for each celltype and save ########
 ######################################################################
 seurat_dir <- "/projects/hmz-aging/Human_New_Datasets/smoothed_seurat_clean5"
 out_dir    <- "/projects/hmz-aging/Human_New_Datasets/LODO_results_clean5_2026"
@@ -523,7 +523,7 @@ for (ct in celltypes) {
     message("\n======== ", ct, " ========")
     seu <- readRDS(rds_file)
 
-    # 方案 A：不做老年段下采样，全量细胞交给折内 IPF 权重去偏（确定性、可复现、不丢数据）
+    # Option A: no downsampling of older age groups; all cells are debiased by within-fold IPF weights (deterministic, reproducible, no data loss)
     seu <- seurat_add_age_numeric_and_interval(seu, age_col = "age")
     # seu <- seurat_downsample_old_donors_10yr(seu, donor_col = "donor_id",
     #                                          age_interval_col = "age_interval_10yr", sex_col = "sex")
@@ -531,7 +531,7 @@ for (ct in celltypes) {
     res <- tryCatch(
         elastic_net_LODO_perfold(seu, donor_col = "donor_id", sex_col = "sex",
                                  age_col = "age", alphas = c(0.1, 0.5, 1), ncores = 5),
-        error = function(e) { message(ct, " 出错: ", e$message); NULL })
+        error = function(e) { message(ct, " error: ", e$message); NULL })
     if (is.null(res)) next
 
     saveRDS(res, file.path(out_dir, paste0(ct, "_LODO_results_2026.rds")))
@@ -540,7 +540,7 @@ for (ct in celltypes) {
                     res$metrics["RMSE"], res$metrics["MAE"], res$metrics["PCC"], res$metrics["R2"]))
     message("  saved -> ", file.path(out_dir, paste0(ct, "_LODO_results_2026.rds")))
 }
-message("\n=== Human LODO（折内加权 / interval 之间均衡优先）完成 ===")
+message("\n=== Human LODO (within-fold weighting / balance across intervals first) done ===")
 
 
 ###
@@ -550,25 +550,25 @@ message("\n=== Human LODO（折内加权 / interval 之间均衡优先）完成 
 
 
 #####
-##### 检查Human 的 LOOCV 和 Final 有没有跑完 ####
+##### Check whether Human LOOCV and Final runs have finished ####
 #####
 
-# 输出目录
+# Output directories
 lodo_dir  <- "/projects/hmz-aging/Human_New_Datasets/LODO_results_clean5_2026"
 final_dir <- "/projects/hmz-aging/Human_New_Datasets/FinalClock_clean5_2026"
 
-lodo_celltypes  <- c("AC", "BC", "RGC", "Rod", "Cone", "HC", "MG")  # LODO 跑全部 9 类
-final_celltypes <- c("AC", "BC", "RGC", "Rod", "Cone", "HC", "MG")                       # Final 只 major 7 类
+lodo_celltypes  <- c("AC", "BC", "RGC", "Rod", "Cone", "HC", "MG")  # LODO cell types
+final_celltypes <- c("AC", "BC", "RGC", "Rod", "Cone", "HC", "MG")  # Final clock cell types
 
-# 小工具：返回文件是否存在 + 大小(MB) + 修改时间
+# Helper: return file existence + size (MB) + modification time
 file_stat <- function(fp) {
     if (!file.exists(fp)) return(data.frame(exists = FALSE, size_MB = NA_real_, mtime = as.POSIXct(NA)))
     info <- file.info(fp)
     data.frame(exists = TRUE, size_MB = round(info$size / 1024^2, 2), mtime = info$mtime)
 }
 
-# ---- 1) LODO 结果检查 ----
-cat("\n========== Human LODO 结果检查 ==========\n")
+# ---- 1) Check LODO results ----
+cat("\n========== Human LODO results check ==========\n")
 lodo_tbl <- data.frame()
 for (ct in lodo_celltypes) {
     rds <- file.path(lodo_dir, paste0(ct, "_LODO_results_2026.rds"))
@@ -580,10 +580,10 @@ for (ct in lodo_celltypes) {
     lodo_tbl <- rbind(lodo_tbl, data.frame(celltype = ct, rds = s_rds$exists,
                        csv = s_csv$exists, size_MB = s_rds$size_MB, mtime = s_rds$mtime))
 }
-cat(sprintf("LODO 完成: %d / %d\n", sum(lodo_tbl$rds), length(lodo_celltypes)))
+cat(sprintf("LODO completed: %d / %d\n", sum(lodo_tbl$rds), length(lodo_celltypes)))
 
-# ---- 2) Final 模型检查 ----
-cat("\n========== Human Final 模型检查（major 7 类）==========\n")
+# ---- 2) Check Final models ----
+cat("\n========== Human Final model check (7 major types) ==========\n")
 final_tbl <- data.frame()
 for (ct in final_celltypes) {
     rds <- file.path(final_dir, paste0(ct, "_final_aging_clock_model_2026.rds"))
@@ -595,7 +595,7 @@ for (ct in final_celltypes) {
     final_tbl <- rbind(final_tbl, data.frame(celltype = ct, rds = s_rds$exists,
                         coefs = s_csv$exists, size_MB = s_rds$size_MB, mtime = s_rds$mtime))
 }
-cat(sprintf("Final 完成: %d / %d\n", sum(final_tbl$rds), length(final_celltypes)))
+cat(sprintf("Final completed: %d / %d\n", sum(final_tbl$rds), length(final_celltypes)))
 
 
 ############# Next ###############
@@ -605,28 +605,28 @@ cat(sprintf("Final 完成: %d / %d\n", sum(final_tbl$rds), length(final_celltype
 
 
 ######################################################################
-######## 读入 LOOCV 结果，画 violin plot（每个 celltype 一个分面）########
-######## x = 真实年龄 interval, y = 预测年龄, 按年龄 viridis 配色, 内嵌白色箱线图 ####
+######## Load LOOCV results and draw violin plots (one facet per celltype) ########
+######## x = actual age interval, y = predicted age, viridis colors by age, embedded white boxplots ####
 ######################################################################
 library(ggplot2)
 library(viridis)
 
 base_dir <- "/projects/hmz-aging/Human_New_Datasets/LODO_results_clean5_2026"
-violin_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # major 7 类，单行顺序
+violin_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # 7 major types, single-row order
 
-# 10 年年龄段（与训练时 age_interval_10yr 一致）
+# 10-year age bins (same as age_interval_10yr used in training)
 age_breaks <- seq(0, 90, by = 10)
 age_labels <- c("0-10","10-20","20-30","30-40","40-50","50-60","60-70","70-80","80-90")
 
-# 读入每个 celltype 的 LODO cell 级预测
+# Load cell-level LODO predictions for each celltype
 pred_all <- list()
 for (ct in violin_celltypes) {
     fp <- file.path(base_dir, ct, paste0(ct, "_LODO_results_2026.rds"))
     if (!file.exists(fp)) {
-        # 结果直接存在 base_dir 下（非子文件夹）
+        # Results stored directly under base_dir (not in subfolders)
         fp <- file.path(base_dir, paste0(ct, "_LODO_results_2026.rds"))
     }
-    if (!file.exists(fp)) { message(ct, ": LODO 结果不存在，跳过 -> ", fp); next }
+    if (!file.exists(fp)) { message(ct, ": LODO results not found, skipping -> ", fp); next }
     res <- readRDS(fp)
     df <- res$predictions               # cell, actual(Age_numeric), predicted, donor
     df$celltype <- ct
@@ -634,11 +634,11 @@ for (ct in violin_celltypes) {
 }
 pred_df <- do.call(rbind, pred_all)
 
-# celltype 顺序（只保留实际存在的）
+# Celltype order (keep only those present)
 present_ct <- intersect(violin_celltypes, unique(pred_df$celltype))
 pred_df$celltype <- factor(pred_df$celltype, levels = present_ct)
 
-# 连续真实年龄 -> 10 年 interval 作为 X 轴
+# Continuous actual age -> 10-year intervals on the X axis
 pred_df$age_interval <- cut(pred_df$actual, breaks = age_breaks, labels = age_labels,
                             right = FALSE, include.lowest = TRUE)
 pred_df <- pred_df[!is.na(pred_df$age_interval), ]
@@ -670,13 +670,13 @@ message("Saved: Human_LODO_violin_by_celltype_2026.png")
 
 
 ######################################################################
-######## 按画图顺序，逐个打印每个 celltype 的 RMSE / MAE / R2 / Pearson ########
-######## （cell 级，基于连续真实年龄 vs 预测年龄现算）                     ########
+######## Print RMSE / MAE / R2 / Pearson for each celltype in plotting order ########
+######## (cell level, computed from continuous actual vs predicted age)                     ########
 ######################################################################
 metric_tbl <- data.frame()
 for (ct in present_ct) {
     d <- pred_df[pred_df$celltype == ct & is.finite(pred_df$predicted), ]
-    if (nrow(d) == 0) { message(ct, ": 无预测数据，跳过"); next }
+    if (nrow(d) == 0) { message(ct, ": no prediction data, skipping"); next }
     a <- d$actual; p <- d$predicted
     rmse    <- sqrt(mean((a - p)^2))
     mae     <- mean(abs(a - p))
@@ -692,42 +692,42 @@ message("Saved: Human_LODO_metrics_by_celltype_2026.csv")
 
 
 ######################################################################
-######## 诊断：核对 RMSE 是按连续年龄算的，且与存储 res$metrics 一致 ########
-######## 同时给出 cell 级 vs donor(样本)级 RMSE 对比                    ########
+######## Diagnostic: verify RMSE uses continuous age and matches the stored res$metrics ########
+######## Also compare cell-level vs donor (sample)-level RMSE                    ########
 ######################################################################
-cat("\n========== Human LODO RMSE 诊断 ==========\n")
+cat("\n========== Human LODO RMSE diagnostics ==========\n")
 for (ct in violin_celltypes) {
     fp <- file.path(base_dir, ct, paste0(ct, "_LODO_results_2026.rds"))
     if (!file.exists(fp)) fp <- file.path(base_dir, paste0(ct, "_LODO_results_2026.rds"))
-    if (!file.exists(fp)) { message(ct, ": 结果不存在，跳过"); next }
+    if (!file.exists(fp)) { message(ct, ": results not found, skipping"); next }
     res <- readRDS(fp)
     d <- res$predictions
     d <- d[is.finite(d$actual) & is.finite(d$predicted), ]
-    if (nrow(d) == 0) { message(ct, ": 无有效预测"); next }
+    if (nrow(d) == 0) { message(ct, ": no valid predictions"); next }
 
-    # 1) actual/predicted 的真实取值范围（确认 actual 是岁数而非 interval 索引）
+    # 1) Observed ranges of actual/predicted (confirm actual is age in years, not an interval index)
     cat(sprintf("\n--- %s ---\n", ct))
-    cat(sprintf("  actual   : n=%d, range=[%.1f, %.1f], unique=%d 个值\n",
+    cat(sprintf("  actual   : n=%d, range=[%.1f, %.1f], unique=%d values\n",
                 nrow(d), min(d$actual), max(d$actual), length(unique(d$actual))))
     cat(sprintf("  predicted: range=[%.2f, %.2f], mean=%.2f\n",
                 min(d$predicted), max(d$predicted), mean(d$predicted)))
 
-    # 2) cell 级 RMSE（连续年龄）——我重算 vs LODO 存储值
+    # 2) Cell-level RMSE (continuous age) -- recomputed vs stored LODO value
     rmse_cell <- sqrt(mean((d$actual - d$predicted)^2))
     stored <- if (!is.null(res$metrics)) as.numeric(res$metrics["RMSE"]) else NA_real_
-    cat(sprintf("  cell 级 RMSE(重算)=%.3f | 存储 res$metrics RMSE=%.3f | 一致=%s\n",
+    cat(sprintf("  cell-level RMSE (recomputed)=%.3f | stored res$metrics RMSE=%.3f | match=%s\n",
                 rmse_cell, stored,
-                ifelse(is.na(stored), "无存储值", ifelse(abs(rmse_cell - stored) < 1e-3, "是", "否!!"))))
+                ifelse(is.na(stored), "no stored value", ifelse(abs(rmse_cell - stored) < 1e-3, "yes", "NO!!"))))
 
-    # 3) donor(样本)级 RMSE：先对每个 donor 取预测均值，再和该 donor 真实年龄比
+    # 3) Donor (sample)-level RMSE: average predictions per donor, then compare with that donor's actual age
     if ("donor" %in% colnames(d)) {
         agg <- aggregate(cbind(actual, predicted) ~ donor, data = d, FUN = mean)
         rmse_donor <- sqrt(mean((agg$actual - agg$predicted)^2))
-        cat(sprintf("  donor 级 RMSE=%.3f (n_donor=%d)\n", rmse_donor, nrow(agg)))
+        cat(sprintf("  donor-level RMSE=%.3f (n_donor=%d)\n", rmse_donor, nrow(agg)))
     }
 
-    # 4) 基线参照：把所有细胞都预测成平均年龄时的 RMSE（= 年龄的 sd）
-    cat(sprintf("  参照: 若全预测为平均年龄, RMSE=%.3f (即年龄 sd)\n",
+    # 4) Baseline: RMSE when every cell is predicted as the mean age (= sd of age)
+    cat(sprintf("  baseline: if all predicted as mean age, RMSE=%.3f (i.e., age sd)\n",
                 sqrt(mean((d$actual - mean(d$actual))^2))))
 }
 
@@ -737,12 +737,12 @@ for (ct in violin_celltypes) {
 
 
 #######
-####### 把三个物种的 final aging clocks 整理成1个 excel 表，包含多个 tabs 每个tab是一个 celltype 的 wetghts 哥 gene ####
+####### Compile the final aging clocks of the three species into one Excel workbook; each tab holds the gene weights of one celltype ####
 #######
 if (!requireNamespace("openxlsx", quietly = TRUE)) install.packages("openxlsx")
 library(openxlsx)
 
-# 三个物种 final clock 系数(csv: gene, coef)的路径构造函数
+# Path builders for final clock coefficients (csv: gene, coef) of the three species
 human_dir <- "/projects/hmz-aging/Human_New_Datasets/FinalClock_clean5_2026"
 mouse_dir <- "/projects/hmz-aging/Mouse_New_Datasets"
 fish_dir  <- "/projects/hmz-aging/Zebrafish_New_Datasets"
@@ -753,33 +753,33 @@ coef_path <- list(
     Zebrafish = function(ct) file.path(fish_dir,  ct, paste0(ct, "_final_model_coefs_2026.csv"))
 )
 
-excel_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # 三物种共有的 major 7 类
+excel_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # 7 major types shared by all three species
 species_order   <- c("Human", "Mouse", "Zebrafish")
 
 read_coef <- function(fp, species) {
-    if (!file.exists(fp)) { message("  缺失: ", fp); return(NULL) }
+    if (!file.exists(fp)) { message("  missing: ", fp); return(NULL) }
     df <- read.csv(fp, stringsAsFactors = FALSE)
-    if (!all(c("gene", "coef") %in% colnames(df))) { message("  列名异常: ", fp); return(NULL) }
+    if (!all(c("gene", "coef") %in% colnames(df))) { message("  unexpected column names: ", fp); return(NULL) }
     df <- df[df$coef != 0 & df$gene != "(Intercept)", c("gene", "coef")]
     if (nrow(df) == 0) return(NULL)
     df$species <- species
-    df[order(-abs(df$coef)), c("species", "gene", "coef")]   # 按 |coef| 降序
+    df[order(-abs(df$coef)), c("species", "gene", "coef")]   # sort by |coef| descending
 }
 
 wb <- createWorkbook()
 hs <- createStyle(textDecoration = "bold", halign = "center", fgFill = "#D9E1F2", border = "TopBottomLeftRight")
 
-# 第一个 tab 预留为 Contents 目录（内容循环后再填）
+# Reserve the first tab for Contents (filled after the loop)
 addWorksheet(wb, "Contents")
 
-# 每个物种 × 每个 celltype 单独一个 tab（共 species × celltype 个），tab 名如 Human_MG
+# One tab per species x celltype (species x celltype tabs in total), named e.g. Human_MG
 contents <- data.frame()
 for (sp in species_order) {
     for (ct in excel_celltypes) {
         df <- read_coef(coef_path[[sp]](ct), sp)
         sheet <- paste0(sp, "_", ct)
-        if (is.null(df) || nrow(df) == 0) { message(sheet, ": 系数缺失，跳过该 tab"); next }
-        df <- df[, c("gene", "coef")]   # 单物种 tab 不再需要 species 列
+        if (is.null(df) || nrow(df) == 0) { message(sheet, ": coefficients missing, skipping this tab"); next }
+        df <- df[, c("gene", "coef")]   # species column not needed in single-species tabs
         addWorksheet(wb, sheet)
         writeData(wb, sheet, df, headerStyle = hs)
         freezePane(wb, sheet, firstRow = TRUE)
@@ -792,13 +792,13 @@ for (sp in species_order) {
     }
 }
 
-# 填 Contents：标题 + 目录表（Tab 名做成可点击的内部超链接）
+# Fill Contents: title + table of contents (Tab names as clickable internal hyperlinks)
 writeData(wb, "Contents", "Final Aging Clock Weights — 3 Species (2026)",
           startRow = 1, startCol = 1)
 addStyle(wb, "Contents", createStyle(textDecoration = "bold", fontSize = 14),
          rows = 1, cols = 1)
 writeData(wb, "Contents", contents, startRow = 3, startCol = 1, headerStyle = hs)
-# Tab 列写成内部超链接，点击跳到对应工作表
+# Write the Tab column as internal hyperlinks that jump to the corresponding sheet
 for (i in seq_len(nrow(contents))) {
     link <- sprintf("internal:'%s'!A1", contents$Tab[i])
     class(link) <- "hyperlink"
@@ -809,5 +809,5 @@ setColWidths(wb, "Contents", cols = 1:5, widths = c(16, 12, 10, 10, 55))
 
 excel_out <- "Final_AgingClocks_weights_3species_2026.xlsx"
 saveWorkbook(wb, excel_out, overwrite = TRUE)
-message("Saved: ", excel_out, " (", length(names(wb)), " tabs, 含 Contents)")
+message("Saved: ", excel_out, " (", length(names(wb)), " tabs, incl. Contents)")
 

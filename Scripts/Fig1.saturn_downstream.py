@@ -1,6 +1,6 @@
 """
-SATURN 下游分析 - Mouse x Human
-训练完成后运行，生成 UMAP 和评分
+SATURN downstream analysis - Mouse x Human
+Run after training; generates UMAP and scores
 """
 
 import os
@@ -14,51 +14,51 @@ SATURN_DATA = os.path.join(WORK_DIR, "saturn_data")
 os.chdir(WORK_DIR)
 
 # ============================================================
-# Step 1: 找到 SATURN 输出的 h5ad 文件
+# Step 1: Locate SATURN output h5ad files
 # ============================================================
 result_dir = os.path.join(SATURN_DATA, "saturn_results")
 if not os.path.isdir(result_dir):
     result_dir = SATURN_DATA
 
 h5ad_files = [f for f in os.listdir(result_dir) if f.endswith(".h5ad") and "pretrain" not in f and "ep_" not in f]
-print("SATURN 输出文件:")
+print("SATURN output files:")
 for f in sorted(h5ad_files):
     print(f"  {f}")
 
 if not h5ad_files:
-    print("没找到 SATURN 输出 h5ad，请检查训练是否完成")
-    print(f"查找路径: {result_dir}")
+    print("No SATURN output h5ad found; please check whether training has finished")
+    print(f"Search path: {result_dir}")
     import sys; sys.exit(1)
 
 saturn_h5ad = os.path.join(result_dir, sorted(h5ad_files)[-1])
-print(f"\n使用: {saturn_h5ad}")
+print(f"\nUsing: {saturn_h5ad}")
 
 # ============================================================
-# Step 2: 加载 SATURN 整合后的 adata
+# Step 2: Load SATURN-integrated adata
 # ============================================================
 adata = sc.read_h5ad(saturn_h5ad)
 print(f"\nSATURN output: {adata.shape}")
 print(f"obs columns: {list(adata.obs.columns)}")
 
-# SATURN 输出的 .X 是 SATURN embeddings (latent space)
-# .obs 中有:
-#   - 'labels2': 原始 celltype 标签
+# SATURN output .X contains SATURN embeddings (latent space)
+# .obs contains:
+#   - 'labels2': original celltype labels
 #   - 'labels': species + celltype
-#   - 'species': 物种名
-#   - 'ref_labels': 参考标签
-# .obsm 中有:
+#   - 'species': species name
+#   - 'ref_labels': reference labels
+# .obsm contains:
 #   - 'macrogenes': macrogene values
 
-print(f"\nSpecies 分布: {adata.obs['species'].value_counts().to_dict()}")
+print(f"\nSpecies distribution: {adata.obs['species'].value_counts().to_dict()}")
 if "labels2" in adata.obs.columns:
     print(f"Cell types: {sorted(adata.obs['labels2'].unique())}")
 elif "labels" in adata.obs.columns:
     print(f"Labels: {sorted(adata.obs['labels'].unique())}")
 
 # ============================================================
-# Step 3: UMAP 可视化
+# Step 3: UMAP visualization
 # ============================================================
-print("\n计算 neighbors 和 UMAP...")
+print("\nComputing neighbors and UMAP...")
 sc.pp.neighbors(adata, use_rep="X", n_neighbors=15)
 sc.tl.umap(adata, min_dist=0.3, spread=1.0)
 sc.tl.leiden(adata, resolution=0.5)
@@ -135,18 +135,18 @@ plt.close()
 print("saved: saturn_umap_split.png")
 
 # ============================================================
-# Step 4: 保存完整结果 (含 UMAP)
+# Step 4: Save full results (including UMAP)
 # ============================================================
 adata.write(os.path.join(SATURN_DATA, "saturn_mouse_human_result.h5ad"))
-print(f"\n完整结果保存: {os.path.join(SATURN_DATA, 'saturn_mouse_human_result.h5ad')}")
+print(f"\nFull results saved: {os.path.join(SATURN_DATA, 'saturn_mouse_human_result.h5ad')}")
 
 # ============================================================
-# Step 5: Macrogene 分析 (可选)
+# Step 5: Macrogene analysis (optional)
 # ============================================================
 if "macrogenes" in adata.obsm:
-    print("\n分析 Macrogenes...")
+    print("\nAnalyzing macrogenes...")
     macrogenes = adata.obsm["macrogenes"]
-    print(f"Macrogene 矩阵: {macrogenes.shape}")
+    print(f"Macrogene matrix: {macrogenes.shape}")
 
     mg_adata = sc.AnnData(X=macrogenes, obs=adata.obs.copy())
     sc.pp.neighbors(mg_adata, n_neighbors=15)
@@ -176,11 +176,11 @@ if "macrogenes" in adata.obsm:
     print("saved: saturn_macrogene_umap.png")
 
 print("\n" + "=" * 60)
-print("SATURN 下游分析完成！")
+print("SATURN downstream analysis complete!")
 print("=" * 60)
 
 
-##### ===== 186行: 展示整合质量 ===== #####
+##### ===== Line 186: integration quality ===== #####
 import os
 import scanpy as sc
 import numpy as np
@@ -197,7 +197,7 @@ color_map = {"MG": "#C44E52", "AC": "#E5C953", "Cone": "#BCBD22", "RGC": "#B0B0B
 ct_order = sorted(set(labels))
 sc.settings.figdir = "./"
 
-##### 图1: 混淆矩阵 #####
+##### Figure 1: confusion matrix #####
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score
 ms_mask = species == "mouse"
@@ -231,7 +231,7 @@ plt.savefig("saturn_confusion_matrix.png", dpi=300, bbox_inches="tight")
 plt.close()
 print("saved: saturn_confusion_matrix.png")
 
-##### 图2: Harmony UMAP #####
+##### Figure 2: Harmony UMAP #####
 import harmonypy as hm
 X_emb_np = np.array(X_emb, dtype=np.float64)
 ho = hm.run_harmony(X_emb_np, adata.obs, "species", max_iter_harmony=20)

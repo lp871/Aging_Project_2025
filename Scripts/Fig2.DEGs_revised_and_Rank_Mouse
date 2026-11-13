@@ -18,13 +18,13 @@ Mouse_seurat_clcl <- readRDS("Mouse_seurat_clcl_2025")
 table(Mouse_seurat_clcl$sample)
 table(Mouse_seurat_clcl$celltype)
 
-######### 去掉 sample 末尾的 _T1 / _T2 (同一个 sample 的技术重复合并) #########
+######### Strip trailing _T1 / _T2 from sample (merge technical replicates of the same sample) #########
 Mouse_seurat_clcl$sample <- sub("_T[0-9]+$", "", as.character(Mouse_seurat_clcl$sample))
 table(Mouse_seurat_clcl$sample)
 
 ########## 
-########## 你看下 DEGs_revised_and_Rank 代码，先生成 sample level 的 pseudobulk ###
-########## 给我所有 function ###
+########## Following the DEGs_revised_and_Rank code, first generate sample-level pseudobulk ###
+########## All functions ###
 
 
 setwd("/projects/hmz-aging/Mouse_New_Datasets")
@@ -38,7 +38,7 @@ M_ambient_genes_Top50 = sapply(strsplit(M_ambient_genes_Top50, split = "~~"), fu
 ######### celltype #######
 celltype_need = c("MG","RGC","AC","HC","Cone","Rod","BC","Microglia","RPE")
 
-###### 在 Mouse_seurat_clcl 上去掉 mt- 基因和 ambient 基因 ######
+###### Remove mt- genes and ambient genes from Mouse_seurat_clcl ######
 k = grep("^mt-", rownames(Mouse_seurat_clcl))
 if (length(k) > 0) Mouse_seurat_clcl = Mouse_seurat_clcl[-k, ]
 
@@ -46,7 +46,7 @@ k = which(rownames(Mouse_seurat_clcl) %in% M_ambient_genes_Top50)
 if (length(k) > 0) Mouse_seurat_clcl = Mouse_seurat_clcl[-k, ]
 
 #########
-######### pseudobulk function: 每个 celltype 按 sample 汇总 #######
+######### pseudobulk function: aggregate each celltype by sample #######
 #########
 getPseudoBulkByCellSample <- function(
   seurat_obj,
@@ -57,20 +57,20 @@ getPseudoBulkByCellSample <- function(
   normalize    = TRUE
 ) {
   library(Matrix)
-  # 1. 提取数据 (Seurat 5: 用 layer 替代 slot)
+  # 1. Extract data (Seurat 5: layer replaces slot)
   counts <- Seurat::GetAssayData(seurat_obj, assay = assay_name, layer = layer_name)
   meta   <- seurat_obj@meta.data
-  # 2. 校验
+  # 2. Validation
   if (!all(c(celltype_col, sample_col) %in% colnames(meta))) {
-    stop("在 meta.data 中未找到列：",
+    stop("Columns not found in meta.data: ",
          paste(setdiff(c(celltype_col, sample_col), colnames(meta)), collapse = ", "))
   }
   if (!inherits(counts, "dgCMatrix")) {
     counts <- as(counts, "dgCMatrix")
   }
-  # 3. 获取所有 celltype
+  # 3. Get all celltypes
   ct_levels <- c("MG","RGC","AC","HC","Cone","Rod","BC","Microglia","RPE")
-  # 4. 对每个 celltype，按 sample 汇总
+  # 4. For each celltype, aggregate by sample
   pb_list <- lapply(ct_levels, function(ct) {
     cells_ct <- rownames(meta)[meta[[celltype_col]] == ct]
     if (length(cells_ct) == 0) return(NULL)
@@ -83,7 +83,7 @@ getPseudoBulkByCellSample <- function(
     Matrix(sub_counts %*% Matrix(design, sparse = TRUE), sparse = TRUE)
   })
   names(pb_list) <- ct_levels
-  #### normalize=TRUE: 返回 log2-CPM (用于 GAM/heatmap); FALSE: 返回原始 counts (用于 edgeR)
+  #### normalize=TRUE: return log2-CPM (for GAM/heatmap); FALSE: return raw counts (for edgeR)
   if (isTRUE(normalize)) {
     return(normalizePBList(pb_list))
   } else {
@@ -92,7 +92,7 @@ getPseudoBulkByCellSample <- function(
 }
 
 #########
-######### library-size 归一化 -> log2-CPM #######
+######### library-size normalization -> log2-CPM #######
 #########
 normalizePBList <- function(pb_list, scale = 1e4, pseudocount = 1) {
   lapply(pb_list, function(mat) {
@@ -105,20 +105,20 @@ normalizePBList <- function(pb_list, scale = 1e4, pseudocount = 1) {
 }
 
 #########
-######### 生成 pseudobulk #######
+######### Generate pseudobulk #######
 #########
 Mouse_pseudo_count = getPseudoBulkByCellSample(Mouse_seurat_clcl)
 names(Mouse_pseudo_count)
 
-# 每个 celltype 的矩阵: gene x sample
+# Matrix for each celltype: gene x sample
 dim(Mouse_pseudo_count[['MG']])
 colnames(Mouse_pseudo_count[['MG']])
 
 saveRDS(Mouse_pseudo_count, file = "Mouse_pseudo_count_2026")
 
 #########
-######### 构建 input: 每个 celltype = list(bulk_mat, bulk_meta) #######
-######### sample 名格式 Wk<age>_Rep<n>, age 取 Wk 后、_Rep 前的数字
+######### Build input: each celltype = list(bulk_mat, bulk_meta) #######
+######### sample name format Wk<age>_Rep<n>; age is the number after Wk and before _Rep
 #########
 Mouse_pseudo_count_input = list()
 for(i in 1:length(Mouse_pseudo_count)){
@@ -133,10 +133,10 @@ names(Mouse_pseudo_count_input) = names(Mouse_pseudo_count)
 saveRDS(Mouse_pseudo_count_input, file = "Mouse_pseudo_count_input_2026")
 
 #######
-####### 接下来我们做 DEGs 分析 (GAM 平滑趋势, p<0.05) #######
+####### Next, DEG analysis (GAM smoothed trend, p<0.05) #######
 #######
 
-## GAM 平滑: 输入一个基因的表达向量 x 和对应 age, 返回趋势 p 值
+## GAM smoothing: input a gene's expression vector x and corresponding age, return trend p-value
 Smooth_FUN <- function(x, age){
     vector = as.numeric(x)
     vector = scale(vector)
@@ -156,13 +156,13 @@ Smooth_FUN <- function(x, age){
     return(df)
 }
 
-## 对一个 celltype 的 pseudobulk (bulk_mat + bulk_meta) 找 DEGs
+## Find DEGs for one celltype's pseudobulk (bulk_mat + bulk_meta)
 Identify_DEGs <- function(list_process2){
     bulk_mat  = list_process2$bulk_mat
     bulk_meta = list_process2$bulk_meta
-    # 校验: 列顺序与 bulk_meta$sample 一致
+    # Validation: column order matches bulk_meta$sample
     stopifnot(identical(colnames(bulk_mat), as.character(bulk_meta$sample)))
-    # 过滤低表达
+    # Filter low expression
     avg_by_gene = apply(bulk_mat, 1, mean)
     k = which(avg_by_gene > 0.01)
     bulk_mat = bulk_mat[k, ]
@@ -205,14 +205,14 @@ sapply(Mouse_DEGs, nrow)
 
 
 #######
-####### 生成 DEGs plot (准备画 heatmap) #######
-####### 同一时间点的 sample 取平均; 并把 age 106 合并到 108 #######
+####### Generate DEGs plot (prepare heatmap) #######
+####### Average samples at the same time point; merge age 106 into 108 #######
 #######
 
-## 列名 Wk<age>_Rep<n> -> 按 age 聚合 (106 recode 成 108)
+## Column names Wk<age>_Rep<n> -> aggregate by age (106 recoded to 108)
 collapse_samples_by_age_mouse <- function(mat){
     ages = as.numeric(sub("_Rep.*$", "", sub("^Wk", "", colnames(mat))))
-    ages[ages == 106] = 108                       # 106 合并到 108 时间点
+    ages[ages == 106] = 108                       # merge 106 into the 108 time point
     uages = sort(unique(ages))
     out = sapply(uages, function(a) rowMeans(mat[, ages == a, drop = FALSE]))
     out = as.matrix(out)
@@ -222,7 +222,7 @@ collapse_samples_by_age_mouse <- function(mat){
 }
 
 Merge_DEGs_genes_and_Avg_expression <- function(DEGs_List, Avgs_List, col_index){
-    #### 每个 celltype: 按时间点取平均, 行名加 celltype 前缀
+    #### Each celltype: average by time point, prefix row names with celltype
     Avgs_List2 = list()
     for(i in 1:length(Avgs_List)){
         tmp = Avgs_List[[i]][[1]]
@@ -232,14 +232,14 @@ Merge_DEGs_genes_and_Avg_expression <- function(DEGs_List, Avgs_List, col_index)
         Avgs_List2[[i]] = tmp
     }
     all_Matrix = do.call("rbind", Avgs_List2)
-    #### DEGs 也加 celltype 前缀
+    #### Also prefix DEGs with celltype
     for(i in 1:length(DEGs_List)){
         tmp = DEGs_List[[i]]
         tmp$Gene = paste(names(DEGs_List)[i], tmp$Gene, sep = "__")
         DEGs_List[[i]] = tmp
     }
     all_DEGs = do.call("rbind", DEGs_List)
-    #### 只保留 DEGs 的行, 按 col_index 选时间点, 行 scale
+    #### Keep only DEG rows, select time points by col_index, scale rows
     all_Matrix_cl = all_Matrix[which(rownames(all_Matrix) %in% all_DEGs$Gene == TRUE), ]
     all_Matrix_cl = all_Matrix_cl[, col_index]
     all_Matrix_cl_s = t(apply(all_Matrix_cl, 1, scale))
@@ -249,7 +249,7 @@ Merge_DEGs_genes_and_Avg_expression <- function(DEGs_List, Avgs_List, col_index)
 }
 
 #######
-col_index = as.character(c(5,12,17,32,49,68,91,108,120))   # 106 已并入 108
+col_index = as.character(c(5,12,17,32,49,68,91,108,120))   # 106 already merged into 108
 Mouse_DEGs_Plot = Merge_DEGs_genes_and_Avg_expression(Mouse_DEGs, Mouse_pseudo_count_input, col_index)
 dim(Mouse_DEGs_Plot)
 
@@ -257,10 +257,10 @@ saveRDS(Mouse_DEGs_Plot, file = "Mouse_DEGs_Plot_2026")
 
 
 #######
-####### kmeans = 12, 第一轮聚类 #######
+####### kmeans = 12, first round of clustering #######
 #######
 Kmeans_function <- function(Plot, k = 8){
-    #### 极端值截断到 +-4
+    #### Clip extreme values to +-4
     k_up = which(Plot > 4)
     k_down = which(Plot < -4)
     Plot[k_up] = 4
@@ -275,7 +275,7 @@ Mouse_DEGs_Plot_Kmeans = Kmeans_function(Mouse_DEGs_Plot, k = 10)
 table(Mouse_DEGs_Plot_Kmeans$cluster)
 
 #######
-####### 第一轮 heatmap (看各 cluster 趋势, 用于后续 reorder) #######
+####### Round 1 heatmap (inspect cluster trends for later reordering) #######
 #######
 library('ComplexHeatmap')
 library('circlize')
@@ -316,16 +316,16 @@ new_order_up = c(8,7,1,4)
 
 new_order = c(new_order_down,new_order_middle,new_order_up)
 
-####### 只保留 new_order 里的 cluster (自动丢掉未列出的 + rm), 矩阵与 kmeans 表一起过滤 #######
+####### Keep only clusters in new_order (unlisted ones + rm dropped automatically); filter matrix and kmeans table together #######
 keep_clusters = setdiff(new_order, rm)
 keep = Mouse_DEGs_Plot_Kmeans$cluster %in% keep_clusters
 Mouse_DEGs_Plot_Kmeans_order = Mouse_DEGs_Plot_Kmeans[keep, ]
 Mouse_DEGs_Plot = Mouse_DEGs_Plot[keep, ]
 
-####### 按 new_order 重新编号 cluster (1..length(new_order)) #######
+####### Renumber clusters by new_order (1..length(new_order)) #######
 Mouse_DEGs_Plot_Kmeans_order$cluster = match(Mouse_DEGs_Plot_Kmeans_order$cluster, new_order)
 
-####### 按新 cluster 顺序重排行, 保持矩阵与 row_sp 对齐 #######
+####### Reorder rows by new cluster order, keeping matrix aligned with row_sp #######
 ord = order(Mouse_DEGs_Plot_Kmeans_order$cluster)
 Mouse_DEGs_Plot_Kmeans_order = Mouse_DEGs_Plot_Kmeans_order[ord, ]
 Mouse_DEGs_Plot = Mouse_DEGs_Plot[ord, ]
@@ -333,7 +333,7 @@ Mouse_DEGs_Plot = Mouse_DEGs_Plot[ord, ]
 row_sp = as.factor(Mouse_DEGs_Plot_Kmeans_order$cluster)
 
 #######
-####### 第二轮 heatmap (按 new_order 重排) #######
+####### Round 2 heatmap (reordered by new_order) #######
 #######
 library('ComplexHeatmap')
 library('circlize')
@@ -349,12 +349,12 @@ ra <- rowAnnotation(CellType = celltype,
 
 col_fun = colorRamp2(c(-2,-1,0,1,2), c('#026AB1','lightblue','white','#EF9000','#D11536'))
 
-####### 标注的基因 #######
+####### Genes to label #######
 labels = c("MG__Smad9","MG__Galnt13","Rod__Prdm1","MG__Notch1","MG__Adgra2","MG__Sash1",
            "MG__Aqp4","MG__Stat1","MG__B2m","MG__Zfhx4","MG__Grik3","MG__Relb",
            "MG__Apoe","MG__Clu","Cone__Bmpr1b","Cone__Pou6f2","Rod__Col4a3","Rod__Pou6f2",
            "MG__A2m","MG__C4b","RGC__Nfib")
-labels = labels[labels %in% rownames(Mouse_DEGs_Plot)]   # 只保留矩阵里存在的
+labels = labels[labels %in% rownames(Mouse_DEGs_Plot)]   # keep only those present in the matrix
 at = match(labels, rownames(Mouse_DEGs_Plot))
 
 setwd("/projects/hmz-aging/Mouse_New_Datasets")
@@ -369,21 +369,21 @@ rowAnnotation(link = anno_mark(at = at, labels = labels,
                                labels_gp = gpar(fontsize = 12, fontface = "italic")))
 dev.off()
 
-####### 保存重排结果 #######
+####### Save reordered results #######
 saveRDS(Mouse_DEGs_Plot_Kmeans_order, file = "Mouse_DEGs_Plot_Kmeans_order_2026")
 saveRDS(Mouse_DEGs_Plot, file = "Mouse_DEGs_Plot_neworder_2026")
 
 
-####### 可以接着画那个散点图 ####
+####### Next, draw the scatter plot ####
 
 #######
-####### 趋势散点图: 每个 cluster 一个 facet, 红线为均值趋势 #######
+####### Trend scatter plot: one facet per cluster, red line = mean trend #######
 #######
 Plot_dot <- function(Plot, Kmeans_order){
     library(reshape2)
-    df = melt(Plot)                       # Var1=gene, Var2=age(列), value
+    df = melt(Plot)                       # Var1=gene, Var2=age(column), value
     df$class = Kmeans_order$cluster[match(df$Var1, Kmeans_order$genes)]
-    #### x 轴按时间点的数值顺序排 (避免字符排序把 120 排到 17 前面)
+    #### Order x axis by numeric time point (avoid string sorting placing 120 before 17)
     age_levels = as.character(sort(as.numeric(unique(as.character(df$Var2)))))
     df$Var2 = factor(df$Var2, levels = age_levels)
     df$Var2_1 = as.numeric(df$Var2)
@@ -414,7 +414,7 @@ ggsave("Mouse_trend2.png", height = 8, width = 1.2)
 
 
 #######
-####### barplot: 每个 celltype 的 up/down/middle DEG 数 #######
+####### barplot: number of up/down/middle DEGs per celltype #######
 #######
 DEGs_to_BarPlot_F <- function(kc, Upclusters, Downclusters, Middleclusters){
     kc$cell_type = sapply(strsplit(kc$genes, split = "__"), function(x) x[[1]])
@@ -437,7 +437,7 @@ DEGs_to_BarPlot_F <- function(kc, Upclusters, Downclusters, Middleclusters){
 }
 
 kc = Mouse_DEGs_Plot_Kmeans_order
-######### 重新编号后: down=1,2,3,4 / middle=5,6 / up=7,8,9,10
+######### After renumbering: down=1,2,3,4 / middle=5,6 / up=7,8,9,10
 Downclusters   = c(1,2,3,4)
 Middleclusters = c(5,6)
 Upclusters     = c(7,8,9,10)
@@ -462,11 +462,11 @@ ggplot(Mouse_data, aes(x = cell_type, y = num_DEGs, fill = direction)) +
 ggsave("Mouse_data_barplot.png", width = 7, height = 3)
 
 ####
-#### ###### 下面我要进一步分析 上调和下调的 DEGs ##### 
+#### ###### Below: further analysis of up- and down-regulated DEGs ##### 
 ####
 
 ######
-###### 【新终端从这里开始】读入 / 加载依赖 (跑完再从 library(edgeR) 往下) ######
+###### [Start here in a new terminal] Load / set up dependencies (then continue from library(edgeR)) ######
 ######
 conda activate seurat_env
 R
@@ -477,7 +477,7 @@ library(edgeR)
 
 setwd("/projects/hmz-aging/Mouse_New_Datasets")
 
-## 1) Seurat 对象 (优先 2026, 否则 2025)
+## 1) Seurat object (prefer 2026, otherwise 2025)
 if(file.exists("Mouse_seurat_clcl_2026.rds")){
     Mouse_seurat_clcl = readRDS("Mouse_seurat_clcl_2026.rds")
 } else if(file.exists("Mouse_seurat_clcl_2026")){
@@ -485,10 +485,10 @@ if(file.exists("Mouse_seurat_clcl_2026.rds")){
 } else {
     Mouse_seurat_clcl = readRDS("Mouse_seurat_clcl_2025")
 }
-## 合并技术重复后缀
+## Merge technical replicate suffixes
 Mouse_seurat_clcl$sample = sub("_T[0-9]+$", "", as.character(Mouse_seurat_clcl$sample))
 
-## 2) 去掉 mt- 和 ambient top 基因 (与前面 pseudobulk 一致)
+## 2) Remove mt- and top ambient genes (consistent with the pseudobulk above)
 M_ambient_genes = readRDS("Mouse_ambient_RNA_Jul22")
 M_ambient_genes = M_ambient_genes[order(M_ambient_genes$Avg, decreasing = TRUE), ]
 M_ambient_genes_Top50 = M_ambient_genes$Gene[which(M_ambient_genes$Avg > 0.0025)]
@@ -501,7 +501,7 @@ message(sprintf("Mouse_seurat_clcl: %d cells x %d genes; samples=%d",
                 ncol(Mouse_seurat_clcl), nrow(Mouse_seurat_clcl),
                 length(unique(Mouse_seurat_clcl$sample))))
 
-## 3) pseudobulk 函数 (edgeR 用 normalize=FALSE 原始 counts)
+## 3) pseudobulk function (edgeR uses normalize=FALSE raw counts)
 getPseudoBulkByCellSample <- function(
   seurat_obj, assay_name = "RNA", layer_name = "counts",
   celltype_col = "celltype", sample_col = "sample", normalize = TRUE
@@ -521,20 +521,20 @@ getPseudoBulkByCellSample <- function(
     Matrix(sub_counts %*% Matrix(design, sparse = TRUE), sparse = TRUE)
   })
   names(pb_list) <- ct_levels
-  if (isTRUE(normalize)) stop("此处只需 normalize=FALSE 的 raw counts")
+  if (isTRUE(normalize)) stop("Only normalize=FALSE raw counts are needed here")
   pb_list
 }
 
-## 4) rank 与 Human noKmeans 一致: 不依赖 Kmeans，无需读 Kmeans_order
-message("=== 加载完成，可继续跑下面 edgeR / Rank (noKmeans) ===")
+## 4) rank consistent with Human noKmeans: does not depend on Kmeans, no need to read Kmeans_order
+message("=== Loading done, continue with edgeR / Rank (noKmeans) below ===")
 
 ######
-###### 1. edgeR: Old vs Young 每个基因的 log2FC 和 pvalue (用原始 counts pseudobulk) ######
+###### 1. edgeR: Old vs Young log2FC and pvalue per gene (using raw-count pseudobulk) ######
 ######
 
 library(edgeR)
 
-## edgeR 需要原始整数 counts -> normalize=FALSE 重新生成
+## edgeR needs raw integer counts -> regenerate with normalize=FALSE
 Mouse_pseudo_count_raw = getPseudoBulkByCellSample(Mouse_seurat_clcl, normalize = FALSE)
 Mouse_pseudo_count_input_raw = list()
 for(i in 1:length(Mouse_pseudo_count_raw)){
@@ -545,7 +545,7 @@ for(i in 1:length(Mouse_pseudo_count_raw)){
 }
 names(Mouse_pseudo_count_input_raw) = names(Mouse_pseudo_count_raw)
 
-## Old vs Young: age <= young_max -> Young; age >= old_min -> Old; logFC>0 表示 Old 高
+## Old vs Young: age <= young_max -> Young; age >= old_min -> Old; logFC>0 means higher in Old
 call_DEG_edgeR <- function(list_process, young_max = 12, old_min = 100, min_n = 2){
     bulk_mat  = as.matrix(list_process$bulk_mat)
     bulk_meta = list_process$bulk_meta
@@ -558,7 +558,7 @@ call_DEG_edgeR <- function(list_process, young_max = 12, old_min = 100, min_n = 
     counts = round(bulk_mat[, keep_s, drop = FALSE])
     group  = factor(grp[keep_s], levels = c("Young","Old"))
     if(nlevels(droplevels(group)) < 2 || min(table(group)) < min_n){
-        message("样本不足, 跳过: ", paste(names(table(group)), table(group), collapse=" ")); return(NULL)
+        message("Insufficient samples, skipping: ", paste(names(table(group)), table(group), collapse=" ")); return(NULL)
     }
     y = DGEList(counts = counts, group = group)
     keep_g = filterByExpr(y, group = group)
@@ -579,14 +579,14 @@ for(ct in names(Mouse_pseudo_count_input_raw)){
     message("==== ", ct, " ====")
     res = call_DEG_edgeR(Mouse_pseudo_count_input_raw[[ct]], young_max = 12, old_min = 100)
     if(is.null(res)) next
-    message(sprintf("%s: Up(Old高) = %d, Down(Old低) = %d (PValue<0.05)",
+    message(sprintf("%s: Up(higher in Old) = %d, Down(lower in Old) = %d (PValue<0.05)",
                     ct, sum(res$PValue<0.05 & res$logFC>0), sum(res$PValue<0.05 & res$logFC<0)))
     Mouse_DEG_edgeR[[ct]] = res
 }
 
 ######
-###### 2. rank (与 Human noKmeans 一致): 只用 edgeR，不与 Kmeans 取交集 ######
-######    metric = sign(logFC) * -log10(PValue)；全部 edgeR 基因直接打分
+###### 2. rank (consistent with Human noKmeans): edgeR only, no intersection with Kmeans ######
+######    metric = sign(logFC) * -log10(PValue); score all edgeR genes directly
 ######
 Build_Rank_from_DEG <- function(deg, eps = 1e-300){
     pv = deg$PValue; pv[is.na(pv)] = 1
@@ -609,17 +609,17 @@ for(ct in names(Mouse_DEG_edgeR)){
                     sum(deg$PValue < 0.05 & deg$logFC < 0, na.rm = TRUE)))
 }
 saveRDS(Mouse_DEG_rank, file = "Mouse_DEG_rank_noKmeans.rds")
-message("已保存: Mouse_DEG_rank_noKmeans.rds")
+message("Saved: Mouse_DEG_rank_noKmeans.rds")
 
 
 ######
-###### 替换 RPE ranks: 用 scRNAseq 91W_RPE vs 5W_RPE 的 avg_log2FC + p_val ######
-###### (与其它 celltype 的 noKmeans rank 同一公式: sign(logFC)*-log10(P)) ######
+###### Replace RPE ranks: use avg_log2FC + p_val from scRNAseq 91W_RPE vs 5W_RPE ######
+###### (same formula as noKmeans ranks of other celltypes: sign(logFC)*-log10(P)) ######
 ######
 library(Seurat)
 library(dplyr)
 
-## 1. 读入 RPE scRNAseq, 取 RPE 细胞, 归一化
+## 1. Load RPE scRNAseq, select RPE cells, normalize
 Mouse_RPE = readRDS("/projects/hmz-aging/RPE_smoking/Mouse_RPE_RNA_Final_Jul16")
 Mouse_RPE_cl = Mouse_RPE[, Mouse_RPE$celltype %in% c("RPE", "Retinal pigment epithelial cells")]
 Mouse_RPE_cl$sample = factor(Mouse_RPE_cl$sample, levels = c("5W_RPE", "49W_RPE", "91W_RPE"))
@@ -627,17 +627,17 @@ DefaultAssay(Mouse_RPE_cl) = "RNA"
 Mouse_RPE_cl = NormalizeData(Mouse_RPE_cl)
 Idents(Mouse_RPE_cl) = "sample"
 
-## 2. Old(91W) vs Young(5W): 全表基因的 avg_log2FC + p_val
-##    logfc.threshold/min.pct 放宽, 尽量保留更多基因进 rank
+## 2. Old(91W) vs Young(5W): avg_log2FC + p_val for all genes
+##    relax logfc.threshold/min.pct to keep as many genes as possible in the rank
 markers_old_young = FindMarkers(Mouse_RPE_cl, ident.1 = "91W_RPE", ident.2 = "5W_RPE",
                                 logfc.threshold = 0, min.pct = 0.05)
 markers_old_young$gene_symbol = sub(".*~~", "", rownames(markers_old_young))
 
-## 3. rank = sign(avg_log2FC) * -log10(p_val); 不筛 consistent list
+## 3. rank = sign(avg_log2FC) * -log10(p_val); no consistent-list filtering
 build_rpe_rank <- function(mk, eps = 1e-300){
     pv = mk$p_val; pv[is.na(pv)] = 1; pv[pv < eps] = eps
     fc = mk$avg_log2FC
-    if(is.null(fc)) fc = mk$avg_logFC          # 兼容旧版 Seurat 列名
+    if(is.null(fc)) fc = mk$avg_logFC          # compatible with older Seurat column name
     sym = mk$gene_symbol
     stat = sign(fc) * (-log10(pv))
     names(stat) = sym
@@ -652,10 +652,10 @@ message(sprintf("RPE rank (91W vs 5W): n=%d, nonzero=%d (pos=%d / neg=%d); P<0.0
                 sum(markers_old_young$p_val < 0.05 & markers_old_young$avg_log2FC > 0, na.rm = TRUE),
                 sum(markers_old_young$p_val < 0.05 & markers_old_young$avg_log2FC < 0, na.rm = TRUE)))
 
-## 4. 用 scRNAseq RPE rank 替换
+## 4. Replace with the scRNAseq RPE rank
 Mouse_DEG_rank[["RPE"]] = RPE_rank
 saveRDS(Mouse_DEG_rank, file = "Mouse_DEG_rank_noKmeans.rds")
-message("已更新并保存: Mouse_DEG_rank_noKmeans.rds (含 RPE scRNA rank)")
+message("Updated and saved: Mouse_DEG_rank_noKmeans.rds (with RPE scRNA rank)")
 
 
 
@@ -664,7 +664,7 @@ message("已更新并保存: Mouse_DEG_rank_noKmeans.rds (含 RPE scRNA rank)")
 
 
 ######
-###### 3. 鼠基因 rank 映射成人类 ortholog (一对多全保留, 权重相同) ######
+###### 3. Map mouse gene ranks to human orthologs (keep all one-to-many, equal weights) ######
 ######
 load("/projects/hmz-aging/Zebrafish_New_Datasets/HMZ_ortholog_combined")
 HM = unique(HMZ_ortholog_combined$HM[, c("human", "mouse")])
@@ -692,7 +692,7 @@ save(Mouse_DEG_rank_human, file = "Mouse_DEG_rank_human")
 
 
 ########
-######## 打开一个新的终端，我们做 GSEA 分析 ########
+######## Open a new terminal for GSEA analysis ########
 ########
 conda activate clusterProfiler
 
@@ -707,13 +707,13 @@ load("Mouse_DEG_rank_human")
 load("/projects/hmz-aging/HMZ_GO_terms_Final/human_aging_catalog")
 
 ######
-###### 1. 大类 gene sets: 9 个 aging category (category_unions) ######
+###### 1. Category gene sets: 9 aging categories (category_unions) ######
 ######
 category_sets = human_aging_catalog$category_unions
 sapply(category_sets, length)
 
 ######
-###### 2. fgsea runner (单个 celltype) ######
+###### 2. fgsea runner (single celltype) ######
 ######
 run_fgsea_one <- function(ranks, pathways, minSize = 5, maxSize = 5000){
     ranks = ranks[is.finite(ranks)]
@@ -726,12 +726,12 @@ run_fgsea_one <- function(ranks, pathways, minSize = 5, maxSize = 5000){
 }
 
 ######
-###### 3. 对每个 celltype 计算大类富集 ######
+###### 3. Compute category enrichment for each celltype ######
 ######
 Mouse_GSEA_category = list()
 for(ct in names(Mouse_DEG_rank_human)){
     ranks = Mouse_DEG_rank_human[[ct]]
-    if(length(ranks) < 10){ message("跳过(基因太少): ", ct); next }
+    if(length(ranks) < 10){ message("Skipped (too few genes): ", ct); next }
     message("==== fgsea: ", ct, " ====")
     res = run_fgsea_one(ranks, category_sets)
     res$celltype = ct
@@ -749,10 +749,10 @@ Mouse_GSEA_category_df = Mouse_GSEA_category_df[
 print(Mouse_GSEA_category_df)
 write.table(Mouse_GSEA_category_df, file = "Mouse_GSEA_category.tsv",
             sep = "\t", quote = FALSE, row.names = FALSE)
-message("已保存: Mouse_GSEA_category.tsv; 行数: ", nrow(Mouse_GSEA_category_df))
+message("Saved: Mouse_GSEA_category.tsv; rows: ", nrow(Mouse_GSEA_category_df))
 
 ######
-###### 4. 大类气泡图: celltype x category (点大小=-log10 pvalue, 颜色=NES); pvalue>=0.05 留空 ######
+###### 4. Category bubble plot: celltype x category (point size=-log10 pvalue, color=NES); pvalue>=0.05 left blank ######
 ######
 library(ggplot2)
 plot_df = Mouse_GSEA_category_df
@@ -766,13 +766,13 @@ plot_df$category = factor(plot_df$category, levels = rev(cat_levels))
 plot_df$celltype = factor(plot_df$celltype, levels = ct_levels)
 plot_sig = plot_df[plot_df$pval < 0.05 & !is.na(plot_df$pval), ]
 
-## NES 配色与 Human 一致: #3C5488 — white — #E64B35, limits=[-3,3]
+## NES colors consistent with Human: #3C5488 - white - #E64B35, limits=[-3,3]
 library(scales)
 p = ggplot(plot_sig, aes(x = celltype, y = category)) +
   geom_point(aes(size = neglogP, fill = NES), shape = 21, color = "grey30", stroke = 0.3) +
   scale_fill_gradient2(low = "#3C5488", mid = "white", high = "#E64B35",
                        midpoint = 0, name = "NES", limits = c(-3, 3), oob = scales::squish) +
-  scale_size_continuous(range = c(4, 14), name = expression(-log[10]~italic(P))) +  # 比 Human 更大
+  scale_size_continuous(range = c(4, 14), name = expression(-log[10]~italic(P))) +  # larger than Human
   scale_x_discrete(drop = FALSE) + scale_y_discrete(drop = FALSE) +
   guides(fill = guide_colorbar(order = 1), size = guide_legend(order = 2)) +
   theme_bw(base_size = 12) +
@@ -787,7 +787,7 @@ p = ggplot(plot_sig, aes(x = celltype, y = category)) +
 ggsave("Mouse_GSEA_category_bubble.png", plot = p, width = 7, height = 7, dpi = 300)
 
 ######
-###### 5. term 级别 GSEA: human_aging_catalog$pathways ######
+###### 5. term-level GSEA: human_aging_catalog$pathways ######
 ######
 term_sets = human_aging_catalog$pathways
 term_anno = human_aging_catalog$annotation
@@ -795,7 +795,7 @@ term_anno = human_aging_catalog$annotation
 Mouse_GSEA_term = list()
 for(ct in names(Mouse_DEG_rank_human)){
     ranks = Mouse_DEG_rank_human[[ct]]
-    if(length(ranks) < 10){ message("跳过(基因太少): ", ct); next }
+    if(length(ranks) < 10){ message("Skipped (too few genes): ", ct); next }
     message("==== fgsea term: ", ct, " ====")
     res = run_fgsea_one(ranks, term_sets, minSize = 5, maxSize = 2000)
     res$celltype = ct
@@ -816,10 +816,10 @@ rownames(Mouse_GSEA_term_df) = NULL
 print(table(Mouse_GSEA_term_df$celltype[Mouse_GSEA_term_df$pval < 0.05]))
 write.table(Mouse_GSEA_term_df, file = "Mouse_GSEA_term.tsv",
             sep = "\t", quote = FALSE, row.names = FALSE)
-message("已保存: Mouse_GSEA_term.tsv; 行数: ", nrow(Mouse_GSEA_term_df))
+message("Saved: Mouse_GSEA_term.tsv; rows: ", nrow(Mouse_GSEA_term_df))
 
 ######
-###### 6. term heatmap: 至少在一个 celltype 显著富集的 term; 左侧标 category; NPG 配色 ######
+###### 6. term heatmap: terms significantly enriched in at least one celltype; category on the left; NPG colors ######
 ######
 library(ComplexHeatmap)
 library(circlize)
@@ -829,7 +829,7 @@ df = Mouse_GSEA_term_df
 df$sig = df$pval < 0.05 & !is.na(df$pval)
 sig_terms = unique(df$term_id[df$sig])
 df_keep   = df[df$term_id %in% sig_terms, ]
-message(sprintf("至少在一个 celltype 显著的 term: %d 个", length(sig_terms)))
+message(sprintf("Terms significant in at least one celltype: %d", length(sig_terms)))
 
 nes_mat = acast(df_keep, term_id ~ celltype, value.var = "NES")
 sig_mat = acast(df_keep, term_id ~ celltype, value.var = "sig")

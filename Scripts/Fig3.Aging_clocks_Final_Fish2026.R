@@ -1,10 +1,10 @@
 ########
-######## 参考下 Aging_clocks_Final.R 文件 ###
-######## 对 Zebrafish 进行处理 ######
+######## Based on Aging_clocks_Final.R ###
+######## Processing for Zebrafish ######
 ########
 
 ######## 
-######## Zebrafish 预处理 ########
+######## Zebrafish preprocessing ########
 ########
 
 conda activate ArchR
@@ -18,30 +18,30 @@ library(Matrix)
 setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
 Zebrafish_seurat_clcl <- readRDS("Zebrafish_seurat_clcl_2025")
 
-######### 打印总体有哪些 sample / celltype #########
-cat("\n========== 全部 sample ==========\n")
+######### Print all samples / cell types #########
+cat("\n========== All samples ==========\n")
 print(sort(unique(Zebrafish_seurat_clcl$sample)))
-cat("\n每个 sample 的细胞数:\n")
+cat("\nCells per sample:\n")
 print(table(Zebrafish_seurat_clcl$sample))
-cat("\n每个 celltype 的细胞数:\n")
+cat("\nCells per celltype:\n")
 print(table(Zebrafish_seurat_clcl$celltype))
 
 
 ######### 24_Rep1 3_Rep2 6_Rep3 remove #####
 samples_to_remove <- c("24_Rep1", "3_Rep2", "6_Rep3")
-cat("\n========== 去除样本 ==========\n")
-cat("待去除:", paste(samples_to_remove, collapse = ", "), "\n")
+cat("\n========== Remove samples ==========\n")
+cat("To remove:", paste(samples_to_remove, collapse = ", "), "\n")
 n_before <- ncol(Zebrafish_seurat_clcl)
 Zebrafish_seurat_clcl <- subset(Zebrafish_seurat_clcl, subset = sample %in% samples_to_remove, invert = TRUE)
-cat(sprintf("细胞数: %d -> %d (去掉 %d)\n", n_before, ncol(Zebrafish_seurat_clcl), n_before - ncol(Zebrafish_seurat_clcl)))
-cat("去除后剩余 sample:\n")
+cat(sprintf("Cells: %d -> %d (removed %d)\n", n_before, ncol(Zebrafish_seurat_clcl), n_before - ncol(Zebrafish_seurat_clcl)))
+cat("Remaining samples after removal:\n")
 print(table(Zebrafish_seurat_clcl$sample))
 
-######### 按 celltype 拆分 #########
+######### Split by celltype #########
 Zebrafish_seurat_clcl_list <- SplitObject(Zebrafish_seurat_clcl, split.by = "celltype")
 
-######### 打印每个 celltype 下有哪些 sample #########
-cat("\n========== 每个 celltype 下的 sample ==========\n")
+######### Print samples within each celltype #########
+cat("\n========== Samples per celltype ==========\n")
 for (ct in names(Zebrafish_seurat_clcl_list)) {
     cat(sprintf("\n--- %s ---\n", ct))
     print(table(Zebrafish_seurat_clcl_list[[ct]]$sample))
@@ -49,7 +49,7 @@ for (ct in names(Zebrafish_seurat_clcl_list)) {
 
 
 ######################################################################
-######## 辅助函数 1：标准化 + PCA ########
+######## Helper function 1: normalization + PCA ########
 ######################################################################
 NormalizeAndPCA <- function(
   seu,
@@ -58,41 +58,41 @@ NormalizeAndPCA <- function(
   nfeatures = 2000,
   npcs = 30
 ) {
-  # 1. 标准化
+  # 1. Normalization
   seu <- NormalizeData(
     object = seu,
     normalization.method = norm.method,
     scale.factor = scale.factor
   )
 
-  # 2. 识别高变基因
+  # 2. Identify highly variable genes
   seu <- FindVariableFeatures(
     object = seu,
     selection.method = "vst",
     nfeatures = nfeatures
   )
 
-  # 3. 数据缩放（所有基因）
+  # 3. Scale data (all genes)
   seu <- ScaleData(
     object = seu,
     features = rownames(seu)
   )
 
-  # 4. PCA 降维（动态调整 npcs）
-  # SVD 要求: npcs 必须**严格小于** min(n_genes, n_cells)
+  # 4. PCA dimensionality reduction (npcs adjusted dynamically)
+  # SVD requirement: npcs must be **strictly less than** min(n_genes, n_cells)
   n_cells <- ncol(seu)
   n_genes <- nrow(seu)
   max_npcs <- min(n_genes, n_cells) - 1
 
   if (npcs > max_npcs) {
-    npcs_adjusted <- max(1, max_npcs)  # 至少 1 个 PC
-    message(sprintf("    调整 npcs: %d → %d (n_cells=%d, n_genes=%d)",
+    npcs_adjusted <- max(1, max_npcs)  # at least 1 PC
+    message(sprintf("    Adjusting npcs: %d → %d (n_cells=%d, n_genes=%d)",
                     npcs, npcs_adjusted, n_cells, n_genes))
     npcs <- npcs_adjusted
   }
 
   if (npcs < 1) {
-    stop(sprintf("细胞数太少 (n_cells=%d)，无法进行 PCA", n_cells))
+    stop(sprintf("Too few cells (n_cells=%d); cannot run PCA", n_cells))
   }
 
   seu <- RunPCA(
@@ -106,7 +106,7 @@ NormalizeAndPCA <- function(
 
 
 ######################################################################
-######## 辅助函数 2：KNN smoothing -> pseudo-cell ########
+######## Helper function 2: KNN smoothing -> pseudo-cell ########
 ######################################################################
 PseudoBulkByKNN_fast <- function(
   seu,
@@ -121,24 +121,24 @@ PseudoBulkByKNN_fast <- function(
   # 1. PCA embedding
   emb <- Embeddings(seu, reduction)[, dims, drop = FALSE]
 
-  # 2. kNN（不含自身）
+  # 2. kNN (excluding self)
   knn <- get.knn(emb, k = k)
   nn_idx <- knn$nn.index
   ncells <- nrow(nn_idx)
 
-  # 3. 构建邻接稀疏矩阵 A：对每个目标细胞 j，把自身 j 和它的 k 个邻居 i 置 1
+  # 3. Build sparse adjacency matrix A: for each target cell j, set j itself and its k neighbors i to 1
   rows <- as.integer(c(t(nn_idx), seq_len(ncells)))
   cols <- rep(seq_len(ncells), each = k + 1)
   A <- sparseMatrix(i = rows, j = cols, x = 1,
                     dims = c(ncells, ncells))
 
-  # 4. 原始 counts（genes × cells）
+  # 4. Raw counts (genes × cells)
   counts_mat <- GetAssayData(seu, assay = assay, layer = "counts")
 
-  # 5. 一步乘法得到伪-bulk counts
+  # 5. A single matrix multiplication yields pseudo-bulk counts
   pseudo_counts <- counts_mat %*% A
 
-  # 6. 新 Seurat 对象
+  # 6. New Seurat object
   new_seu <- CreateSeuratObject(
     counts = pseudo_counts,
     meta.data = seu@meta.data,
@@ -149,7 +149,7 @@ PseudoBulkByKNN_fast <- function(
 
 
 ######################################################################
-######## 主循环：每个 celltype 按 sample smooth 成 pseudo-cell ########
+######## Main loop: smooth each celltype into pseudo-cells by sample ########
 ######################################################################
 Zebrafish_seurat_knn_pseudobulk <- list()
 
@@ -161,20 +161,20 @@ for(i in 1:length(Zebrafish_seurat_clcl_list)){
     #####
     tmp_sp = SplitObject(tmp, split.by = "sample")
 
-    ##### 打印该 celltype 拆分出的 sample #####
+    ##### Print samples split from this celltype #####
     cat(sprintf("  [%s] samples: %s\n",
                 names(Zebrafish_seurat_clcl_list)[i],
                 paste(names(tmp_sp), collapse = ", ")))
 
-    ##### 过滤细胞数<2的样本 #######
+    ##### Filter out samples with <2 cells #######
     sample_ncells <- sapply(tmp_sp, ncol)
     removed_samples <- names(sample_ncells)[sample_ncells < 2]
     if(length(removed_samples) > 0) {
-        message(sprintf("  %s: 去掉细胞数<2的样本: %s", names(Zebrafish_seurat_clcl_list[i]), paste(removed_samples, collapse=", ")))
+        message(sprintf("  %s: removed samples with <2 cells: %s", names(Zebrafish_seurat_clcl_list[i]), paste(removed_samples, collapse=", ")))
         tmp_sp <- tmp_sp[sample_ncells >= 2]
     }
     if(length(tmp_sp) == 0) {
-        message(sprintf("  %s: 所有样本都被过滤，跳过", names(Zebrafish_seurat_clcl_list[i])))
+        message(sprintf("  %s: all samples filtered out, skipping", names(Zebrafish_seurat_clcl_list[i])))
         next
     }
     ##### first normalize and get PCA #######
@@ -187,38 +187,38 @@ for(i in 1:length(Zebrafish_seurat_clcl_list)){
         npcs = 5
     }
     if(names(Zebrafish_seurat_clcl_list[i]) %in% c("RPE","Microglia")){
-        k = 2  # RPE 和 Microglia: K = 2
+        k = 2  # RPE and Microglia: K = 2
         npcs = 5
     }
     print(paste("Cell type:", names(Zebrafish_seurat_clcl_list[i])))
     print(paste("K =", k))
     print(paste("npcs (initial) =", npcs))
 
-    ##### 动态调整 npcs 和 K：检查每个样本的细胞数 #######
+    ##### Dynamically adjust npcs and K: check cell count per sample #######
     sample_ncells_check <- sapply(tmp_sp, ncol)
     min_ncells <- min(sample_ncells_check)
     print(paste("Min cells per sample:", min_ncells))
 
-    # 特殊情况：如果细胞数太少（< 5），跳过 KNN smooth
+    # Special case: if too few cells (< 5), skip KNN smoothing
     if (min_ncells < 5) {
-        message(sprintf("  警告: 最小样本细胞数 (%d) < 5，跳过 KNN smooth，直接 merge", min_ncells))
+        message(sprintf("  Warning: minimum cells per sample (%d) < 5; skipping KNN smoothing and merging directly", min_ncells))
         tmp_sp_res_pseudo_merge = merge(tmp_sp[[1]], tmp_sp[-1], add.cell.ids = names(tmp_sp))
         Zebrafish_seurat_knn_pseudobulk <- c(Zebrafish_seurat_knn_pseudobulk, list(tmp_sp_res_pseudo_merge))
         next
     }
 
-    # npcs 必须严格小于最小的样本细胞数
+    # npcs must be strictly less than the minimum cells per sample
     if (npcs >= min_ncells) {
         npcs_adjusted <- max(1, min_ncells - 1)
-        message(sprintf("  警告: npcs (%d) >= 最小样本细胞数 (%d)，调整为 %d",
+        message(sprintf("  Warning: npcs (%d) >= minimum cells per sample (%d); adjusting to %d",
                         npcs, min_ncells, npcs_adjusted))
         npcs <- npcs_adjusted
     }
 
-    # K 必须小于细胞数（KNN 需要邻居）
+    # K must be less than the cell count (KNN needs neighbors)
     if (k >= min_ncells) {
         k_adjusted <- max(1, min_ncells - 1)
-        message(sprintf("  警告: K (%d) >= 最小样本细胞数 (%d)，调整为 %d",
+        message(sprintf("  Warning: K (%d) >= minimum cells per sample (%d); adjusting to %d",
                         k, min_ncells, k_adjusted))
         k <- k_adjusted
     }
@@ -239,8 +239,8 @@ for(i in 1:length(Zebrafish_seurat_clcl_list)){
 names(Zebrafish_seurat_knn_pseudobulk) <- names(Zebrafish_seurat_clcl_list)
 saveRDS(Zebrafish_seurat_knn_pseudobulk, file="Zebrafish_seurat_knn_pseudobulk_2025")
 
-##### 打印每个 celltype pseudobulk 后的 sample #####
-cat("\n========== KNN pseudobulk 后每个 celltype 的 sample ==========\n")
+##### Print samples per celltype after pseudobulking #####
+cat("\n========== Samples per celltype after KNN pseudobulk ==========\n")
 for (ct in names(Zebrafish_seurat_knn_pseudobulk)) {
     cat(sprintf("\n--- %s ---\n", ct))
     print(table(Zebrafish_seurat_knn_pseudobulk[[ct]]$sample))
@@ -248,15 +248,15 @@ for (ct in names(Zebrafish_seurat_knn_pseudobulk)) {
 
 ####### counts matrix ########
 mat <- LayerData(Zebrafish_seurat_knn_pseudobulk$MG, layer = "counts")
-range(mat)                     # 最小 0
-all(mat@x == round(mat@x))     # TRUE 说明是整数（raw counts 求和）
-head(Matrix::colSums(mat))     # 每个 pseudo-cell 的总 counts
+range(mat)                     # minimum is 0
+all(mat@x == round(mat@x))     # TRUE means integers (summed raw counts)
+head(Matrix::colSums(mat))     # total counts per pseudo-cell
 
 
 
 #####
-##### 参考 mouse Agingclocks final的代码，写一下训练 zebrafish clocks 的代码 ###
-##### 保留 Z-score 标准化 + depth norm(1e4)+log2；去掉最后的样本级校准 ###
+##### Training code for zebrafish clocks, based on the mouse Agingclocks final code ###
+##### Keep Z-score standardization + depth norm(1e4)+log2; remove the final sample-level calibration ###
 #####
 
 library(Seurat)
@@ -265,7 +265,7 @@ library(Matrix)
 
 setwd("/projects/hmz-aging/Zebrafish_New_Datasets")
 
-######### 载入数据、ambient / whitelist 基因 #########
+######### Load data and ambient / whitelist genes #########
 Zebrafish_seurat_knn_pseudobulk <- readRDS("Zebrafish_seurat_knn_pseudobulk_2025")
 
 Z_ambient_genes <- readRDS("Zebrafish_ambient_RNA_Jul29")
@@ -279,21 +279,21 @@ whitelist_genes <- c(Zebrafish_AgingMap_Genes, SID_Zebrafish)
 whitelist_genes <- whitelist_genes[!duplicated(whitelist_genes)]
 cat(sprintf("ambient genes: %d, whitelist genes: %d\n", length(Z_ambient_genes_Top50), length(whitelist_genes)))
 
-######### 给每个 celltype 加 age 列（从 sample: <age>_Rep<n> 提取，如 24_Rep1 -> 24）#########
+######### Add age column to each celltype (parsed from sample: <age>_Rep<n>, e.g. 24_Rep1 -> 24)#########
 for (ct in names(Zebrafish_seurat_knn_pseudobulk)) {
     sample_names <- as.character(Zebrafish_seurat_knn_pseudobulk[[ct]]$sample)
     ages <- as.numeric(sapply(strsplit(sample_names, "_"), function(x) x[1]))
     Zebrafish_seurat_knn_pseudobulk[[ct]]$age <- ages
-    cat(sprintf("  %s: 年龄范围 = %s\n", ct, paste(sort(unique(ages)), collapse = ", ")))
+    cat(sprintf("  %s: age range = %s\n", ct, paste(sort(unique(ages)), collapse = ", ")))
 }
 
-######### 复用 pseudobulk / 相关性计算等辅助函数（斑马鱼版 age 解析）#########
+######### Reuse helper functions (pseudobulk / correlation, etc.; zebrafish age parsing)#########
 source("Zebrafish_AgingClock_Functions.R")
 
 
 ######################################################################
-######## 精简版 Nested LOOCV：保留 Z-score 标准化、无校准 ########
-######## 覆盖 Zebrafish_AgingClock_Functions.R 里的同名函数 ########
+######## Streamlined Nested LOOCV: Z-score standardization kept, no calibration ########
+######## Overrides the same-named function in Zebrafish_AgingClock_Functions.R ########
 ######################################################################
 Nested_FeatureSelection_LOOCV <- function(seurat_obj,
                                           whitelist_genes = NULL,
@@ -322,52 +322,52 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
     else if (!requireNamespace("pbmcapply", quietly = TRUE)) { use_parallel <- FALSE; n_cores <- 1 }
 
     message("========================================")
-    message("Nested Feature Selection + LOOCV（保留 Z-score 标准化 / 无校准）")
-    message(sprintf("%s", if (use_parallel) sprintf("并行: %d 核", n_cores) else "串行"))
+    message("Nested Feature Selection + LOOCV (Z-score standardization kept / no calibration)")
+    message(sprintf("%s", if (use_parallel) sprintf("Parallel: %d cores", n_cores) else "Sequential"))
     message("========================================")
 
-    # 1. 准备数据
+    # 1. Prepare data
     if (length(Layers(seurat_obj)) > 1) seurat_obj <- JoinLayers(seurat_obj)
     counts <- LayerData(seurat_obj, layer = "counts")
     cell_samples <- seurat_obj$sample
     cell_ages <- seurat_obj$age
-    if (is.null(cell_samples) || is.null(cell_ages)) stop("Seurat object 缺少 'sample' 或 'age' 列")
+    if (is.null(cell_samples) || is.null(cell_ages)) stop("Seurat object is missing 'sample' or 'age' column")
 
-    # 过滤指定年龄
+    # Filter out specified ages
     if (!is.null(exclude_ages)) {
         keep <- !cell_ages %in% exclude_ages
         if (sum(!keep) > 0) {
             counts <- counts[, keep, drop = FALSE]; cell_samples <- cell_samples[keep]; cell_ages <- cell_ages[keep]
             seurat_obj <- subset(seurat_obj, cells = colnames(counts))
-            message(sprintf("  排除年龄 %s: 去掉 %d 个细胞", paste(exclude_ages, collapse=","), sum(!keep)))
+            message(sprintf("  Excluding ages %s: removed %d cells", paste(exclude_ages, collapse=","), sum(!keep)))
         }
     }
-    # 过滤指定样本
+    # Filter out specified samples
     if (!is.null(exclude_samples)) {
         keep <- !cell_samples %in% exclude_samples
         if (sum(!keep) > 0) {
             counts <- counts[, keep, drop = FALSE]; cell_samples <- cell_samples[keep]; cell_ages <- cell_ages[keep]
             seurat_obj <- subset(seurat_obj, cells = colnames(counts))
-            message(sprintf("  排除样本 %s: 去掉 %d 个细胞", paste(exclude_samples, collapse=","), sum(!keep)))
+            message(sprintf("  Excluding samples %s: removed %d cells", paste(exclude_samples, collapse=","), sum(!keep)))
         }
     }
-    # 去 ambient genes
+    # Remove ambient genes
     if (!is.null(ambient_genes)) {
         ambient_genes <- intersect(ambient_genes, rownames(counts))
         if (length(ambient_genes) > 0) counts <- counts[!rownames(counts) %in% ambient_genes, ]
     }
-    # 单细胞 depth normalization + log2（保留）
+    # Single-cell depth normalization + log2 (kept)
     depth <- Matrix::colSums(counts)
     counts_norm <- sweep(counts, 2, depth / 1e4, FUN = "/")
     counts_log2 <- log2(1 + counts_norm)
-    message(sprintf("  单细胞数: %d, 基因数: %d", ncol(counts_log2), nrow(counts_log2)))
+    message(sprintf("  Single cells: %d, genes: %d", ncol(counts_log2), nrow(counts_log2)))
 
-    # 2. pseudobulk（特征选择用）
+    # 2. Pseudobulk (for feature selection)
     pseudobulk_all <- Calculate_Pseudobulk_Normalized(seurat_obj, ambient_genes)
     unique_samples <- unique(cell_samples)
     sample_ages <- sapply(unique_samples, function(s) unique(cell_ages[cell_samples == s])[1])
     n_samples <- length(unique_samples)
-    message(sprintf("  样本数: %d, 年龄: %s", n_samples, paste(sort(unique(sample_ages)), collapse=", ")))
+    message(sprintf("  Samples: %d, ages: %s", n_samples, paste(sort(unique(sample_ages)), collapse=", ")))
 
     # 3. LOOCV
     process_one_loocv <- function(i) {
@@ -375,10 +375,10 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
         train_samples <- unique_samples[-i]
         train_pseudobulk <- pseudobulk_all[, train_samples, drop = FALSE]
 
-        # 3.1 特征选择（仅训练集）
+        # 3.1 Feature selection (training set only)
         cor_results <- suppressMessages(Calculate_Gene_Age_Correlation(train_pseudobulk, method = "spearman"))
         cor_results_sorted <- cor_results[order(abs(cor_results$correlation), decreasing = TRUE), ]
-        # 强相关基因：|cor| > cor_abs_cutoff 且 p < cor_pval_cutoff；若不足 cor_top_n，则退回用 |cor| 前 cor_top_n
+        # Strongly correlated genes: |cor| > cor_abs_cutoff and p < cor_pval_cutoff; if fewer than cor_top_n, fall back to the top cor_top_n by |cor|
         genes_strong <- cor_results_sorted$gene[abs(cor_results_sorted$correlation) > cor_abs_cutoff &
                                                 cor_results_sorted$p_value < cor_pval_cutoff]
         if (length(genes_strong) >= cor_top_n) {
@@ -398,18 +398,18 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
         candidate_genes_expr <- gene_mean_expr[candidate_genes_all]
         candidate_genes <- candidate_genes_all[!is.na(candidate_genes_expr) & candidate_genes_expr >= min_mean_expr]
         n_filtered_out_lowexpr <- sum(candidate_genes_expr < min_mean_expr, na.rm = TRUE)
-        if (length(candidate_genes) == 0) stop("过滤后没有候选基因！")
+        if (length(candidate_genes) == 0) stop("No candidate genes left after filtering!")
 
-        # 3.2 训练/测试单细胞矩阵（仅候选基因，log2 normalized）
+        # 3.2 Training/test single-cell matrices (candidate genes only, log2 normalized)
         train_cell_idx <- which(cell_samples %in% train_samples)
         test_cell_idx <- which(cell_samples == test_sample)
-        if (length(train_cell_idx) == 0) stop("训练集没有细胞")
-        if (length(test_cell_idx) == 0) stop(sprintf("测试样本 %s 没有细胞", test_sample))
+        if (length(train_cell_idx) == 0) stop("Training set has no cells")
+        if (length(test_cell_idx) == 0) stop(sprintf("Test sample %s has no cells", test_sample))
         candidate_genes <- intersect(candidate_genes, rownames(counts_log2))
         X_train <- t(as.matrix(counts_log2[candidate_genes, train_cell_idx, drop = FALSE]))
         y_train <- cell_ages[train_cell_idx]
         train_samples_vec <- cell_samples[train_cell_idx]
-        ## Z-score 标准化（基于训练集的 mean/sd，测试集沿用同一套，防泄漏）
+        ## Z-score standardization (training-set mean/sd, applied unchanged to the test set to prevent leakage)
         if (standardize) {
             train_means <- colMeans(X_train)
             train_sds <- apply(X_train, 2, sd)
@@ -417,7 +417,7 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
             X_train <- scale(X_train, center = train_means, scale = train_sds)
         }
 
-        # 3.3 IPF 权重：平衡 sample 与 age
+        # 3.3 IPF weights: balance sample and age
         weights <- rep(1, length(train_cell_idx))
         for (iter in 1:10) {
             sample_weight_sum <- tapply(weights, train_samples_vec, sum)
@@ -427,7 +427,7 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
         }
         weights <- weights * length(weights) / sum(weights)
 
-        # 3.4 内层 CV 调 alpha（glmnet standardize=FALSE，因为已手动 z-score）
+        # 3.4 Inner CV to tune alpha (glmnet standardize=FALSE, since data are already z-scored manually)
         best_alpha <- NULL; best_cv_error <- Inf; best_lambda <- NULL
         for (alpha in alphas) {
             cv_fit <- tryCatch(
@@ -441,7 +441,7 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
         }
         if (is.null(best_alpha)) { best_alpha <- 0.5; best_lambda <- NULL }
 
-        # 3.5 训练最终模型 + 预测测试样本（原始预测，无校准）
+        # 3.5 Train final model + predict test sample (raw predictions, no calibration)
         final_model <- glmnet(X_train, y_train, weights = weights, alpha = best_alpha,
                               family = "gaussian", standardize = FALSE)
         X_test <- t(as.matrix(counts_log2[candidate_genes, test_cell_idx, drop = FALSE]))
@@ -471,9 +471,9 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
         })
     }
 
-    # 整合结果
+    # Combine results
     valid <- sapply(loocv_results, function(x) is.list(x) && !is.null(x$test_sample))
-    if (!all(valid)) stop(sprintf("LOOCV Round %s 无效", paste(which(!valid), collapse=", ")))
+    if (!all(valid)) stop(sprintf("LOOCV Round %s invalid", paste(which(!valid), collapse=", ")))
 
     cell_predictions <- data.frame(
         cell_id = colnames(counts_log2), sample = cell_samples, actual = cell_ages,
@@ -489,7 +489,7 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
     cell_pred_complete <- cell_predictions[complete.cases(cell_predictions), ]
     sample_predictions <- aggregate(predicted ~ sample + actual, data = cell_pred_complete, FUN = mean)
 
-    # 性能（仅原始预测）
+    # Performance (raw predictions only)
     rmse_s <- sqrt(mean((sample_predictions$actual - sample_predictions$predicted)^2))
     mae_s  <- mean(abs(sample_predictions$actual - sample_predictions$predicted))
     pcc_s  <- cor(sample_predictions$actual, sample_predictions$predicted)
@@ -500,8 +500,8 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
     pcc_c  <- cor(cell_pred_complete$actual, cell_pred_complete$predicted)
     r2_c   <- 1 - sum((cell_pred_complete$actual - cell_pred_complete$predicted)^2) /
                   sum((cell_pred_complete$actual - mean(cell_pred_complete$actual))^2)
-    message(sprintf("  样本级: RMSE=%.3f MAE=%.3f PCC=%.3f R2=%.3f", rmse_s, mae_s, pcc_s, r2_s))
-    message(sprintf("  细胞级: RMSE=%.3f MAE=%.3f PCC=%.3f R2=%.3f", rmse_c, mae_c, pcc_c, r2_c))
+    message(sprintf("  Sample-level: RMSE=%.3f MAE=%.3f PCC=%.3f R2=%.3f", rmse_s, mae_s, pcc_s, r2_s))
+    message(sprintf("  Cell-level: RMSE=%.3f MAE=%.3f PCC=%.3f R2=%.3f", rmse_c, mae_c, pcc_c, r2_c))
 
     all_selected <- unlist(selected_genes_list)
     gene_freq <- sort(table(all_selected), decreasing = TRUE)
@@ -526,11 +526,11 @@ Nested_FeatureSelection_LOOCV <- function(seurat_obj,
 
 
 ######################################################################
-######## 主循环：对每个 celltype 跑 Nested LOOCV 并保存 ########
+######## Main loop: run Nested LOOCV for each celltype and save ########
 ######################################################################
 all_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod", "Microglia", "RPE")
 available_celltypes <- intersect(all_celltypes, names(Zebrafish_seurat_knn_pseudobulk))
-cat(sprintf("将运行: %s\n", paste(available_celltypes, collapse = ", ")))
+cat(sprintf("Will run: %s\n", paste(available_celltypes, collapse = ", ")))
 
 all_results <- list()
 for (celltype in available_celltypes) {
@@ -539,8 +539,8 @@ for (celltype in available_celltypes) {
     message("========================================")
     seurat_obj <- Zebrafish_seurat_knn_pseudobulk[[celltype]]
     n_samples <- length(unique(seurat_obj$sample))
-    message(sprintf("  细胞数=%d, 样本数=%d, 基因数=%d", ncol(seurat_obj), n_samples, nrow(seurat_obj)))
-    if (n_samples < 3) { message(sprintf("  跳过 %s: 样本数不足", celltype)); next }
+    message(sprintf("  cells=%d, samples=%d, genes=%d", ncol(seurat_obj), n_samples, nrow(seurat_obj)))
+    if (n_samples < 3) { message(sprintf("  Skipping %s: not enough samples", celltype)); next }
 
     tryCatch({
         results <- Nested_FeatureSelection_LOOCV(
@@ -554,7 +554,7 @@ for (celltype in available_celltypes) {
             alphas = seq(0.1, 0.9, by = 0.2),
             nfolds_inner = 5,
             standardize = TRUE,
-            exclude_ages = NULL,          # 预处理里已去掉 24_Rep1/3_Rep2/6_Rep3；如需整段去 24mo 改成 24
+            exclude_ages = NULL,          # 24_Rep1/3_Rep2/6_Rep3 already removed in preprocessing; set to 24 to drop all 24mo
             exclude_samples = NULL,
             n_cores = 20
         )
@@ -563,35 +563,35 @@ for (celltype in available_celltypes) {
         saveRDS(results, file.path(output_dir, sprintf("%s_aging_clock_results_2026.rds", celltype)))
         write.csv(results$cell_predictions, file.path(output_dir, sprintf("%s_cell_predictions_2026.csv", celltype)), row.names = FALSE)
         write.csv(results$sample_predictions, file.path(output_dir, sprintf("%s_sample_predictions_2026.csv", celltype)), row.names = FALSE)
-        message("\n性能指标:"); print(results$metrics)
+        message("\nPerformance metrics:"); print(results$metrics)
         all_results[[celltype]] <- results
-        message(sprintf("%s 完成\n", celltype))
+        message(sprintf("%s done\n", celltype))
     }, error = function(e) {
-        message(sprintf("%s 出错: %s\n", celltype, e$message))
+        message(sprintf("%s failed: %s\n", celltype, e$message))
     })
 }
-message("\n=== 所有 celltype Nested LOOCV（保留标准化/无校准）完成 ===")
+message("\n=== Nested LOOCV (standardization kept / no calibration) done for all celltypes ===")
 
 
 ####
-#### 和 mouse 一样， 画一下 violin plot 并且 打印参数 ####
+#### As for mouse, draw violin plots and print metrics ####
 ####
 
 ######################################################################
-######## 读入 LOOCV 结果，画 violin plot（每个 celltype 一个分面）########
-######## x = 真实年龄(月), y = 预测年龄, 按年龄 viridis 配色, 内嵌白色箱线图 ####
+######## Load LOOCV results and draw violin plots (one facet per celltype)########
+######## x = actual age (months), y = predicted age, viridis colors by age, embedded white boxplots ####
 ######################################################################
 library(ggplot2)
 library(viridis)
 
 base_dir <- "/projects/hmz-aging/Zebrafish_New_Datasets"
-violin_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # 单行顺序
+violin_celltypes <- c("MG", "AC", "BC", "RGC", "Cone", "HC", "Rod")   # single-row order
 
-# 读入每个 celltype 的 LOOCV cell 级预测
+# Load cell-level LOOCV predictions for each celltype
 pred_all <- list()
 for (ct in violin_celltypes) {
     fp <- file.path(base_dir, ct, sprintf("%s_aging_clock_results_2026.rds", ct))
-    if (!file.exists(fp)) { message(ct, ": LOOCV 结果不存在，跳过 -> ", fp); next }
+    if (!file.exists(fp)) { message(ct, ": LOOCV results not found, skipping -> ", fp); next }
     res <- readRDS(fp)
     df <- res$cell_predictions          # cell_id, sample, actual, predicted
     df$celltype <- ct
@@ -599,11 +599,11 @@ for (ct in violin_celltypes) {
 }
 pred_df <- do.call(rbind, pred_all)
 
-# celltype 与 age 顺序（只保留实际存在的 celltype）
+# celltype and age order (keep only celltypes present)
 present_ct <- intersect(violin_celltypes, unique(pred_df$celltype))
 pred_df$celltype <- factor(pred_df$celltype, levels = present_ct)
 
-# 仅用于绘图：把 30 合并到 28，X 轴该档显示为 "28-30"
+# For plotting only: merge 30 into 28, shown on the x-axis as "28-30"
 age_disp <- pred_df$actual
 age_disp[age_disp == 30] <- 28
 disp_levels <- sort(unique(age_disp))
@@ -635,13 +635,13 @@ message("Saved: Zebrafish_LOOCV_violin_by_celltype_2026.png")
 
 
 ######################################################################
-######## 按画图顺序，逐个打印每个 celltype 的 RMSE / MAE / R2 / Pearson ########
-######## （cell 级，和 violin 一致；基于 LOOCV cell_predictions 现算）      ########
+######## In plotting order, print RMSE / MAE / R2 / Pearson for each celltype ########
+######## (cell-level, consistent with violin; computed from LOOCV cell_predictions) ########
 ######################################################################
 metric_tbl <- data.frame()
 for (ct in present_ct) {
     d <- pred_df[pred_df$celltype == ct & is.finite(pred_df$predicted), ]
-    if (nrow(d) == 0) { message(ct, ": 无预测数据，跳过"); next }
+    if (nrow(d) == 0) { message(ct, ": no prediction data, skipping"); next }
     a <- d$actual; p <- d$predicted
     rmse    <- sqrt(mean((a - p)^2))
     mae     <- mean(abs(a - p))

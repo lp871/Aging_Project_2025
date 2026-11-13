@@ -48,7 +48,7 @@ umap_df <- data.frame(
   sample = factor(Mouse_RPE$sample, levels = c("5W_RPE", "49W_RPE", "91W_RPE"))
 )
 
-# Nature 风格配色
+# Nature-style color palette
 celltype_colors <- c(
   "Retinal pigment epithelial cells" = "#E64B35",
   "Stromal cells" = "#4DBBD5",
@@ -117,7 +117,7 @@ Mouse_RPE$celltype <- factor(Mouse_RPE$celltype, levels = rev(c(
 )))
 Idents(Mouse_RPE) <- "celltype"
 
-# 去名、去重，避免 DotPlot 因命名向量触发分面 / 行名重复报错
+# Unname and deduplicate to avoid DotPlot faceting / duplicate row-name errors caused by named vectors
 markers <- unique(unname(markers))
 
 library(ggplot2)
@@ -144,8 +144,8 @@ ggsave("Mouse_RPE_dotplot_markers.png", plot = p_dot, width = 8, height = 4, dpi
 
 
 
-##### 下面找差异基因 ####
-##### 画Heatmaps ######
+##### Find DEGs below ####
+##### Draw heatmaps ######
 #####
 
 # ============================== METHODS ==============================
@@ -235,7 +235,7 @@ df_merge <- data.frame(
 ########### ############# #########
 ########### ############# #########
 
-# 方向一致：5->49 和 49->91 和 5->91 同号
+# Consistent direction: 5->49, 49->91 and 5->91 have the same sign
 consistent_genes <- df_merge %>%
   filter(sign(logFC_5v49) == sign(logFC_49v91) & sign(logFC_5v49) == sign(logFC_5v91))
 
@@ -245,24 +245,24 @@ cat("Consistent logFC genes:", nrow(consistent_genes), "\n")
 
 all_consistent <- consistent_genes$gene
 
-# Pseudobulk: 全基因聚合 → 用全基因文库大小归一化 → log2 → 再提取差异基因
+# Pseudobulk: aggregate all genes -> normalize by whole-transcriptome library size -> log2 -> then extract DEGs
 counts_mat <- GetAssayData(Mouse_RPE_cl, assay = "RNA", layer = "counts")
 
 sample_ids <- Mouse_RPE_cl$sample
-# 对所有基因按年龄组聚合成 pseudobulk
+# Aggregate all genes into pseudobulk by age group
 bulk_counts_all <- sapply(levels(sample_ids), function(s) {
   rowSums(counts_mat[, sample_ids == s, drop = FALSE])
 })
 
-# 文库大小按全部基因计算（每组所有基因的 counts 之和）
+# Library size computed from all genes (sum of counts across all genes per group)
 lib_size <- colSums(bulk_counts_all)
 cpm_all <- t(t(bulk_counts_all) / lib_size * 1e4)
 mat_all <- log2(cpm_all + 1)
 
-# 归一化后再提取差异基因，并固定年龄顺序
+# Extract DEGs after normalization and fix the age order
 mat <- mat_all[all_consistent, c("5W_RPE", "49W_RPE", "91W_RPE")]
 
-# pseudobulk 差值方向也要和 logFC 一致
+# Pseudobulk difference direction must also agree with logFC
 consistent_genes$pb_5v49 <- mat[consistent_genes$gene, "49W_RPE"] - mat[consistent_genes$gene, "5W_RPE"]
 consistent_genes$pb_49v91 <- mat[consistent_genes$gene, "91W_RPE"] - mat[consistent_genes$gene, "49W_RPE"]
 consistent_genes$pb_5v91 <- mat[consistent_genes$gene, "91W_RPE"] - mat[consistent_genes$gene, "5W_RPE"]
@@ -282,13 +282,13 @@ down_genes <- consistent_genes %>% filter(logFC_5v91 < 0) %>% pull(gene)
 
 cat("After cor filter - Up:", length(up_genes), "| Down:", length(down_genes), "\n")
 
-# 更新 mat 只保留过滤后的基因
+# Update mat to keep only the filtered genes
 mat <- mat[c(up_genes, down_genes), ]
 
 # Z-score per gene (row)
 mat_z <- t(scale(t(mat)))
 
-# 上调/下调分组注释
+# Up/down group annotation
 mat_z_ordered <- rbind(mat_z[up_genes, ], mat_z[down_genes, ])
 gene_group_ordered <- c(rep("Up", length(up_genes)), rep("Down", length(down_genes)))
 
@@ -314,7 +314,7 @@ ht <- Heatmap(mat_z_ordered,
 draw(ht)
 dev.off()
 
-# 保存 heatmap 里的 DEGs
+# Save DEGs shown in the heatmap
 heatmap_degs <- data.frame(
   gene = c(up_genes, down_genes),
   direction = c(rep("Up", length(up_genes)), rep("Down", length(down_genes))),
@@ -328,7 +328,7 @@ cat("Saved", nrow(heatmap_degs), "DEGs to RPE_aging_consistent_DEGs.csv\n")
 
 
 
-# ##### GO 分析 #####
+# ##### GO analysis #####
 
 # setwd("/projects/hmz-aging/RPE_smoking")
 # heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv")
@@ -364,7 +364,7 @@ cat("Saved", nrow(heatmap_degs), "DEGs to RPE_aging_consistent_DEGs.csv\n")
 
 # library(ggplot2)
 
-# # 过滤 GeneRatio > 0.03
+# # Filter GeneRatio > 0.03
 # filter_go <- function(go_res, ratio_cutoff = 0.03) {
 #   df <- as.data.frame(go_res)
 #   ratio_val <- sapply(df$GeneRatio, function(x) {
@@ -456,8 +456,12 @@ print(avg$RNA)
 
 
 
-##### 用 heatmap DEGs 计算 aging score #####
+##### Compute aging score using heatmap DEGs (excluding mt genes) #####
 heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv")
+mt_drop <- grepl("^mt-", heatmap_degs$gene_symbol, ignore.case = TRUE)
+cat("dropped mt aging features:", paste(heatmap_degs$gene_symbol[mt_drop], collapse = ", "),
+    "(", sum(mt_drop), ")\n")
+heatmap_degs <- heatmap_degs[!mt_drop, ]
 
 up_hm <- heatmap_degs$gene_symbol[heatmap_degs$direction == "Up"]
 down_hm <- heatmap_degs$gene_symbol[heatmap_degs$direction == "Down"]
@@ -522,7 +526,7 @@ smoking_RPE_cl <- NormalizeData(smoking_RPE_cl)
 
 
 
-# 排列顺序：con/cse pair, 3d→6d→10d→10d_old, RPE先 SickRPE后
+# Ordering: con/cse pairs, 3d->6d->10d->10d_old, RPE first, then SickRPE
 level_order <- c(
   "con_3d_RPE",        "cse_3d_RPE",
   "con_3d_SickRPE",    "cse_3d_SickRPE",
@@ -533,7 +537,7 @@ level_order <- c(
   "con_10d_old_RPE",   "cse_10d_old_RPE",
   "con_10d_old_SickRPE", "cse_10d_old_SickRPE"
 )
-# 只保留实际存在的 level
+# Keep only levels that are present
 level_order <- level_order[level_order %in% unique(smoking_RPE_cl$celltype)]
 
 smoking_RPE_cl$celltype <- factor(smoking_RPE_cl$celltype, levels = level_order)
@@ -542,7 +546,7 @@ smoking_RPE_cl$celltype <- factor(smoking_RPE_cl$celltype, levels = level_order)
 
 
 
-# 只保留指定样品
+# Keep only the specified samples
 keep_ct <- c("con_3d_RPE", "cse_3d_RPE",
              "con_6d_RPE", "cse_6d_RPE", "cse_6d_SickRPE",
              "con_10d_old_RPE", "cse_10d_old_RPE", "con_10d_old_SickRPE")
@@ -550,7 +554,7 @@ smoking_RPE_clcl <- smoking_RPE_cl[, smoking_RPE_cl$celltype %in% keep_ct]
 smoking_RPE_clcl$celltype <- droplevels(factor(smoking_RPE_clcl$celltype, levels = keep_ct))
 table(smoking_RPE_clcl$celltype)
 
-# 重新跑 UMAP
+# Re-run UMAP
 DefaultAssay(smoking_RPE_clcl) <- "RNA"
 smoking_RPE_clcl <- NormalizeData(smoking_RPE_clcl)
 smoking_RPE_clcl <- FindVariableFeatures(smoking_RPE_clcl, nfeatures = 2000)
@@ -607,7 +611,7 @@ ggsave("smoking_RPE_clcl_UMAPXXX.png", plot = p_umap, width = 6, height = 4, dpi
 
 
 
-##### 分组 violin plot + 显著性检验 #####
+##### Grouped violin plot + significance tests #####
 
 library(ggplot2)
 library(dplyr)
@@ -645,7 +649,7 @@ plot_violin_group <- function(df_all, celltypes, title, filename) {
   pval_df <- do.call(rbind, lapply(other_cts, function(x) {
     con_vals <- df$aging_score[df$celltype == con_ct]
     test_vals <- df$aging_score[df$celltype == x]
-    pv <- wilcox.test(test_vals, con_vals, alternative = "greater")$p.value
+    pv <- wilcox.test(test_vals, con_vals, alternative = "two.sided")$p.value
     label <- ifelse(pv < 0.001, "***", ifelse(pv < 0.01, "**", ifelse(pv < 0.05, "*", "ns")))
     data.frame(group1 = con_ct, group2 = x, p = pv, label = label)
   }))
@@ -654,7 +658,7 @@ plot_violin_group <- function(df_all, celltypes, title, filename) {
   y_step <- (y_max - min(df$aging_score, na.rm = TRUE)) * 0.1
   pval_df$x1 <- match(pval_df$group1, celltypes)
   pval_df$x2 <- match(pval_df$group2, celltypes)
-  # 从 violin 顶端再多留出一段间距，避免横线和图形重叠
+  # Leave extra space above the violin top to avoid overlap between brackets and the plot
   pval_df$y <- y_max + y_step * (seq_len(nrow(pval_df)) + 1.5)
 
   p <- ggplot(df, aes(x = celltype, y = aging_score, fill = color_group)) +
@@ -698,7 +702,7 @@ p_10d_old <- plot_violin_group(df_all, group3, "10d_old", "aging_violin_10d_oldX
 
 
 ########
-##### Smoking DEGs - 变化趋势一致 across 3d, 6d, 10d_old #####
+##### Smoking DEGs - consistent trend across 3d, 6d, 10d_old #####
 ########
 
 Idents(smoking_RPE_clcl) <- "celltype"
@@ -732,13 +736,13 @@ df_smoke <- data.frame(
   logFC_10d_old = sig_10d_old[common_smoke, "avg_log2FC"]
 )
 
-# 方向一致：3d, 6d, 10d_old 同号
+# Consistent direction: same sign at 3d, 6d, 10d_old
 consistent_smoke <- df_smoke %>%
   filter(sign(logFC_3d) == sign(logFC_6d) & sign(logFC_3d) == sign(logFC_10d_old))
 
 cat("Consistent logFC genes:", nrow(consistent_smoke), "\n")
 
-# Pseudobulk 验证方向
+# Validate direction with pseudobulk
 counts_clcl <- GetAssayData(smoking_RPE_clcl, assay = "RNA", layer = "counts")
 pb_celltypes <- c("con_3d_RPE", "cse_3d_RPE", "con_6d_RPE", "cse_6d_RPE", "con_10d_old_RPE", "cse_10d_old_RPE")
 ct_ids <- smoking_RPE_clcl$celltype
@@ -753,7 +757,7 @@ lib_smoke <- colSums(bulk_smoke)
 cpm_smoke <- t(t(bulk_smoke) / lib_smoke * 1e4)
 mat_smoke <- log2(cpm_smoke + 1)
 
-# pseudobulk 差值方向也要和 logFC 一致
+# Pseudobulk difference direction must also agree with logFC
 consistent_smoke$pb_3d <- mat_smoke[consistent_smoke$gene, "cse_3d_RPE"] - mat_smoke[consistent_smoke$gene, "con_3d_RPE"]
 consistent_smoke$pb_6d <- mat_smoke[consistent_smoke$gene, "cse_6d_RPE"] - mat_smoke[consistent_smoke$gene, "con_6d_RPE"]
 consistent_smoke$pb_10d_old <- mat_smoke[consistent_smoke$gene, "cse_10d_old_RPE"] - mat_smoke[consistent_smoke$gene, "con_10d_old_RPE"]
@@ -768,7 +772,7 @@ down_smoke <- consistent_smoke %>% filter(logFC_3d < 0) %>% pull(gene)
 
 cat("After pb filter - Up:", length(up_smoke), "| Down:", length(down_smoke), "\n")
 
-# 保存
+# Save
 smoke_degs <- data.frame(
   gene = c(up_smoke, down_smoke),
   direction = c(rep("Up", length(up_smoke)), rep("Down", length(down_smoke)))
@@ -777,22 +781,23 @@ write.csv(smoke_degs, "Smoking_consistent_DEGs.csv", row.names = FALSE)
 
 
 
-##### Smoking ∩ Aging: 方向一致的基因 #####
+##### Smoking ∩ Aging: genes with consistent direction #####
 
 heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv")
+heatmap_degs <- heatmap_degs[!grepl("^mt-", heatmap_degs$gene_symbol, ignore.case = TRUE), ]
 smoke_degs <- read.csv("Smoking_consistent_DEGs.csv")
 
-# 检查列名
+# Check column names
 cat("Aging DEGs columns:", colnames(heatmap_degs), "\n")
 cat("Smoking DEGs columns:", colnames(smoke_degs), "\n")
 
-# 用 gene_symbol 匹配 smoking 的 gene
+# Match smoking genes by gene_symbol
 overlap <- merge(heatmap_degs, smoke_degs, by.x = "gene_symbol", by.y = "gene", suffixes = c("_aging", "_smoking"))
 
-# 方向一致：aging 上调 + smoking 上调，或 aging 下调 + smoking 下调
+# Consistent direction: up in aging + up in smoking, or down in aging + down in smoking
 same_direction <- overlap %>% filter(direction_aging == direction_smoking)
 
-# 方向相反的也看看
+# Also check genes with opposite direction
 opposite_direction <- overlap %>% filter(direction_aging != direction_smoking)
 
 cat("Overlap total:", nrow(overlap), "\n")
@@ -806,9 +811,9 @@ print(same_direction)
 write.csv(same_direction, "Smoking_Aging_same_direction_genes.csv", row.names = FALSE)
 write.csv(opposite_direction, "Smoking_Aging_opposite_direction_genes.csv", row.names = FALSE)
 
-# Heatmap: smoking (左) + aging (右)，方向一致的基因
+# Heatmap: smoking (left) + aging (right), genes with consistent direction
 
-# 重新读入数据并计算 pseudobulk
+# Re-read data and compute pseudobulk
 library(Seurat)
 library(dplyr)
 setwd("/projects/hmz-aging/RPE_smoking")
@@ -858,8 +863,9 @@ lib_smoke <- colSums(bulk_smoke_all)
 cpm_smoke <- t(t(bulk_smoke_all) / lib_smoke * 1e4)
 mat_smoke <- log2(cpm_smoke + 1)
 
-# 读入 DEGs
+# Read DEGs (excluding mt genes)
 heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv")
+heatmap_degs <- heatmap_degs[!grepl("^mt-", heatmap_degs$gene_symbol, ignore.case = TRUE), ]
 smoke_degs <- read.csv("Smoking_consistent_DEGs.csv")
 
 overlap <- merge(heatmap_degs, smoke_degs, by.x = "gene_symbol", by.y = "gene", suffixes = c("_aging", "_smoking"))
@@ -875,21 +881,21 @@ if (nrow(same_direction) > 0) {
   library(ComplexHeatmap)
   library(circlize)
 
-  # 用 gene_symbol 匹配
+  # Match by gene_symbol
   same_symbols <- same_direction$gene_symbol
 
-  # Aging pseudobulk: 需要从 ENSMUSG~~Symbol 的 rownames 中找
+  # Aging pseudobulk: look up genes in rownames of the form ENSMUSG~~Symbol
   aging_gene_map <- setNames(sub(".*~~", "", rownames(mat)), rownames(mat))
   aging_rows <- names(aging_gene_map)[aging_gene_map %in% same_symbols]
   aging_mat_sub <- mat[aging_rows, c("5W_RPE", "49W_RPE", "91W_RPE"), drop = FALSE]
   rownames(aging_mat_sub) <- aging_gene_map[aging_rows]
   aging_z <- t(scale(t(aging_mat_sub)))
 
-  # Smoking pseudobulk: 分三块，每块 con + cse，各自 z-score
+  # Smoking pseudobulk: three blocks, each con + cse, z-scored separately
   smoke_genes <- same_symbols[same_symbols %in% rownames(mat_smoke)]
   common_sym <- intersect(rownames(aging_z), smoke_genes)
 
-  # 上调/下调分组
+  # Up/down grouping
   dir_map <- setNames(same_direction$direction_aging, same_direction$gene_symbol)
   up_sym_ht <- common_sym[dir_map[common_sym] == "Up"]
   down_sym_ht <- common_sym[dir_map[common_sym] == "Down"]
@@ -898,17 +904,17 @@ if (nrow(same_direction) > 0) {
   row_split_ht <- factor(c(rep("Up", length(up_sym_ht)), rep("Down", length(down_sym_ht))),
                           levels = c("Up", "Down"))
 
-  # 三个时间点合并，列顺序：前三 con_（3d/6d/10d），后三 cse_（3d/6d/10d），一起算 z-score
+  # Merge the three time points; column order: first three con_ (3d/6d/10d), last three cse_ (3d/6d/10d); z-score jointly
   smoke_col_order <- c("con_3d_RPE", "con_6d_RPE", "con_10d_old_RPE",
                        "cse_3d_RPE", "cse_6d_RPE", "cse_10d_old_RPE")
   mat_smoke_sub <- mat_smoke[ordered_sym, smoke_col_order]
   z_smoke <- t(scale(t(mat_smoke_sub)))
 
-  # 颜色
+  # Colors
   col_smoke <- colorRamp2(c(-2, 0, 2), c("#00A087", "white", "#E64B35"))
   col_aging <- colorRamp2(c(-2, 0, 2), c("#3C5488", "white", "#DC0000"))
 
-  # smoking 列分组注释：前三 Control，后三 Smoking
+  # Smoking column group annotation: first three Control, last three Smoking
   smoke_group <- c(rep("Control", 3), rep("Smoking", 3))
   col_anno_smoke <- HeatmapAnnotation(
     Group = smoke_group,
@@ -916,7 +922,7 @@ if (nrow(same_direction) > 0) {
     annotation_name_gp = gpar(fontsize = 10)
   )
 
-  # 数值标注函数（aging heatmap 仍用）
+  # Value-label function (still used for the aging heatmap)
   cell_label <- function(m) {
     function(j, i, x, y, width, height, fill) {
       grid.text(sprintf("%.1f", m[i, j]), x, y, gp = gpar(fontsize = 7, col = "black"))
