@@ -700,272 +700,164 @@ p_10d_old <- plot_violin_group(df_all, group3, "10d_old", "aging_violin_10d_oldX
 
 
 
-
 ########
-##### Smoking DEGs - consistent trend across 3d, 6d, 10d_old #####
+##### Smoking & Aging: pseudobulk direction only (no DEG test, mt genes removed) #####
 ########
+# Aging features: RPE_aging_consistent_DEGs.csv without ^mt- genes.
+# Pseudobulk log2(CP10k+1) differences:
+#   3d:  cse_3d_RPE          - con_3d_RPE
+#   6d:  cse_6d_SickRPE      - con_6d_RPE
+#   10d: con_10d_old_SickRPE - con_10d_old_RPE
+# Keep genes whose three differences share the same non-zero sign and match the
+# aging direction; Table 10 genes additionally require |mean difference| > 0.2.
 
-Idents(smoking_RPE_clcl) <- "celltype"
-
-# cse vs con: 3d
-markers_3d <- FindMarkers(smoking_RPE_clcl, ident.1 = "cse_3d_RPE", ident.2 = "con_3d_RPE",
-                           logfc.threshold = 0.1, min.pct = 0.05)
-markers_3d$gene <- rownames(markers_3d)
-
-# cse vs con: 6d
-markers_6d <- FindMarkers(smoking_RPE_clcl, ident.1 = "cse_6d_RPE", ident.2 = "con_6d_RPE",
-                           logfc.threshold = 0.1, min.pct = 0.05)
-markers_6d$gene <- rownames(markers_6d)
-
-# cse vs con: 10d_old
-markers_10d_old <- FindMarkers(smoking_RPE_clcl, ident.1 = "cse_10d_old_RPE", ident.2 = "con_10d_old_RPE",
-                                logfc.threshold = 0.1, min.pct = 0.05)
-markers_10d_old$gene <- rownames(markers_10d_old)
-
-sig_3d <- markers_3d %>% filter(p_val < 0.05)
-sig_6d <- markers_6d %>% filter(p_val < 0.05)
-sig_10d_old <- markers_10d_old %>% filter(p_val < 0.05)
-
-common_smoke <- Reduce(intersect, list(sig_3d$gene, sig_6d$gene, sig_10d_old$gene))
-cat("Common significant genes:", length(common_smoke), "\n")
-
-df_smoke <- data.frame(
-  gene = common_smoke,
-  logFC_3d = sig_3d[common_smoke, "avg_log2FC"],
-  logFC_6d = sig_6d[common_smoke, "avg_log2FC"],
-  logFC_10d_old = sig_10d_old[common_smoke, "avg_log2FC"]
-)
-
-# Consistent direction: same sign at 3d, 6d, 10d_old
-consistent_smoke <- df_smoke %>%
-  filter(sign(logFC_3d) == sign(logFC_6d) & sign(logFC_3d) == sign(logFC_10d_old))
-
-cat("Consistent logFC genes:", nrow(consistent_smoke), "\n")
-
-# Validate direction with pseudobulk
-counts_clcl <- GetAssayData(smoking_RPE_clcl, assay = "RNA", layer = "counts")
-pb_celltypes <- c("con_3d_RPE", "cse_3d_RPE", "con_6d_RPE", "cse_6d_RPE", "con_10d_old_RPE", "cse_10d_old_RPE")
-ct_ids <- smoking_RPE_clcl$celltype
-
-bulk_smoke <- sapply(pb_celltypes, function(ct) {
-  idx <- which(ct_ids == ct)
-  if (length(idx) == 1) return(counts_clcl[, idx])
-  Matrix::rowSums(counts_clcl[, idx, drop = FALSE])
-})
-
-lib_smoke <- colSums(bulk_smoke)
-cpm_smoke <- t(t(bulk_smoke) / lib_smoke * 1e4)
-mat_smoke <- log2(cpm_smoke + 1)
-
-# Pseudobulk difference direction must also agree with logFC
-consistent_smoke$pb_3d <- mat_smoke[consistent_smoke$gene, "cse_3d_RPE"] - mat_smoke[consistent_smoke$gene, "con_3d_RPE"]
-consistent_smoke$pb_6d <- mat_smoke[consistent_smoke$gene, "cse_6d_RPE"] - mat_smoke[consistent_smoke$gene, "con_6d_RPE"]
-consistent_smoke$pb_10d_old <- mat_smoke[consistent_smoke$gene, "cse_10d_old_RPE"] - mat_smoke[consistent_smoke$gene, "con_10d_old_RPE"]
-
-consistent_smoke <- consistent_smoke %>%
-  filter(sign(pb_3d) == sign(logFC_3d) &
-         sign(pb_6d) == sign(logFC_6d) &
-         sign(pb_10d_old) == sign(logFC_10d_old))
-
-up_smoke <- consistent_smoke %>% filter(logFC_3d > 0) %>% pull(gene)
-down_smoke <- consistent_smoke %>% filter(logFC_3d < 0) %>% pull(gene)
-
-cat("After pb filter - Up:", length(up_smoke), "| Down:", length(down_smoke), "\n")
-
-# Save
-smoke_degs <- data.frame(
-  gene = c(up_smoke, down_smoke),
-  direction = c(rep("Up", length(up_smoke)), rep("Down", length(down_smoke)))
-)
-write.csv(smoke_degs, "Smoking_consistent_DEGs.csv", row.names = FALSE)
-
-
-
-##### Smoking ∩ Aging: genes with consistent direction #####
-
-heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv")
-heatmap_degs <- heatmap_degs[!grepl("^mt-", heatmap_degs$gene_symbol, ignore.case = TRUE), ]
-smoke_degs <- read.csv("Smoking_consistent_DEGs.csv")
-
-# Check column names
-cat("Aging DEGs columns:", colnames(heatmap_degs), "\n")
-cat("Smoking DEGs columns:", colnames(smoke_degs), "\n")
-
-# Match smoking genes by gene_symbol
-overlap <- merge(heatmap_degs, smoke_degs, by.x = "gene_symbol", by.y = "gene", suffixes = c("_aging", "_smoking"))
-
-# Consistent direction: up in aging + up in smoking, or down in aging + down in smoking
-same_direction <- overlap %>% filter(direction_aging == direction_smoking)
-
-# Also check genes with opposite direction
-opposite_direction <- overlap %>% filter(direction_aging != direction_smoking)
-
-cat("Overlap total:", nrow(overlap), "\n")
-cat("Same direction (smoking accelerates aging):", nrow(same_direction), "\n")
-cat("  Both Up:", sum(same_direction$direction_aging == "Up"), "\n")
-cat("  Both Down:", sum(same_direction$direction_aging == "Down"), "\n")
-cat("Opposite direction:", nrow(opposite_direction), "\n")
-
-print(same_direction)
-
-write.csv(same_direction, "Smoking_Aging_same_direction_genes.csv", row.names = FALSE)
-write.csv(opposite_direction, "Smoking_Aging_opposite_direction_genes.csv", row.names = FALSE)
-
-# Heatmap: smoking (left) + aging (right), genes with consistent direction
-
-# Re-read data and compute pseudobulk
 library(Seurat)
 library(dplyr)
+library(ComplexHeatmap)
+library(circlize)
 setwd("/projects/hmz-aging/RPE_smoking")
 
-load(file.path("Handa_snRNA_Final 1.RData"))
-Mouse_RPE <- readRDS(file.path("Mouse_RPE_RNA_Final_Jul16"))
+heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv", stringsAsFactors = FALSE)
+heatmap_degs <- heatmap_degs[!grepl("^mt-", heatmap_degs$gene_symbol, ignore.case = TRUE), ]
+heatmap_degs <- heatmap_degs[!duplicated(heatmap_degs$gene_symbol), ]
+cat("Aging features (no mt):", nrow(heatmap_degs), "\n")
 
+# Smoking pseudobulk
+load(file.path("Handa_snRNA_Final 1.RData"))
 smoking_RPE <- combined
+rm(combined); invisible(gc())
 cluster_num <- as.numeric(sub(".*_", "", smoking_RPE$group_1))
 smoking_RPE$celltype <- NA
 smoking_RPE$celltype[cluster_num == 1] <- "RPE"
 smoking_RPE$celltype[cluster_num == 9] <- "SickRPE"
 smoking_RPE$celltype <- paste(smoking_RPE$group, smoking_RPE$celltype, sep = "_")
-smoking_RPE_cl <- smoking_RPE[, !grepl("NA", smoking_RPE$celltype)]
-DefaultAssay(smoking_RPE_cl) <- "RNA"
-smoking_RPE_cl <- NormalizeData(smoking_RPE_cl)
 
-keep_ct <- c("con_3d_RPE", "cse_3d_RPE",
-             "con_6d_RPE", "cse_6d_RPE", "cse_6d_SickRPE",
-             "con_10d_old_RPE", "cse_10d_old_RPE", "con_10d_old_SickRPE")
-smoking_RPE_clcl <- smoking_RPE_cl[, smoking_RPE_cl$celltype %in% keep_ct]
-smoking_RPE_clcl$celltype <- factor(smoking_RPE_clcl$celltype, levels = keep_ct)
+pb_cols <- c("con_3d_RPE", "cse_3d_RPE",
+             "con_6d_RPE", "cse_6d_SickRPE",
+             "con_10d_old_RPE", "con_10d_old_SickRPE")
+smoking_pb <- smoking_RPE[, smoking_RPE$celltype %in% pb_cols]
+DefaultAssay(smoking_pb) <- "RNA"
+if (inherits(smoking_pb[["RNA"]], "Assay5") && length(Layers(smoking_pb[["RNA"]], search = "counts")) > 1)
+  smoking_pb[["RNA"]] <- JoinLayers(smoking_pb[["RNA"]])
+counts_smoke <- GetAssayData(smoking_pb, assay = "RNA", layer = "counts")
+bulk_smoke <- sapply(pb_cols, function(ct) {
+  Matrix::rowSums(counts_smoke[, smoking_pb$celltype == ct, drop = FALSE])
+})
+mat_smoke <- log2(t(t(bulk_smoke) / colSums(bulk_smoke) * 1e4) + 1)
+rm(smoking_RPE, smoking_pb, counts_smoke, bulk_smoke); invisible(gc())
 
-# Mouse RPE pseudobulk (aging)
+genes <- heatmap_degs$gene_symbol[heatmap_degs$gene_symbol %in% rownames(mat_smoke)]
+cat("Aging features present in smoking matrix:", length(genes),
+    "| missing:", sum(!heatmap_degs$gene_symbol %in% rownames(mat_smoke)), "\n")
+
+d3 <- mat_smoke[genes, "cse_3d_RPE"] - mat_smoke[genes, "con_3d_RPE"]
+d6 <- mat_smoke[genes, "cse_6d_SickRPE"] - mat_smoke[genes, "con_6d_RPE"]
+d10 <- mat_smoke[genes, "con_10d_old_SickRPE"] - mat_smoke[genes, "con_10d_old_RPE"]
+same <- sign(d3) == sign(d6) & sign(d6) == sign(d10) & sign(d3) != 0
+
+pb_dir <- data.frame(
+  gene = genes[same],
+  direction = ifelse(d3[same] > 0, "Up", "Down"),
+  direction_aging = heatmap_degs$direction[match(genes[same], heatmap_degs$gene_symbol)],
+  d_3d = d3[same],
+  d_6d = d6[same],
+  d_10d = d10[same],
+  stringsAsFactors = FALSE
+)
+pb_dir$mean_d <- rowMeans(pb_dir[, c("d_3d", "d_6d", "d_10d")])
+pb_dir <- pb_dir[order(pb_dir$direction != "Up", -abs(pb_dir$mean_d)), ]
+write.csv(pb_dir, "pseudobulk_same_direction_genes.csv", row.names = FALSE)
+
+same_direction <- pb_dir %>% filter(direction == direction_aging)
+opposite_direction <- pb_dir %>% filter(direction != direction_aging)
+cat("Same pseudobulk direction:", nrow(pb_dir), "\n")
+cat("  Match aging direction:", nrow(same_direction),
+    "(Up", sum(same_direction$direction == "Up"),
+    "| Down", sum(same_direction$direction == "Down"), ")\n")
+cat("  Opposite aging direction:", nrow(opposite_direction), "\n")
+write.csv(same_direction, "Smoking_Aging_same_direction_genes.csv", row.names = FALSE)
+write.csv(opposite_direction, "Smoking_Aging_opposite_direction_genes.csv", row.names = FALSE)
+
+mean_d_cutoff <- 0.2
+table10_genes <- same_direction %>% filter(abs(mean_d) > mean_d_cutoff)
+cat("Same as aging & |mean log2FC| >", mean_d_cutoff, ":", nrow(table10_genes), "\n")
+print(table10_genes$gene)
+write.csv(table10_genes, "pseudobulk_meanLog2FC0.2_genes.csv", row.names = FALSE)
+
+# Aging pseudobulk
+Mouse_RPE <- readRDS(file.path("Mouse_RPE_RNA_Final_Jul16"))
 Mouse_RPE_cl <- Mouse_RPE[, Mouse_RPE$celltype %in% c("RPE")]
 Mouse_RPE_cl$sample <- factor(Mouse_RPE_cl$sample, levels = c("5W_RPE", "49W_RPE", "91W_RPE"))
-
 counts_aging <- GetAssayData(Mouse_RPE_cl, assay = "RNA", layer = "counts")
-sample_ids_aging <- Mouse_RPE_cl$sample
-bulk_aging <- sapply(levels(sample_ids_aging), function(s) {
-  Matrix::rowSums(counts_aging[, sample_ids_aging == s, drop = FALSE])
+bulk_aging <- sapply(levels(Mouse_RPE_cl$sample), function(s) {
+  Matrix::rowSums(counts_aging[, Mouse_RPE_cl$sample == s, drop = FALSE])
 })
-lib_aging <- colSums(bulk_aging)
-cpm_aging <- t(t(bulk_aging) / lib_aging * 1e4)
-mat <- log2(cpm_aging + 1)
+mat <- log2(t(t(bulk_aging) / colSums(bulk_aging) * 1e4) + 1)
+rm(Mouse_RPE, Mouse_RPE_cl, counts_aging, bulk_aging); invisible(gc())
+aging_gene_map <- setNames(sub(".*~~", "", rownames(mat)), rownames(mat))
 
-# Smoking pseudobulk
-smoke_cols <- c("con_3d_RPE", "con_6d_RPE", "con_10d_old_RPE",
-                "cse_3d_RPE", "cse_6d_RPE", "cse_10d_old_RPE")
-counts_smoke <- GetAssayData(smoking_RPE_clcl, assay = "RNA", layer = "counts")
-ct_ids <- smoking_RPE_clcl$celltype
-bulk_smoke_all <- sapply(smoke_cols, function(ct) {
-  idx <- which(ct_ids == ct)
-  Matrix::rowSums(counts_smoke[, idx, drop = FALSE])
-})
-lib_smoke <- colSums(bulk_smoke_all)
-cpm_smoke <- t(t(bulk_smoke_all) / lib_smoke * 1e4)
-mat_smoke <- log2(cpm_smoke + 1)
-
-# Read DEGs (excluding mt genes)
-heatmap_degs <- read.csv("RPE_aging_consistent_DEGs.csv")
-heatmap_degs <- heatmap_degs[!grepl("^mt-", heatmap_degs$gene_symbol, ignore.case = TRUE), ]
-smoke_degs <- read.csv("Smoking_consistent_DEGs.csv")
-
-overlap <- merge(heatmap_degs, smoke_degs, by.x = "gene_symbol", by.y = "gene", suffixes = c("_aging", "_smoking"))
-same_direction <- overlap %>% filter(direction_aging == direction_smoking)
-opposite_direction <- overlap %>% filter(direction_aging != direction_smoking)
-
-cat("Same direction:", nrow(same_direction), "\n")
-cat("Opposite direction:", nrow(opposite_direction), "\n")
-
-
-
-if (nrow(same_direction) > 0) {
-  library(ComplexHeatmap)
-  library(circlize)
-
-  # Match by gene_symbol
-  same_symbols <- same_direction$gene_symbol
-
-  # Aging pseudobulk: look up genes in rownames of the form ENSMUSG~~Symbol
-  aging_gene_map <- setNames(sub(".*~~", "", rownames(mat)), rownames(mat))
-  aging_rows <- names(aging_gene_map)[aging_gene_map %in% same_symbols]
-  aging_mat_sub <- mat[aging_rows, c("5W_RPE", "49W_RPE", "91W_RPE"), drop = FALSE]
-  rownames(aging_mat_sub) <- aging_gene_map[aging_rows]
-  aging_z <- t(scale(t(aging_mat_sub)))
-
-  # Smoking pseudobulk: three blocks, each con + cse, z-scored separately
-  smoke_genes <- same_symbols[same_symbols %in% rownames(mat_smoke)]
-  common_sym <- intersect(rownames(aging_z), smoke_genes)
-
-  # Up/down grouping
-  dir_map <- setNames(same_direction$direction_aging, same_direction$gene_symbol)
-  up_sym_ht <- common_sym[dir_map[common_sym] == "Up"]
-  down_sym_ht <- common_sym[dir_map[common_sym] == "Down"]
+plot_smoking_aging_heatmap <- function(gene_df, file, title) {
+  gene_df <- gene_df[gene_df$gene %in% aging_gene_map, ]
+  up_sym_ht <- gene_df$gene[gene_df$direction == "Up"]
+  down_sym_ht <- gene_df$gene[gene_df$direction == "Down"]
   ordered_sym <- c(up_sym_ht, down_sym_ht)
-
   row_split_ht <- factor(c(rep("Up", length(up_sym_ht)), rep("Down", length(down_sym_ht))),
-                          levels = c("Up", "Down"))
+                         levels = c("Up", "Down"))
 
-  # Merge the three time points; column order: first three con_ (3d/6d/10d), last three cse_ (3d/6d/10d); z-score jointly
-  smoke_col_order <- c("con_3d_RPE", "con_6d_RPE", "con_10d_old_RPE",
-                       "cse_3d_RPE", "cse_6d_RPE", "cse_10d_old_RPE")
-  mat_smoke_sub <- mat_smoke[ordered_sym, smoke_col_order]
-  z_smoke <- t(scale(t(mat_smoke_sub)))
+  z_smoke <- t(scale(t(mat_smoke[ordered_sym, pb_cols, drop = FALSE])))
+  aging_rows <- names(aging_gene_map)[match(ordered_sym, aging_gene_map)]
+  aging_sub <- mat[aging_rows, c("5W_RPE", "49W_RPE", "91W_RPE"), drop = FALSE]
+  rownames(aging_sub) <- ordered_sym
+  aging_z <- t(scale(t(aging_sub)))
 
-  # Colors
-  col_smoke <- colorRamp2(c(-2, 0, 2), c("#00A087", "white", "#E64B35"))
-  col_aging <- colorRamp2(c(-2, 0, 2), c("#3C5488", "white", "#DC0000"))
-
-  # Smoking column group annotation: first three Control, last three Smoking
-  smoke_group <- c(rep("Control", 3), rep("Smoking", 3))
+  fs <- if (length(ordered_sym) > 80) 5 else if (length(ordered_sym) > 40) 7 else 10
+  smoke_group <- c("Control", "Smoking", "Control", "Sick", "Control", "Sick")
   col_anno_smoke <- HeatmapAnnotation(
     Group = smoke_group,
-    col = list(Group = c("Control" = "#4DBBD5", "Smoking" = "#E64B35")),
+    col = list(Group = c(Control = "#4DBBD5", Smoking = "#E64B35", Sick = "#7E6148")),
     annotation_name_gp = gpar(fontsize = 10)
   )
 
-  # Value-label function (still used for the aging heatmap)
-  cell_label <- function(m) {
-    function(j, i, x, y, width, height, fill) {
-      grid.text(sprintf("%.1f", m[i, j]), x, y, gp = gpar(fontsize = 7, col = "black"))
-    }
-  }
-
-  ht_smoke <- Heatmap(z_smoke, name = "Smoking\nZ-score", col = col_smoke,
+  ht_smoke <- Heatmap(z_smoke, name = "Smoking\nZ-score",
+                      col = colorRamp2(c(-2, 0, 2), c("#00A087", "white", "#E64B35")),
                       rect_gp = gpar(col = "white", lwd = 0.5),
                       top_annotation = col_anno_smoke,
                       cluster_columns = FALSE, cluster_rows = FALSE,
                       row_split = row_split_ht, row_gap = unit(3, "mm"),
-                      row_title = c("Up", "Down"),
-                      row_title_gp = gpar(fontsize = 12),
-                      column_title = "Smoking", column_title_gp = gpar(fontsize = 12),
-                      show_row_names = TRUE, row_names_gp = gpar(fontsize = 10, fontface = "italic"),
+                      row_title = c("Up", "Down"), row_title_gp = gpar(fontsize = 12),
+                      column_title = "Smoking (pseudobulk)", column_title_gp = gpar(fontsize = 12),
+                      show_row_names = TRUE, row_names_gp = gpar(fontsize = fs, fontface = "italic"),
                       row_names_side = "left",
                       column_names_rot = 45, column_names_gp = gpar(fontsize = 11))
-
-  ht_aging <- Heatmap(aging_z[ordered_sym, ], name = "Aging\nZ-score", col = col_aging,
+  ht_aging <- Heatmap(aging_z, name = "Aging\nZ-score",
+                      col = colorRamp2(c(-2, 0, 2), c("#3C5488", "white", "#DC0000")),
                       rect_gp = gpar(col = "white", lwd = 0.5),
                       cluster_columns = FALSE, cluster_rows = FALSE,
                       row_split = row_split_ht, row_gap = unit(3, "mm"),
-                      column_title = "Aging (5W→49W→91W)", column_title_gp = gpar(fontsize = 12),
+                      column_title = "Aging (5W -> 49W -> 91W)", column_title_gp = gpar(fontsize = 12),
                       show_row_names = FALSE,
                       column_names_rot = 45, column_names_gp = gpar(fontsize = 11))
 
-  png("Smoking_Aging_overlap_heatmapXXX.png", width = 12,
-      height = max(6, length(ordered_sym) * 0.15 + 3), units = "in", res = 300)
-  draw(ht_smoke + ht_aging,
-       column_title = "Smoking & Aging: Consistent DEGs",
+  png(file, width = 10, height = max(5, length(ordered_sym) * 0.16 + 3), units = "in", res = 300)
+  draw(ht_smoke + ht_aging, column_title = title,
        column_title_gp = gpar(fontsize = 14, fontface = "bold"),
        ht_gap = unit(8, "mm"))
   dev.off()
 
-  # Export the genes actually shown in the heatmap (by category)
-  smoke_hm_genes <- data.frame(
-    gene = ordered_sym,
-    category = c(rep("Up with aging & smoking", length(up_sym_ht)),
-                 rep("Down with aging & smoking", length(down_sym_ht)))
-  )
-  write.csv(smoke_hm_genes, "Smoking_heatmap_genes_category.csv", row.names = FALSE)
-  cat("Saved", nrow(smoke_hm_genes), "smoking heatmap genes to Smoking_heatmap_genes_category.csv\n")
+  data.frame(gene = ordered_sym,
+             category = c(rep("Up with aging & smoking", length(up_sym_ht)),
+                          rep("Down with aging & smoking", length(down_sym_ht))))
 }
+
+smoke_hm_genes <- plot_smoking_aging_heatmap(
+  same_direction, "Smoking_Aging_pseudobulk_direction_heatmap.png",
+  "Aging features, same pseudobulk direction as aging, no mt")
+write.csv(smoke_hm_genes, "Smoking_heatmap_genes_category.csv", row.names = FALSE)
+
+table10_hm_genes <- plot_smoking_aging_heatmap(
+  table10_genes, "Smoking_Aging_pseudobulk_meanLog2FC0.2_heatmap.png",
+  "Same direction as aging, |mean log2FC| > 0.2, no mt")
+cat("Heatmap genes:", nrow(smoke_hm_genes), "| |mean log2FC| > 0.2:", nrow(table10_hm_genes), "\n")
 
 
 

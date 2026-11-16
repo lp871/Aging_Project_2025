@@ -4,8 +4,8 @@
 # Predict aging scores for mouse NMDA injury data using the 2026 final aging clock models
 # celltypes: MG (Resting MG only), Rod, Cone
 # Pipeline (identical to final model training, no calibration):
-#   ENSMUSG->symbol -> nFeature filtering -> per-Condition KNN smoothing
-#   -> remove ambient -> depth norm(1e4)+log2 -> align to genes_used
+#   ENSMUSG->symbol -> nFeature filtering (unpooled object for DEGs)
+#   load KNN-pooled object (Mouse_injury_pooled.rds) -> remove ambient -> depth norm(1e4)+log2 -> align to genes_used
 #   -> Z-score with stored training means/sds -> predict
 # HPC usage: Rscript Run_Mouse_Injury_AgingClock_2026.R
 ########################################################################
@@ -13,7 +13,6 @@
 suppressMessages({
     library(Seurat)
     library(Matrix)
-    library(FNN)
     library(glmnet)     # required: otherwise predict cannot find predict.glmnet
     library(ggplot2)
 })
@@ -103,69 +102,11 @@ Mouse_injury_sel <- Mouse_injury_cl[keep_cts]
 
 
 ########################################################################
-# 4) KNN smoothing (per Condition; same preprocessing as aging clock training)
+# 4) Load KNN-pooled injury object (MG restricted to Resting MG; sample = Condition)
 ########################################################################
-NormalizeAndPCA <- function(seu, scale.factor = 1e4, nfeatures = 2000, npcs = 30) {
-    seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = scale.factor, verbose = FALSE)
-    seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = nfeatures, verbose = FALSE)
-    seu <- ScaleData(seu, features = rownames(seu), verbose = FALSE)
-    max_npcs <- min(nrow(seu), ncol(seu)) - 1
-    if (npcs > max_npcs) npcs <- max(1, max_npcs)
-    if (npcs < 1) stop(sprintf("Too few cells (n_cells=%d) to run PCA", ncol(seu)))
-    RunPCA(seu, features = VariableFeatures(seu), npcs = npcs, verbose = FALSE)
-}
-
-PseudoBulkByKNN_fast <- function(seu, k = 15, dims = 1:30, assay = "RNA", reduction = "pca") {
-    emb <- Embeddings(seu, reduction)[, dims, drop = FALSE]
-    nn_idx <- get.knn(emb, k = k)$nn.index
-    ncells <- nrow(nn_idx)
-    rows <- as.integer(c(t(nn_idx), seq_len(ncells)))
-    cols <- rep(seq_len(ncells), each = k + 1)
-    A <- sparseMatrix(i = rows, j = cols, x = 1, dims = c(ncells, ncells))
-    pseudo_counts <- GetAssayData(seu, assay = assay, layer = "counts") %*% A
-    CreateSeuratObject(counts = pseudo_counts, meta.data = seu@meta.data, assay = assay)
-}
-
-smooth_injury_list <- function(seurat_list, sample_col = "Condition", species_label = "Mouse") {
-    smoothed <- list()
-    for (ct in names(seurat_list)) {
-        message(sprintf("\n========== %s - %s ==========", species_label, ct))
-        tmp_sp <- SplitObject(seurat_list[[ct]], split.by = sample_col)
-        nc <- sapply(tmp_sp, ncol)
-        if (any(nc < 2)) { message("  Removing samples with <2 cells: ", paste(names(nc)[nc < 2], collapse = ", ")); tmp_sp <- tmp_sp[nc >= 2] }
-        if (length(tmp_sp) == 0) { message("  ", ct, ": all samples filtered out, skipping"); next }
-        if (ct %in% c("Rod", "Cone", "RGC", "AC", "HC", "BC")) { k <- 15; npcs <- 25 }
-        else if (ct == "MG") { k <- 5; npcs <- 5 }
-        else { k <- 2; npcs <- 5 }
-        min_ncells <- min(sapply(tmp_sp, ncol))
-        message(sprintf("  min cells/sample=%d, K=%d, npcs=%d", min_ncells, k, npcs))
-        if (min_ncells < 5) {
-            message("  Smallest sample has <5 cells; skipping smoothing and merging directly")
-            smoothed[[ct]] <- if (length(tmp_sp) == 1) tmp_sp[[1]] else merge(tmp_sp[[1]], tmp_sp[-1], add.cell.ids = names(tmp_sp))
-            next
-        }
-        if (npcs >= min_ncells) npcs <- max(1, min_ncells - 1)
-        if (k    >= min_ncells) k    <- max(1, min_ncells - 1)
-        tmp_pca    <- sapply(tmp_sp, NormalizeAndPCA, npcs = npcs)
-        tmp_smooth <- sapply(tmp_pca, PseudoBulkByKNN_fast, k = k, dims = 1:npcs)
-        smoothed[[ct]] <- if (length(tmp_smooth) == 1) tmp_smooth[[1]] else merge(tmp_smooth[[1]], tmp_smooth[-1], add.cell.ids = names(tmp_smooth))
-        message(sprintf("  Done: %d pseudo-cells", ncol(smoothed[[ct]])))
-    }
-    smoothed
-}
-
-Mouse_injury_smoothed <- smooth_injury_list(Mouse_injury_sel, sample_col = sample_col, species_label = "Mouse")
-
-# Unify sample column = Condition; keep only Resting MG for MG (as before: after smoothing, keep pseudo-cells centered on Resting MG)
-for (ct in names(Mouse_injury_smoothed)) Mouse_injury_smoothed[[ct]]$sample <- as.character(Mouse_injury_smoothed[[ct]][[sample_col]][, 1])
-if ("MG" %in% names(Mouse_injury_smoothed)) {
-    Mouse_injury_smoothed$MG <- Mouse_injury_smoothed$MG[, which(Mouse_injury_smoothed$MG$celltype == "Resting MG")]
-    message(sprintf("MG restricted to Resting MG: %d pseudo-cells", ncol(Mouse_injury_smoothed$MG)))
-}
-
 setwd(injury_dir)
-saveRDS(Mouse_injury_smoothed, file = "Mouse_injury_smoothed.rds")
-message("Saved: Mouse_injury_smoothed.rds")
+Mouse_injury_pooled <- readRDS("Mouse_injury_pooled.rds")
+message("Loaded: Mouse_injury_pooled.rds")
 
 
 ########################################################################
@@ -205,11 +146,11 @@ predict_final_clock <- function(final_model_obj, seu_ct, ambient_genes = NULL) {
 
 Mouse_injury_predictions <- list()
 for (ct in clock_celltypes) {
-    if (!ct %in% names(Mouse_injury_smoothed)) { message(ct, ": no smoothed data, skipping"); next }
+    if (!ct %in% names(Mouse_injury_pooled)) { message(ct, ": no pooled data, skipping"); next }
     model_file <- file.path(model_dir, ct, sprintf("%s_final_aging_clock_model_2026.rds", ct))
     if (!file.exists(model_file)) { message(ct, ": 2026 model not found, skipping -> ", model_file); next }
     final_model <- readRDS(model_file)
-    seu <- Mouse_injury_smoothed[[ct]]
+    seu <- Mouse_injury_pooled[[ct]]
     if (length(Layers(seu)) > 1) seu <- JoinLayers(seu)
     res <- predict_final_clock(final_model, seu, ambient_genes = M_ambient_genes_Top50)
     cell_pred <- data.frame(
@@ -393,7 +334,7 @@ message("Saved: Mouse_Injury_48h_vs_48FIh_boxplot_2026.png")
 #####
 ########################################################################
 # 9) Aging-related injury genes (Mouse):
-#    (a) Find injury DEGs on unsmoothed raw counts (Mouse_injury_sel)
+#    (a) Find injury DEGs on unpooled raw counts (Mouse_injury_sel)
 #        - MG restricted to Resting MG; mmNMDA06/12/24/36 pooled as mmNMDA6-36h; mmNMDA48FI excluded
 #    (b) Extract clock gene weights from the 2026 final models
 #    (c) Injury DEG that is also a clock gene = aging-related injury gene
@@ -401,7 +342,7 @@ message("Saved: Mouse_Injury_48h_vs_48FIh_boxplot_2026.png")
 library(Seurat)
 library(Matrix)
 
-# Unsmoothed raw object: Mouse_injury_sel (generated in Section 3); unify sample=Condition
+# Unpooled raw object: Mouse_injury_sel (generated in Section 3); unify sample=Condition
 mouse_deg_input <- Mouse_injury_sel
 for (ct in names(mouse_deg_input)) mouse_deg_input[[ct]]$sample <- as.character(mouse_deg_input[[ct]]$Condition)
 # Keep only Resting MG for MG (consistent with clock/heatmap definition)
@@ -530,16 +471,16 @@ Make_Pseudobulk_Matrix <- function(seurat_obj, ambient_genes = NULL, sample_col 
 }
 zscore_rows <- function(m) { r <- t(scale(t(m))); r[is.na(r)] <- 0; r }
 
-# --- (a) Injury pseudobulk (smoothed MG; 6-36h pooled; 48FI excluded; column names match the boxplot) ---
-# Build pb from KNN-smoothed injury data (same as prediction); read RDS if not in memory
+# --- (a) Injury pseudobulk (pooled MG; 6-36h pooled; 48FI excluded; column names match the boxplot) ---
+# Build pb from KNN-pooled injury data (same as prediction); read RDS if not in memory
 setwd(injury_dir)
-if (!exists("Mouse_injury_smoothed")) {
-    Mouse_injury_smoothed <- readRDS("Mouse_injury_smoothed.rds")
-    message("Loaded: Mouse_injury_smoothed.rds")
+if (!exists("Mouse_injury_pooled")) {
+    Mouse_injury_pooled <- readRDS("Mouse_injury_pooled.rds")
+    message("Loaded: Mouse_injury_pooled.rds")
 }
 setwd(mouse_dir)
 load("Mouse_ambient_genes_Top50.rda")   # -> M_ambient_genes_Top50
-inj_pb <- Make_Pseudobulk_Matrix(Mouse_injury_smoothed[[ct_use]], M_ambient_genes_Top50, "sample")
+inj_pb <- Make_Pseudobulk_Matrix(Mouse_injury_pooled[[ct_use]], M_ambient_genes_Top50, "sample")
 # Remove 48FI
 inj_pb <- inj_pb[, colnames(inj_pb) != "mmNMDA48FI", drop = FALSE]
 # Pool 6-36h

@@ -191,7 +191,7 @@ smooth_counts_knn <- function(counts_sub, xy, k = 50L) {
     return(list(sm = counts_sub, radius = NA_real_, k = 0L, n_nbr_med = 0))
   }
   knn <- FNN::get.knn(xy, k = k_use)
-  rows <- as.integer(c(t(knn$nn.index), seq_len(n)))
+  rows <- as.integer(t(cbind(knn$nn.index, seq_len(n))))
   cols <- rep(seq_len(n), each = k_use + 1L)
   A <- sparseMatrix(i = rows, j = cols, x = 1, dims = c(n, n))
   list(

@@ -4,7 +4,7 @@
 # Predict aging scores for zebrafish NMDA injury data using the 2026 final aging clock models
 # celltypes: MG, Rod, Cone
 # Pipeline (identical to final model training, no calibration):
-#   raw counts -> per-sample KNN smoothing -> remove ambient -> depth norm(1e4)+log2
+#   load KNN-pooled object (Zebrafish_injury_pooled.rds) -> remove ambient -> depth norm(1e4)+log2
 #   -> align to genes_used -> Z-score with stored training means/sds -> predict
 # HPC usage: Rscript Run_Zebrafish_Injury_AgingClock_2026.R
 ########################################################################
@@ -12,7 +12,6 @@
 suppressMessages({
     library(Seurat)
     library(Matrix)
-    library(FNN)
     library(glmnet)     # required: otherwise predict cannot find predict.glmnet
     library(ggplot2)
 })
@@ -88,63 +87,11 @@ for (ct in names(NMDA_sel)) {
 
 
 ########################################################################
-# 4) KNN smoothing (per sample; same preprocessing as aging clock training)
+# 4) Load KNN-pooled injury object
 ########################################################################
-NormalizeAndPCA <- function(seu, scale.factor = 1e4, nfeatures = 2000, npcs = 30) {
-    seu <- NormalizeData(seu, normalization.method = "LogNormalize", scale.factor = scale.factor, verbose = FALSE)
-    seu <- FindVariableFeatures(seu, selection.method = "vst", nfeatures = nfeatures, verbose = FALSE)
-    seu <- ScaleData(seu, features = rownames(seu), verbose = FALSE)
-    max_npcs <- min(nrow(seu), ncol(seu)) - 1
-    if (npcs > max_npcs) npcs <- max(1, max_npcs)
-    if (npcs < 1) stop(sprintf("Too few cells (n_cells=%d) to run PCA", ncol(seu)))
-    RunPCA(seu, features = VariableFeatures(seu), npcs = npcs, verbose = FALSE)
-}
-
-PseudoBulkByKNN_fast <- function(seu, k = 15, dims = 1:30, assay = "RNA", reduction = "pca") {
-    emb <- Embeddings(seu, reduction)[, dims, drop = FALSE]
-    nn_idx <- get.knn(emb, k = k)$nn.index
-    ncells <- nrow(nn_idx)
-    rows <- as.integer(c(t(nn_idx), seq_len(ncells)))
-    cols <- rep(seq_len(ncells), each = k + 1)
-    A <- sparseMatrix(i = rows, j = cols, x = 1, dims = c(ncells, ncells))
-    pseudo_counts <- GetAssayData(seu, assay = assay, layer = "counts") %*% A
-    CreateSeuratObject(counts = pseudo_counts, meta.data = seu@meta.data, assay = assay)
-}
-
-# KNN-smooth each celltype in the list by the sample column (with adaptive parameters)
-smooth_injury_list <- function(seurat_list, sample_col = "sample", species_label = "Zebrafish") {
-    smoothed <- list()
-    for (ct in names(seurat_list)) {
-        message(sprintf("\n========== %s - %s ==========", species_label, ct))
-        tmp_sp <- SplitObject(seurat_list[[ct]], split.by = sample_col)
-        nc <- sapply(tmp_sp, ncol)
-        if (any(nc < 2)) { message("  Removing samples with <2 cells: ", paste(names(nc)[nc < 2], collapse = ", ")); tmp_sp <- tmp_sp[nc >= 2] }
-        if (length(tmp_sp) == 0) { message("  ", ct, ": all samples filtered out, skipping"); next }
-        # K / npcs per celltype (same as training)
-        if (ct %in% c("Rod", "Cone", "RGC", "AC", "HC", "BC")) { k <- 15; npcs <- 25 }
-        else if (ct == "MG") { k <- 5; npcs <- 5 }
-        else { k <- 2; npcs <- 5 }
-        min_ncells <- min(sapply(tmp_sp, ncol))
-        message(sprintf("  min cells/sample=%d, K=%d, npcs=%d", min_ncells, k, npcs))
-        if (min_ncells < 5) {
-            message("  Smallest sample has <5 cells; skipping smoothing and merging directly")
-            smoothed[[ct]] <- if (length(tmp_sp) == 1) tmp_sp[[1]] else merge(tmp_sp[[1]], tmp_sp[-1], add.cell.ids = names(tmp_sp))
-            next
-        }
-        if (npcs >= min_ncells) npcs <- max(1, min_ncells - 1)
-        if (k    >= min_ncells) k    <- max(1, min_ncells - 1)
-        tmp_pca    <- sapply(tmp_sp, NormalizeAndPCA, npcs = npcs)
-        tmp_smooth <- sapply(tmp_pca, PseudoBulkByKNN_fast, k = k, dims = 1:npcs)
-        smoothed[[ct]] <- if (length(tmp_smooth) == 1) tmp_smooth[[1]] else merge(tmp_smooth[[1]], tmp_smooth[-1], add.cell.ids = names(tmp_smooth))
-        message(sprintf("  Done: %d pseudo-cells", ncol(smoothed[[ct]])))
-    }
-    smoothed
-}
-
-Zebrafish_injury_smoothed <- smooth_injury_list(NMDA_sel, sample_col = "sample", species_label = "Zebrafish")
 setwd(injury_dir)
-saveRDS(Zebrafish_injury_smoothed, file = "Zebrafish_injury_smoothed.rds")
-message("Saved: Zebrafish_injury_smoothed.rds")
+Zebrafish_injury_pooled <- readRDS("Zebrafish_injury_pooled.rds")
+message("Loaded: Zebrafish_injury_pooled.rds")
 
 
 ########################################################################
@@ -185,11 +132,11 @@ predict_final_clock <- function(final_model_obj, seu_ct, ambient_genes = NULL) {
 
 Zebrafish_injury_predictions <- list()
 for (ct in clock_celltypes) {
-    if (!ct %in% names(Zebrafish_injury_smoothed)) { message(ct, ": no smoothed data, skipping"); next }
+    if (!ct %in% names(Zebrafish_injury_pooled)) { message(ct, ": no pooled data, skipping"); next }
     model_file <- file.path(model_dir, ct, sprintf("%s_final_aging_clock_model_2026.rds", ct))
     if (!file.exists(model_file)) { message(ct, ": 2026 model not found, skipping -> ", model_file); next }
     final_model <- readRDS(model_file)
-    seu <- Zebrafish_injury_smoothed[[ct]]
+    seu <- Zebrafish_injury_pooled[[ct]]
     if (length(Layers(seu)) > 1) seu <- JoinLayers(seu)
     res <- predict_final_clock(final_model, seu, ambient_genes = Z_ambient_genes_Top50)
     cell_pred <- data.frame(
@@ -313,14 +260,14 @@ message("\n=== Zebrafish injury aging clock (2026) all done ===")
 #######
 ########################################################################
 # 8) Aging-related injury genes:
-#    (a) Injury DEGs for each timepoint vs Control_2 (MG/Rod/Cone)  —— using unsmoothed raw counts
+#    (a) Injury DEGs for each timepoint vs Control_2 (MG/Rod/Cone)  —— using unpooled raw counts
 #    (b) Merge aging clock gene weights
 #    (c) Injury DEG that is also a clock gene = aging-related injury gene
 ########################################################################
 library(Seurat)
 library(Matrix)
 setwd(injury_dir)
-# DEGs are computed on the unsmoothed raw object NMDA_sel (cells are independent, statistically more rigorous)
+# DEGs are computed on the unpooled raw object NMDA_sel (cells are independent, statistically more rigorous)
 
 # (a) Injury DEGs: each timepoint vs Control_2 (p_val_adj<0.01, |log2FC|>0.2)
 find_injury_degs <- function(seurat_list, control_sample) {
@@ -448,10 +395,10 @@ Make_Pseudobulk_Matrix <- function(seurat_obj, ambient_genes = NULL, sample_col 
 }
 zscore_rows <- function(m) { r <- t(scale(t(m))); r[is.na(r)] <- 0; r }
 
-# --- (a) Injury pseudobulk (smoothed; columns ordered by timepoint) ---
+# --- (a) Injury pseudobulk (pooled; columns ordered by timepoint) ---
 setwd(model_dir)
 load("Zebrafish_ambient_genes_Top50.rda")   # -> Z_ambient_genes_Top50
-inj_pb <- Make_Pseudobulk_Matrix(Zebrafish_injury_smoothed[[ct_use]], Z_ambient_genes_Top50, "sample")
+inj_pb <- Make_Pseudobulk_Matrix(Zebrafish_injury_pooled[[ct_use]], Z_ambient_genes_Top50, "sample")
 rownames(inj_pb) <- sub(".*~~", "", rownames(inj_pb))
 zf_injury_col_order <- c("Control_2", "NMDA_36hr", "NMDA_54hr", "NMDA_72hr", "NMDA_96hr", "NMDA_7D")
 inj_pb <- inj_pb[, zf_injury_col_order[zf_injury_col_order %in% colnames(inj_pb)], drop = FALSE]
